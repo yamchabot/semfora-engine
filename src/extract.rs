@@ -4,12 +4,16 @@
 //! source files using language-specific detectors.
 
 use std::path::Path;
+
+/// Maximum length for raw source fallback when extraction is incomplete
+const MAX_FALLBACK_LEN: usize = 1000;
 use tree_sitter::Tree;
 
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::risk::calculate_risk;
 use crate::schema::SemanticSummary;
+use crate::toon::is_meaningful_call;
 
 /// Extract semantic information from a parsed source file
 ///
@@ -65,9 +69,8 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
     // Add raw fallback if extraction was incomplete
     if !summary.extraction_complete {
         // Truncate source for fallback if too long
-        let max_fallback_len = 1000;
-        if source.len() > max_fallback_len {
-            summary.raw_fallback = Some(format!("{}...", &source[..max_fallback_len]));
+        if source.len() > MAX_FALLBACK_LEN {
+            summary.raw_fallback = Some(format!("{}...", &source[..MAX_FALLBACK_LEN]));
         } else {
             summary.raw_fallback = Some(source.to_string());
         }
@@ -111,10 +114,35 @@ fn extract_javascript_family(
     Ok(())
 }
 
+/// Push an insertion only if no existing insertion contains the given keyword
+/// This prevents duplicate entries like "Tailwind CSS configuration" appearing twice
+fn push_unique_insertion(insertions: &mut Vec<String>, insertion: String, keyword: &str) {
+    if !insertions.iter().any(|i| i.contains(keyword)) {
+        insertions.push(insertion);
+    }
+}
+
 /// Generate semantic insertions for JavaScript/TypeScript files
 fn generate_js_insertions(summary: &mut SemanticSummary, source: &str) {
     let file_lower = summary.file.to_lowercase();
 
+    // Detect Next.js patterns
+    detect_nextjs_patterns(summary, &file_lower);
+
+    // Detect database patterns
+    detect_database_patterns(summary, &file_lower);
+
+    // Detect build tool configs
+    detect_build_tool_configs(summary, &file_lower);
+
+    // Detect async data fetching patterns
+    if source.contains("fetch(") || source.contains("axios") {
+        push_unique_insertion(&mut summary.insertions, "network data fetching".to_string(), "network");
+    }
+}
+
+/// Detect Next.js specific patterns (API routes, layouts, pages)
+fn detect_nextjs_patterns(summary: &mut SemanticSummary, file_lower: &str) {
     // Next.js API route detection
     if file_lower.contains("/api/") && file_lower.ends_with("route.ts") {
         if let Some(ref sym) = summary.symbol {
@@ -139,13 +167,27 @@ fn generate_js_insertions(summary: &mut SemanticSummary, source: &str) {
         }
     }
 
+    // Next.js config detection
+    if file_lower.contains("next.config") {
+        push_unique_insertion(&mut summary.insertions, "Next.js configuration".to_string(), "Next.js config");
+    }
+}
+
+/// Detect database patterns (Drizzle schema, migrations, seeds)
+fn detect_database_patterns(summary: &mut SemanticSummary, file_lower: &str) {
     // Database schema detection (drizzle)
     if file_lower.contains("schema") && (file_lower.ends_with(".ts") || file_lower.ends_with(".js")) {
-        let has_table = summary.calls.iter().any(|c| c.name == "pgTable" || c.name == "mysqlTable" || c.name == "sqliteTable");
+        let has_table = summary.calls.iter().any(|c| {
+            c.name == "pgTable" || c.name == "mysqlTable" || c.name == "sqliteTable"
+        });
         if has_table {
             let table_count = summary.calls.iter().filter(|c| c.name.contains("Table")).count();
             if table_count > 0 {
-                summary.insertions.push(format!("database schema ({} table definition{})", table_count, if table_count > 1 { "s" } else { "" }));
+                let suffix = if table_count > 1 { "s" } else { "" };
+                summary.insertions.push(format!(
+                    "database schema ({} table definition{})",
+                    table_count, suffix
+                ));
             }
         }
     }
@@ -167,36 +209,29 @@ fn generate_js_insertions(summary: &mut SemanticSummary, source: &str) {
 
     // Drizzle index/db setup
     if file_lower.ends_with("/db/index.ts") || file_lower.ends_with("/db/index.js") {
-        if summary.calls.iter().any(|c| c.name == "drizzle" || c.name == "postgres" || c.name == "mysql") {
+        if summary.calls.iter().any(|c| {
+            c.name == "drizzle" || c.name == "postgres" || c.name == "mysql"
+        }) {
             summary.insertions.push("database connection setup".to_string());
         }
     }
 
+    // Drizzle config detection
+    if file_lower.contains("drizzle.config") {
+        push_unique_insertion(&mut summary.insertions, "Drizzle ORM configuration".to_string(), "Drizzle");
+    }
+}
+
+/// Detect build tool configurations (Tailwind, PostCSS, etc.)
+fn detect_build_tool_configs(summary: &mut SemanticSummary, file_lower: &str) {
     // Tailwind config detection
     if file_lower.contains("tailwind.config") {
-        summary.insertions.push("Tailwind CSS configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "Tailwind CSS configuration".to_string(), "Tailwind");
     }
 
     // PostCSS config detection
     if file_lower.contains("postcss.config") {
-        summary.insertions.push("PostCSS configuration".to_string());
-    }
-
-    // Next.js config detection
-    if file_lower.contains("next.config") {
-        summary.insertions.push("Next.js configuration".to_string());
-    }
-
-    // Drizzle config detection
-    if file_lower.contains("drizzle.config") {
-        summary.insertions.push("Drizzle ORM configuration".to_string());
-    }
-
-    // Detect async data fetching patterns
-    if source.contains("fetch(") || source.contains("axios") {
-        if !summary.insertions.iter().any(|i| i.contains("network") || i.contains("fetch")) {
-            summary.insertions.push("network data fetching".to_string());
-        }
+        push_unique_insertion(&mut summary.insertions, "PostCSS configuration".to_string(), "PostCSS");
     }
 }
 
@@ -328,47 +363,47 @@ fn generate_config_insertions(summary: &mut SemanticSummary) {
             .filter(|d| *d == "dependencies" || *d == "devDependencies")
             .count();
         if dep_count > 0 {
-            summary.insertions.push("npm package manifest".to_string());
+            push_unique_insertion(&mut summary.insertions, "npm package manifest".to_string(), "npm");
         }
     }
     // TypeScript config
     else if file_lower.ends_with("tsconfig.json") {
-        summary.insertions.push("TypeScript configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "TypeScript configuration".to_string(), "TypeScript");
     }
     // Docker compose
     else if file_lower.contains("docker-compose") {
         let has_services = summary.added_dependencies.iter().any(|d| d == "services");
         if has_services {
-            summary.insertions.push("Docker Compose configuration".to_string());
+            push_unique_insertion(&mut summary.insertions, "Docker Compose configuration".to_string(), "Docker");
         }
     }
     // ESLint
     else if file_lower.contains("eslint") {
-        summary.insertions.push("ESLint configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "ESLint configuration".to_string(), "ESLint");
     }
     // Prettier
     else if file_lower.contains("prettier") {
-        summary.insertions.push("Prettier configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "Prettier configuration".to_string(), "Prettier");
     }
-    // Drizzle config
+    // Drizzle config (uses push_unique_insertion to avoid duplicates from JS detection)
     else if file_lower.contains("drizzle") {
-        summary.insertions.push("Drizzle ORM configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "Drizzle ORM configuration".to_string(), "Drizzle");
     }
-    // Tailwind config
+    // Tailwind config (uses push_unique_insertion to avoid duplicates from JS detection)
     else if file_lower.contains("tailwind") {
-        summary.insertions.push("Tailwind CSS configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "Tailwind CSS configuration".to_string(), "Tailwind");
     }
-    // Next.js config
+    // Next.js config (uses push_unique_insertion to avoid duplicates from JS detection)
     else if file_lower.contains("next.config") {
-        summary.insertions.push("Next.js configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "Next.js configuration".to_string(), "Next.js");
     }
-    // PostCSS config
+    // PostCSS config (uses push_unique_insertion to avoid duplicates from JS detection)
     else if file_lower.contains("postcss") {
-        summary.insertions.push("PostCSS configuration".to_string());
+        push_unique_insertion(&mut summary.insertions, "PostCSS configuration".to_string(), "PostCSS");
     }
     // Cargo.toml
     else if file_lower.ends_with("cargo.toml") {
-        summary.insertions.push("Rust package manifest".to_string());
+        push_unique_insertion(&mut summary.insertions, "Rust package manifest".to_string(), "Rust package");
     }
 
     // Clear config keys from added_dependencies - they're not imports
@@ -1037,6 +1072,12 @@ fn extract_calls_js(summary: &mut SemanticSummary, root: &tree_sitter::Node, sou
 
                 // Skip common utility calls that don't add semantic value
                 if is_trivial_call(&name) {
+                    return;
+                }
+
+                // Filter out noisy calls (array methods, promise chains, etc.)
+                // This reduces memory usage by not storing calls we'd filter at encoding time
+                if !is_meaningful_call(&name, object.as_deref()) {
                     return;
                 }
 

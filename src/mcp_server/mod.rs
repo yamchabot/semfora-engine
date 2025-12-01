@@ -100,8 +100,13 @@ impl Default for McpDiffServer {
 impl McpDiffServer {
     /// Create a new MCP server instance
     pub fn new() -> Self {
+        // Use current directory, falling back to a sensible default if unavailable
+        let working_dir = std::env::current_dir().unwrap_or_else(|_| {
+            // Fallback to temp directory or root as last resort
+            std::env::temp_dir()
+        });
         Self {
-            working_dir: Arc::new(Mutex::new(std::env::current_dir().unwrap_or_default())),
+            working_dir: Arc::new(Mutex::new(working_dir)),
             tool_router: Self::tool_router(),
         }
     }
