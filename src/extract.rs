@@ -50,6 +50,9 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
         }
     }
 
+    // Reorder insertions: put state hooks last per spec
+    reorder_insertions(&mut summary.insertions);
+
     // Calculate risk score
     summary.behavioral_risk = calculate_risk(&summary);
 
@@ -95,6 +98,9 @@ fn extract_javascript_family(
 
     // Extract control flow
     extract_control_flow_js(summary, &root, source);
+
+    // Extract function calls with context (awaited, in_try)
+    extract_calls_js(summary, &root, source);
 
     Ok(())
 }
@@ -197,14 +203,119 @@ fn extract_markup(
 /// Extract from config files (JSON, YAML, TOML)
 fn extract_config(
     summary: &mut SemanticSummary,
-    _source: &str,
-    _tree: &Tree,
-    _lang: Lang,
+    source: &str,
+    tree: &Tree,
+    lang: Lang,
 ) -> Result<()> {
-    // Config files have simpler extraction - mainly structure
-    // For now, just mark as complete with the file info
+    let root = tree.root_node();
+
+    match lang {
+        Lang::Json => extract_json_structure(summary, &root, source),
+        Lang::Yaml => extract_yaml_structure(summary, &root, source),
+        Lang::Toml => extract_toml_structure(summary, &root, source),
+        _ => {}
+    }
+
     summary.extraction_complete = true;
     Ok(())
+}
+
+/// Extract structure from JSON files - identify key fields
+fn extract_json_structure(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
+    // Look for top-level object
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() == "object" {
+            extract_json_keys(summary, &child, source, 0);
+        }
+    }
+}
+
+/// Extract keys from JSON object (only top 2 levels to keep it concise)
+fn extract_json_keys(summary: &mut SemanticSummary, node: &tree_sitter::Node, source: &str, depth: usize) {
+    if depth > 1 {
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "pair" {
+            if let Some(key) = child.child_by_field_name("key") {
+                let key_str = get_node_text(&key, source);
+                let key_clean = key_str.trim_matches('"');
+
+                // Important config keys to track
+                if is_meaningful_config_key(key_clean) {
+                    summary.added_dependencies.push(key_clean.to_string());
+                }
+
+                // Recurse into nested objects
+                if let Some(value) = child.child_by_field_name("value") {
+                    if value.kind() == "object" {
+                        extract_json_keys(summary, &value, source, depth + 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Extract structure from YAML files
+fn extract_yaml_structure(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "block_mapping_pair" {
+            if let Some(key) = node.child_by_field_name("key") {
+                let key_str = get_node_text(&key, source);
+                if is_meaningful_config_key(&key_str) {
+                    summary.added_dependencies.push(key_str);
+                }
+            }
+        }
+    });
+}
+
+/// Extract structure from TOML files
+fn extract_toml_structure(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "table" || node.kind() == "table_array_element" {
+            // Get the table name
+            let table_text = get_node_text(node, source);
+            if let Some(name) = table_text.lines().next() {
+                let name = name.trim_matches('[').trim_matches(']').trim();
+                if !name.is_empty() {
+                    summary.added_dependencies.push(name.to_string());
+                }
+            }
+        } else if node.kind() == "pair" {
+            if let Some(key) = node.child(0) {
+                let key_str = get_node_text(&key, source);
+                if is_meaningful_config_key(&key_str) {
+                    summary.added_dependencies.push(key_str);
+                }
+            }
+        }
+    });
+}
+
+/// Check if a config key is meaningful enough to track
+fn is_meaningful_config_key(key: &str) -> bool {
+    // Package/project config keys
+    if matches!(
+        key,
+        "name" | "version" | "description" | "main" | "type" | "license"
+        | "scripts" | "dependencies" | "devDependencies" | "peerDependencies"
+        | "engines" | "repository" | "author" | "keywords"
+        // Docker/container
+        | "image" | "services" | "volumes" | "ports" | "environment"
+        // Database
+        | "schema" | "dialect" | "dbCredentials"
+        // Framework config
+        | "compilerOptions" | "include" | "exclude" | "extends"
+        | "plugins" | "rules" | "settings"
+    ) {
+        return true;
+    }
+    false
 }
 
 // ============================================================================
@@ -237,7 +348,8 @@ fn find_primary_symbol_js(
                     }
                 }
                 if summary.symbol.is_some() {
-                    summary.public_surface_changed = true;
+                    // Phase 1: Single file analysis has no "before" state to compare
+                    // public_surface_changed will be set in Phase 2 diff analysis
                     return;
                 }
             }
@@ -263,6 +375,11 @@ fn extract_symbol_from_declaration_js(
                 summary.symbol = Some(get_node_text(&name_node, source));
                 summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
 
+                // Extract function parameters
+                if let Some(params) = node.child_by_field_name("parameters") {
+                    extract_js_parameters(summary, &params, source);
+                }
+
                 // Check if it returns JSX (making it a component)
                 if returns_jsx(node, source) {
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Component);
@@ -287,6 +404,19 @@ fn extract_symbol_from_declaration_js(
                                 summary.symbol = Some(get_node_text(&name_node, source));
                                 summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
 
+                                // Extract arrow function parameters
+                                if let Some(params) = value_node.child_by_field_name("parameters") {
+                                    extract_js_parameters(summary, &params, source);
+                                } else if let Some(param) = value_node.child_by_field_name("parameter") {
+                                    // Single parameter without parentheses
+                                    let name = get_node_text(&param, source);
+                                    summary.arguments.push(crate::schema::Argument {
+                                        name,
+                                        arg_type: None,
+                                        default_value: None,
+                                    });
+                                }
+
                                 if returns_jsx(&value_node, source) {
                                     summary.symbol_kind =
                                         Some(crate::schema::SymbolKind::Component);
@@ -302,12 +432,106 @@ fn extract_symbol_from_declaration_js(
     }
 }
 
-fn returns_jsx(node: &tree_sitter::Node, source: &str) -> bool {
-    let text = get_node_text(node, source);
-    text.contains("jsx_element")
-        || text.contains("<")
-        || contains_node_kind(node, "jsx_element")
+/// Extract function parameters from a formal_parameters node
+fn extract_js_parameters(
+    summary: &mut SemanticSummary,
+    params: &tree_sitter::Node,
+    source: &str,
+) {
+    let mut cursor = params.walk();
+    for child in params.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => {
+                summary.arguments.push(crate::schema::Argument {
+                    name: get_node_text(&child, source),
+                    arg_type: None,
+                    default_value: None,
+                });
+            }
+            "required_parameter" | "optional_parameter" => {
+                // TypeScript typed parameter
+                let name = child
+                    .child_by_field_name("pattern")
+                    .map(|n| get_node_text(&n, source))
+                    .unwrap_or_default();
+                let arg_type = child
+                    .child_by_field_name("type")
+                    .map(|n| get_node_text(&n, source));
+                summary.arguments.push(crate::schema::Argument {
+                    name,
+                    arg_type,
+                    default_value: None,
+                });
+            }
+            "assignment_pattern" => {
+                // Parameter with default value
+                if let Some(left) = child.child_by_field_name("left") {
+                    let name = get_node_text(&left, source);
+                    let default_value = child
+                        .child_by_field_name("right")
+                        .map(|n| get_node_text(&n, source));
+                    summary.arguments.push(crate::schema::Argument {
+                        name,
+                        arg_type: None,
+                        default_value,
+                    });
+                }
+            }
+            "object_pattern" => {
+                // Destructured props - these become component props
+                extract_object_pattern_as_props(summary, &child, source);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Extract destructured object pattern as component props
+fn extract_object_pattern_as_props(
+    summary: &mut SemanticSummary,
+    pattern: &tree_sitter::Node,
+    source: &str,
+) {
+    let mut cursor = pattern.walk();
+    for child in pattern.children(&mut cursor) {
+        if child.kind() == "shorthand_property_identifier_pattern" {
+            let name = get_node_text(&child, source);
+            summary.props.push(crate::schema::Prop {
+                name,
+                prop_type: None,
+                default_value: None,
+                required: true,
+            });
+        } else if child.kind() == "pair_pattern" {
+            if let Some(key) = child.child_by_field_name("key") {
+                let name = get_node_text(&key, source);
+                let default_value = child
+                    .child_by_field_name("value")
+                    .and_then(|v| {
+                        if v.kind() == "assignment_pattern" {
+                            v.child_by_field_name("right").map(|r| get_node_text(&r, source))
+                        } else {
+                            None
+                        }
+                    });
+                let is_required = default_value.is_none();
+                summary.props.push(crate::schema::Prop {
+                    name,
+                    prop_type: None,
+                    default_value,
+                    required: is_required,
+                });
+            }
+        }
+    }
+}
+
+fn returns_jsx(node: &tree_sitter::Node, _source: &str) -> bool {
+    // Only detect JSX via AST node kinds, not text matching
+    // Text matching "<" causes false positives with TypeScript generics
+    contains_node_kind(node, "jsx_element")
         || contains_node_kind(node, "jsx_self_closing_element")
+        || contains_node_kind(node, "jsx_fragment")
 }
 
 fn contains_node_kind(node: &tree_sitter::Node, kind: &str) -> bool {
@@ -356,19 +580,21 @@ fn extract_import_names(
     for child in clause.children(&mut cursor) {
         match child.kind() {
             "identifier" => {
-                // Default import
-                summary
-                    .added_dependencies
-                    .push(get_node_text(&child, source));
+                // Default import - filter to meaningful imports
+                let name = get_node_text(&child, source);
+                if is_meaningful_import(&name) {
+                    summary.added_dependencies.push(name);
+                }
             }
             "named_imports" => {
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "import_specifier" {
                         if let Some(name) = inner.child_by_field_name("name") {
-                            summary
-                                .added_dependencies
-                                .push(get_node_text(&name, source));
+                            let name_str = get_node_text(&name, source);
+                            if is_meaningful_import(&name_str) {
+                                summary.added_dependencies.push(name_str);
+                            }
                         }
                     }
                 }
@@ -376,6 +602,49 @@ fn extract_import_names(
             _ => {}
         }
     }
+}
+
+/// Check if an import is meaningful for semantic analysis
+/// Includes: React hooks, navigation components, state management
+/// Excludes: Layout wrappers like Outlet that don't add UI complexity
+fn is_meaningful_import(name: &str) -> bool {
+    // React hooks (useState, useEffect, useReducer, etc.)
+    if name.starts_with("use")
+        && name.chars().nth(3).map(|c| c.is_uppercase()).unwrap_or(false)
+    {
+        return true;
+    }
+
+    // Navigation and routing components
+    if matches!(
+        name,
+        "Link" | "NavLink" | "Navigate" | "Router" | "Route" | "Routes"
+    ) {
+        return true;
+    }
+
+    // State management
+    if matches!(
+        name,
+        "createContext"
+            | "useContext"
+            | "createStore"
+            | "Provider"
+            | "connect"
+            | "useSelector"
+            | "useDispatch"
+    ) {
+        return true;
+    }
+
+    // Exclude layout wrappers that don't add semantic complexity
+    if matches!(name, "Outlet" | "Fragment" | "Suspense" | "ErrorBoundary") {
+        return false;
+    }
+
+    // Include other named imports by default (types, utilities, etc.)
+    // For Phase 1, we're conservative - include most imports
+    true
 }
 
 fn extract_state_hooks(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
@@ -435,8 +704,12 @@ fn extract_state_hooks(summary: &mut SemanticSummary, root: &tree_sitter::Node, 
 
 fn extract_jsx_insertions(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
     let mut jsx_tags: Vec<String> = Vec::new();
+    let mut has_conditional_render = false;
+    let mut button_text: Option<String> = None;
+    let mut conditional_text: Option<String> = None;
 
     visit_all(root, |node| {
+        // Track JSX elements
         if node.kind() == "jsx_element" || node.kind() == "jsx_self_closing_element" {
             if let Some(opening) = node.child(0) {
                 let tag_node = if opening.kind() == "jsx_opening_element" {
@@ -448,13 +721,40 @@ fn extract_jsx_insertions(summary: &mut SemanticSummary, root: &tree_sitter::Nod
                 };
 
                 if let Some(tag) = tag_node {
-                    jsx_tags.push(get_node_text(&tag, source));
+                    let tag_name = get_node_text(&tag, source);
+
+                    // Capture button text for dropdown detection
+                    if tag_name == "button" {
+                        let btn_text = get_node_text(node, source);
+                        if btn_text.contains("Account") {
+                            button_text = Some("account".to_string());
+                        }
+                    }
+
+                    jsx_tags.push(tag_name);
+                }
+            }
+        }
+
+        // Detect conditional rendering pattern: {condition && <element>}
+        if node.kind() == "jsx_expression" {
+            let expr_text = get_node_text(node, source);
+            if expr_text.contains("&&") {
+                has_conditional_render = true;
+                // Check for sign out text
+                if expr_text.to_lowercase().contains("sign out")
+                    || expr_text.to_lowercase().contains("signout")
+                    || expr_text.to_lowercase().contains("logout")
+                {
+                    conditional_text = Some("sign out".to_string());
                 }
             }
         }
     });
 
-    // Apply insertion rules
+    // Apply insertion rules (in order from plan.md)
+
+    // 1. Header container detection
     if jsx_tags.iter().any(|t| t == "header") {
         if jsx_tags.iter().any(|t| t == "nav") {
             summary
@@ -465,6 +765,7 @@ fn extract_jsx_insertions(summary: &mut SemanticSummary, root: &tree_sitter::Nod
         }
     }
 
+    // 2. Route links count
     let link_count = jsx_tags.iter().filter(|t| *t == "Link" || *t == "a").count();
     if link_count >= 3 {
         summary
@@ -472,8 +773,17 @@ fn extract_jsx_insertions(summary: &mut SemanticSummary, root: &tree_sitter::Nod
             .push(format!("{} route links", link_count));
     }
 
-    if jsx_tags.iter().any(|t| t == "button")
+    // 3. Account dropdown with sign out (button + conditional render pattern)
+    if button_text.is_some() && has_conditional_render {
+        let dropdown_desc = if conditional_text.is_some() {
+            "account dropdown with sign out".to_string()
+        } else {
+            "account dropdown".to_string()
+        };
+        summary.insertions.push(dropdown_desc);
+    } else if jsx_tags.iter().any(|t| t == "button")
         && jsx_tags.iter().any(|t| t == "div" || t == "menu")
+        && has_conditional_render
     {
         summary.insertions.push("dropdown menu".to_string());
     }
@@ -504,6 +814,135 @@ fn extract_control_flow_js(summary: &mut SemanticSummary, root: &tree_sitter::No
     });
 }
 
+/// Extract function calls with context (awaited, in try block)
+fn extract_calls_js(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
+    // First, collect all try_statement ranges
+    let mut try_ranges: Vec<(usize, usize)> = Vec::new();
+    visit_all(root, |node| {
+        if node.kind() == "try_statement" {
+            try_ranges.push((node.start_byte(), node.end_byte()));
+        }
+    });
+
+    // Now extract calls
+    visit_all(root, |node| {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let (name, object) = extract_call_name(&func, source);
+
+                // Skip if it's a hook (already handled by state extraction)
+                if crate::schema::Call::check_is_hook(&name) {
+                    return;
+                }
+
+                // Skip common utility calls that don't add semantic value
+                if is_trivial_call(&name) {
+                    return;
+                }
+
+                // Check if this call is awaited
+                let is_awaited = node.parent()
+                    .map(|p| p.kind() == "await_expression")
+                    .unwrap_or(false);
+
+                // Check if this call is inside a try block
+                let node_start = node.start_byte();
+                let in_try = try_ranges.iter().any(|(start, end)| {
+                    node_start >= *start && node_start < *end
+                });
+
+                // Compute is_io before moving name
+                let is_io = crate::schema::Call::check_is_io(&name);
+
+                summary.calls.push(crate::schema::Call {
+                    name,
+                    object,
+                    is_awaited,
+                    in_try,
+                    is_hook: false,
+                    is_io,
+                    location: crate::schema::Location::new(
+                        node.start_position().row + 1,
+                        node.start_position().column,
+                    ),
+                });
+            }
+        }
+    });
+}
+
+/// Extract function name and optional object from a call expression
+fn extract_call_name(func_node: &tree_sitter::Node, source: &str) -> (String, Option<String>) {
+    match func_node.kind() {
+        "identifier" => (get_node_text(func_node, source), None),
+        "member_expression" => {
+            let property = func_node.child_by_field_name("property")
+                .map(|p| get_node_text(&p, source))
+                .unwrap_or_default();
+
+            // Simplify object - only get the immediate identifier, not full expression
+            let object = func_node.child_by_field_name("object")
+                .map(|o| simplify_object(&o, source));
+
+            (property, object)
+        }
+        _ => (get_node_text(func_node, source), None),
+    }
+}
+
+/// Simplify an object expression to its core identifier (avoid capturing full call chains)
+fn simplify_object(node: &tree_sitter::Node, source: &str) -> String {
+    match node.kind() {
+        "identifier" => get_node_text(node, source),
+        "this" => "this".to_string(),
+        "member_expression" => {
+            // For chained calls like foo.bar.baz(), get the root identifier
+            if let Some(obj) = node.child_by_field_name("object") {
+                let root = simplify_object(&obj, source);
+                if let Some(prop) = node.child_by_field_name("property") {
+                    let prop_name = get_node_text(&prop, source);
+                    return format!("{}.{}", root, prop_name);
+                }
+                return root;
+            }
+            get_node_text(node, source)
+        }
+        "call_expression" => {
+            // For something like foo().bar(), just use the function name
+            if let Some(func) = node.child_by_field_name("function") {
+                let (name, obj) = extract_call_name(&func, source);
+                if let Some(o) = obj {
+                    return format!("{}#{}", o, name); // Use # to indicate it's a call result
+                }
+                return format!("{}#", name);
+            }
+            "_".to_string()
+        }
+        _ => {
+            // For complex expressions, truncate and simplify
+            let text = get_node_text(node, source);
+            if text.len() > 20 {
+                format!("{}...", &text.chars().take(17).collect::<String>())
+            } else {
+                text
+            }
+        }
+    }
+}
+
+/// Check if a call is trivial (low semantic value)
+fn is_trivial_call(name: &str) -> bool {
+    matches!(
+        name,
+        "log" | "debug" | "info" | "warn" | "error" | "trace" // console methods
+        | "toString" | "valueOf" | "toJSON" // conversions
+        | "push" | "pop" | "shift" | "unshift" // array mutations (common)
+        | "forEach" | "map" | "filter" | "reduce" | "find" | "some" | "every" // array iterations
+        | "keys" | "values" | "entries" // object methods
+        | "parseInt" | "parseFloat" | "Number" | "String" | "Boolean" // type conversions
+    )
+}
+
 // ============================================================================
 // Rust extraction helpers
 // ============================================================================
@@ -521,15 +960,8 @@ fn find_primary_symbol_rust(
                 if let Some(name_node) = child.child_by_field_name("name") {
                     summary.symbol = Some(get_node_text(&name_node, source));
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
-
-                    // Check for pub visibility
-                    let mut vis_cursor = child.walk();
-                    for vis_child in child.children(&mut vis_cursor) {
-                        if vis_child.kind() == "visibility_modifier" {
-                            summary.public_surface_changed = true;
-                            break;
-                        }
-                    }
+                    // Phase 1: Single file analysis has no "before" state to compare
+                    // public_surface_changed will be set in Phase 2 diff analysis
                     return;
                 }
             }
@@ -780,11 +1212,8 @@ fn find_primary_symbol_go(
                     let name = get_node_text(&name_node, source);
                     summary.symbol = Some(name.clone());
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
-
-                    // Check if exported (starts with uppercase)
-                    if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-                        summary.public_surface_changed = true;
-                    }
+                    // Phase 1: Single file analysis has no "before" state to compare
+                    // public_surface_changed will be set in Phase 2 diff analysis
                     return;
                 }
             }
@@ -837,17 +1266,8 @@ fn find_primary_symbol_java(
             if let Some(name_node) = child.child_by_field_name("name") {
                 summary.symbol = Some(get_node_text(&name_node, source));
                 summary.symbol_kind = Some(crate::schema::SymbolKind::Class);
-
-                // Check for public modifier
-                let mut mod_cursor = child.walk();
-                for mod_child in child.children(&mut mod_cursor) {
-                    if mod_child.kind() == "modifiers" {
-                        let mods = get_node_text(&mod_child, source);
-                        if mods.contains("public") {
-                            summary.public_surface_changed = true;
-                        }
-                    }
-                }
+                // Phase 1: Single file analysis has no "before" state to compare
+                // public_surface_changed will be set in Phase 2 diff analysis
                 return;
             }
         }
@@ -933,6 +1353,18 @@ fn extract_includes_c(summary: &mut SemanticSummary, root: &tree_sitter::Node, s
 // Utility functions
 // ============================================================================
 
+/// Reorder insertions to put state hooks last (per plan.md spec)
+fn reorder_insertions(insertions: &mut Vec<String>) {
+    // Separate state hook insertions from others
+    let (state_hooks, others): (Vec<_>, Vec<_>) = insertions
+        .drain(..)
+        .partition(|s| s.contains("state via"));
+
+    // Put UI structure first, state hooks last
+    insertions.extend(others);
+    insertions.extend(state_hooks);
+}
+
 /// Get text content of a node
 fn get_node_text(node: &tree_sitter::Node, source: &str) -> String {
     node.utf8_text(source.as_bytes())
@@ -987,7 +1419,8 @@ export default function AppLayout() {
         let summary = extract(&path, source, &tree, Lang::Tsx).unwrap();
 
         assert_eq!(summary.symbol, Some("AppLayout".to_string()));
-        assert!(summary.public_surface_changed);
+        // Phase 1: public_surface_changed is always false (no "before" state to compare)
+        assert!(!summary.public_surface_changed);
         assert!(!summary.added_dependencies.is_empty());
     }
 
@@ -1010,7 +1443,9 @@ pub fn main() -> Result<()> {
         let summary = extract(&path, source, &tree, Lang::Rust).unwrap();
 
         assert_eq!(summary.symbol, Some("main".to_string()));
-        assert!(summary.public_surface_changed);
+        // Phase 1: public_surface_changed is always false (no "before" state to compare)
+        // Phase 2 diff mode will enable this detection
+        assert!(!summary.public_surface_changed);
     }
 
     #[test]

@@ -143,14 +143,64 @@ pub fn encode_toon(summary: &SemanticSummary) -> String {
         out.push('\n');
     }
 
-    // Safety fallback (RAW BLOCK format)
-    if let Some(ref raw) = summary.raw_fallback {
-        out.push_str("RAW BLOCK:\n```\n");
-        out.push_str(raw);
-        if !raw.ends_with('\n') {
-            out.push('\n');
+    // Function calls with context (deduplicated, counted)
+    if !summary.calls.is_empty() {
+        // Deduplicate calls by (name, object, awaited, in_try) and count occurrences
+        let mut call_counts: std::collections::HashMap<(String, String, bool, bool), usize> =
+            std::collections::HashMap::new();
+
+        for call in &summary.calls {
+            let key = (
+                call.name.clone(),
+                call.object.clone().unwrap_or_default(),
+                call.is_awaited,
+                call.in_try,
+            );
+            *call_counts.entry(key).or_insert(0) += 1;
         }
-        out.push_str("```\n");
+
+        // Convert to sorted vec for deterministic output
+        let mut unique_calls: Vec<_> = call_counts.into_iter().collect();
+        unique_calls.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.0.cmp(&b.0.0))); // Sort by count desc, then name
+
+        writeln!(
+            out,
+            "calls[{}]{{name,obj,await,try,count}}:",
+            unique_calls.len()
+        )
+        .unwrap();
+
+        for ((name, obj, awaited, in_try), count) in unique_calls {
+            let obj_str = if obj.is_empty() { "_" } else { &obj };
+            let awaited_str = if awaited { "Y" } else { "_" };
+            let in_try_str = if in_try { "Y" } else { "_" };
+            let count_str = if count > 1 { format!("{}", count) } else { "_".to_string() };
+            writeln!(out, "  {},{},{},{},{}", name, obj_str, awaited_str, in_try_str, count_str).unwrap();
+        }
+        out.push('\n');
+    }
+
+    // Safety fallback - only include if truly needed (no extraction at all)
+    // Skip raw_fallback for config files that were successfully parsed
+    if let Some(ref raw) = summary.raw_fallback {
+        // Only output raw if we have no semantic data at all
+        if summary.added_dependencies.is_empty()
+            && summary.calls.is_empty()
+            && summary.state_changes.is_empty()
+            && summary.control_flow_changes.is_empty()
+            && summary.symbol.is_none()
+        {
+            // Use TOON-style block (indented, no markdown)
+            out.push_str("raw_source:\n");
+            for line in raw.lines().take(20) {  // Limit to 20 lines
+                out.push_str("  ");
+                out.push_str(line);
+                out.push('\n');
+            }
+            if raw.lines().count() > 20 {
+                out.push_str("  ...(truncated)\n");
+            }
+        }
     }
 
     out

@@ -38,6 +38,9 @@ pub struct SemanticSummary {
     /// Control flow changes
     pub control_flow_changes: Vec<ControlFlowChange>,
 
+    /// Function calls detected
+    pub calls: Vec<Call>,
+
     /// Whether the public API surface changed
     pub public_surface_changed: bool,
 
@@ -257,21 +260,33 @@ pub struct JsxElement {
 }
 
 /// Function/method call for analysis
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Call {
     /// Function/method name
     pub name: String,
 
-    /// Object for method calls
+    /// Object for method calls (e.g., "console" for console.log)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub object: Option<String>,
 
+    /// Whether this call is awaited
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_awaited: bool,
+
+    /// Whether this call is inside a try block
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub in_try: bool,
+
     /// Whether this is a React hook
+    #[serde(skip)]
     pub is_hook: bool,
 
     /// Whether this is an I/O operation
+    #[serde(skip)]
     pub is_io: bool,
 
     /// Source location
+    #[serde(skip)]
     pub location: Location,
 }
 
