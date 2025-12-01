@@ -4,24 +4,34 @@ use crate::schema::{RiskLevel, SemanticSummary};
 
 /// Calculate behavioral risk level from a semantic summary
 ///
-/// Risk scoring per specification:
-/// - +1 per new import
+/// Risk scoring (tuned for practical use):
+/// - +1 per new import (capped at 3)
 /// - +1 per state variable
-/// - +2 per control flow change
+/// - +1 for presence of complex control flow (if/match/for), +1 if > 5, +1 if > 15
 /// - +2 for I/O or network calls
 /// - +3 for public API changes
 /// - +3 for persistence operations
 pub fn calculate_risk(summary: &SemanticSummary) -> RiskLevel {
     let mut score = 0;
 
-    // +1 per new import
-    score += summary.added_dependencies.len();
+    // +1 per new import, capped at 3 (imports are normal, not risky)
+    score += summary.added_dependencies.len().min(3);
 
     // +1 per state variable
     score += summary.state_changes.len();
 
-    // +2 per control flow change
-    score += summary.control_flow_changes.len() * 2;
+    // Control flow: graduated scoring instead of +2 per item
+    // This prevents normal Rust files with many if/match from being "high risk"
+    let cf_count = summary.control_flow_changes.len();
+    if cf_count > 0 {
+        score += 1; // Base: has control flow
+    }
+    if cf_count > 5 {
+        score += 1; // Moderate complexity
+    }
+    if cf_count > 15 {
+        score += 1; // High complexity
+    }
 
     // +2 for I/O or network calls (detected via insertions)
     for insertion in &summary.insertions {
@@ -87,6 +97,8 @@ mod tests {
 
     #[test]
     fn test_high_risk_control_flow() {
+        // High risk now requires more substantial changes
+        // With new scoring: control flow is graduated (1 base + 1 if >5 + 1 if >15)
         let summary = SemanticSummary {
             added_dependencies: vec!["fetch".to_string()],
             control_flow_changes: vec![
@@ -99,9 +111,11 @@ mod tests {
                     location: Location::default(),
                 },
             ],
+            insertions: vec!["network call introduced".to_string()],
+            public_surface_changed: true,
             ..Default::default()
         };
-        // 1 import + 4 control flow = 5 = high
+        // 1 import + 1 control flow + 2 network + 3 public = 7 = high
         assert_eq!(calculate_risk(&summary), RiskLevel::High);
     }
 

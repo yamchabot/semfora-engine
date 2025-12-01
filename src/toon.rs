@@ -219,31 +219,90 @@ pub fn generate_repo_overview(summaries: &[SemanticSummary], dir_path: &str) -> 
 }
 
 fn detect_framework(summaries: &[SemanticSummary]) -> Option<String> {
+    let mut frameworks = Vec::new();
+
+    // Rust detection
+    let has_cargo = summaries
+        .iter()
+        .any(|s| s.file.to_lowercase().ends_with("cargo.toml"));
+    let has_main_rs = summaries.iter().any(|s| s.file.ends_with("main.rs"));
+    let has_lib_rs = summaries.iter().any(|s| s.file.ends_with("lib.rs"));
+
+    if has_cargo || has_main_rs || has_lib_rs {
+        let rust_type = match (has_main_rs, has_lib_rs) {
+            (true, true) => "Rust (bin+lib)",
+            (true, false) => "Rust (binary)",
+            (false, true) => "Rust (library)",
+            _ => "Rust",
+        };
+        frameworks.push(rust_type);
+    }
+
+    // Go detection
+    let has_go_mod = summaries
+        .iter()
+        .any(|s| s.file.to_lowercase().ends_with("go.mod"));
+    let go_count = summaries.iter().filter(|s| s.language == "go").count();
+    if has_go_mod || go_count > 0 {
+        frameworks.push("Go");
+    }
+
+    // Python detection
+    let has_pyproject = summaries
+        .iter()
+        .any(|s| s.file.to_lowercase().contains("pyproject.toml"));
+    let has_setup_py = summaries
+        .iter()
+        .any(|s| s.file.to_lowercase().contains("setup.py"));
+    let python_count = summaries.iter().filter(|s| s.language == "python").count();
+    if has_pyproject || has_setup_py || python_count > 2 {
+        frameworks.push("Python");
+    }
+
+    // JavaScript/TypeScript framework detection
     for s in summaries {
         let file_lower = s.file.to_lowercase();
 
-        // Next.js detection
+        // Next.js
         if file_lower.contains("next.config") || file_lower.contains("/app/layout") {
-            return Some("Next.js (App Router)".to_string());
+            if !frameworks.iter().any(|f| f.contains("Next.js")) {
+                frameworks.push("Next.js (App Router)");
+            }
         }
-        if file_lower.contains("/pages/") && (file_lower.ends_with(".tsx") || file_lower.ends_with(".jsx")) {
-            return Some("Next.js (Pages Router)".to_string());
-        }
-
-        // React detection (if not Next.js)
-        if s.insertions.iter().any(|i| i.contains("component")) {
-            // Check for non-Next React
-            if summaries.iter().all(|s| !s.file.to_lowercase().contains("next.config")) {
-                return Some("React".to_string());
+        if file_lower.contains("/pages/")
+            && (file_lower.ends_with(".tsx") || file_lower.ends_with(".jsx"))
+        {
+            if !frameworks.iter().any(|f| f.contains("Next.js")) {
+                frameworks.push("Next.js (Pages Router)");
             }
         }
 
-        // Express detection
-        if s.added_dependencies.iter().any(|d| d == "express" || d == "Router") {
-            return Some("Express.js".to_string());
+        // Express
+        if s.added_dependencies
+            .iter()
+            .any(|d| d == "express" || d == "Router")
+        {
+            if !frameworks.contains(&"Express.js") {
+                frameworks.push("Express.js");
+            }
         }
     }
-    None
+
+    // React (only if significant component count, not just test fixtures)
+    let component_count = summaries
+        .iter()
+        .filter(|s| s.symbol_kind == Some(SymbolKind::Component))
+        .count();
+    if component_count > 2 && !frameworks.iter().any(|f| f.contains("Next.js")) {
+        frameworks.push("React");
+    }
+
+    // Return combined or None
+    if frameworks.is_empty() {
+        None
+    } else {
+        Some(frameworks.join(" + "))
+    }
 }
 
 fn detect_database(summaries: &[SemanticSummary]) -> Option<String> {
@@ -286,48 +345,161 @@ fn detect_package_manager(summaries: &[SemanticSummary]) -> Option<String> {
     None
 }
 
+/// Categorize a file by its role based on path and language
+fn categorize_file(relative_path: &str, language: &str) -> String {
+    let path_lower = relative_path.to_lowercase();
+
+    // Test files and fixtures (any language)
+    if path_lower.contains("test")
+        || path_lower.contains("spec")
+        || path_lower.contains("fixture")
+        || path_lower.contains("__test__")
+        || path_lower.contains("__tests__")
+    {
+        return "tests".to_string();
+    }
+
+    // Documentation
+    if path_lower.starts_with("docs/") || path_lower.starts_with("doc/") {
+        return "docs".to_string();
+    }
+
+    // Config files at root level
+    if !relative_path.contains('/')
+        || path_lower.starts_with('.')
+        || path_lower.ends_with(".toml")
+        || path_lower.ends_with(".json")
+        || path_lower.ends_with(".yaml")
+        || path_lower.ends_with(".yml")
+    {
+        // But not if it's source code
+        if !matches!(
+            language,
+            "rust" | "go" | "python" | "typescript" | "javascript" | "tsx" | "jsx"
+        ) {
+            return "config".to_string();
+        }
+    }
+
+    // API routes (any language)
+    if path_lower.contains("/api/") || path_lower.contains("/routes/") {
+        return "api".to_string();
+    }
+
+    // Database (any language)
+    if path_lower.contains("/db/")
+        || path_lower.contains("/database/")
+        || path_lower.contains("/migrations/")
+        || path_lower.contains("/schema")
+    {
+        return "database".to_string();
+    }
+
+    // Server/service implementations
+    if path_lower.contains("server") || path_lower.contains("service") {
+        return "server".to_string();
+    }
+
+    // Language-specific entry points
+    if relative_path.ends_with("main.rs")
+        || relative_path.ends_with("main.go")
+        || relative_path.ends_with("main.py")
+        || relative_path.ends_with("index.ts")
+        || relative_path.ends_with("index.js")
+    {
+        return "entry".to_string();
+    }
+
+    // Library roots
+    if relative_path.ends_with("lib.rs") || relative_path.ends_with("mod.rs") {
+        return "library".to_string();
+    }
+
+    // UI components (JS/TS)
+    if path_lower.contains("/components/") {
+        return "components".to_string();
+    }
+
+    // Pages (Next.js, etc.)
+    if path_lower.contains("/pages/") || path_lower.contains("/app/") {
+        return "pages".to_string();
+    }
+
+    // Utilities/helpers
+    if path_lower.contains("/utils/")
+        || path_lower.contains("/helpers/")
+        || path_lower.contains("/lib/")
+    {
+        return "lib".to_string();
+    }
+
+    // For src/ files, try to extract module name from path
+    if relative_path.starts_with("src/") {
+        let parts: Vec<&str> = relative_path.split('/').collect();
+        if parts.len() >= 2 {
+            // Get the first directory or file under src/
+            let module_part = parts[1];
+            // Remove extension for files like src/foo.rs -> "foo"
+            let module_name = module_part
+                .trim_end_matches(".rs")
+                .trim_end_matches(".go")
+                .trim_end_matches(".py")
+                .trim_end_matches(".ts")
+                .trim_end_matches(".tsx")
+                .trim_end_matches(".js")
+                .trim_end_matches(".jsx");
+
+            // If it's a directory (parts > 2), use the dir name
+            // If it's a file (parts == 2), use the filename without extension
+            if !module_name.is_empty() && module_name != "mod" && module_name != "index" {
+                return module_name.to_string();
+            }
+        }
+    }
+
+    "other".to_string()
+}
+
+/// Get a human-readable purpose for a module group
+fn get_module_purpose(name: &str) -> String {
+    match name {
+        "tests" => "Test files and fixtures".to_string(),
+        "docs" => "Documentation".to_string(),
+        "config" => "Configuration files".to_string(),
+        "api" => "API route handlers".to_string(),
+        "database" => "Database schema and migrations".to_string(),
+        "server" => "Server/service implementations".to_string(),
+        "entry" => "Application entry points".to_string(),
+        "library" => "Library roots and exports".to_string(),
+        "components" => "UI components".to_string(),
+        "pages" => "Page components and layouts".to_string(),
+        "lib" => "Shared utilities and helpers".to_string(),
+        "other" => "Other files".to_string(),
+        // For dynamic module names (extracted from src/xxx)
+        _ => format!("{} module", name),
+    }
+}
+
 fn build_module_groups(summaries: &[SemanticSummary], dir_path: &str) -> Vec<ModuleGroup> {
     let mut groups: HashMap<String, Vec<&SemanticSummary>> = HashMap::new();
 
     for s in summaries {
         // Get relative path
-        let relative = s.file
+        let relative = s
+            .file
             .strip_prefix(dir_path)
             .unwrap_or(&s.file)
             .trim_start_matches('/');
 
-        // Determine module group
-        let module = if relative.starts_with("src/app/api") || relative.contains("/api/") {
-            "api".to_string()
-        } else if relative.starts_with("src/db") || relative.contains("/db/") {
-            "database".to_string()
-        } else if relative.starts_with("src/app") || relative.starts_with("src/pages") {
-            "pages".to_string()
-        } else if relative.starts_with("src/components") {
-            "components".to_string()
-        } else if relative.starts_with("src/lib") || relative.starts_with("src/utils") {
-            "lib".to_string()
-        } else if !relative.contains('/') || relative.starts_with('.') {
-            "config".to_string()
-        } else {
-            "other".to_string()
-        };
-
+        // Categorize by role (language-agnostic where possible)
+        let module = categorize_file(relative, &s.language);
         groups.entry(module).or_default().push(s);
     }
 
     groups
         .into_iter()
         .map(|(name, files)| {
-            let purpose = match name.as_str() {
-                "api" => "API route handlers".to_string(),
-                "database" => "Database schema, migrations, seeds".to_string(),
-                "pages" => "Page components and layouts".to_string(),
-                "components" => "Reusable UI components".to_string(),
-                "lib" => "Shared utilities and helpers".to_string(),
-                "config" => "Configuration files".to_string(),
-                _ => "Other files".to_string(),
-            };
+            let purpose = get_module_purpose(&name);
 
             // Calculate aggregate risk
             let high_count = files.iter().filter(|f| f.behavioral_risk == RiskLevel::High).count();
@@ -459,21 +631,104 @@ fn build_stats(summaries: &[SemanticSummary]) -> RepoStats {
 fn detect_patterns(summaries: &[SemanticSummary]) -> Vec<String> {
     let mut patterns = Vec::new();
 
-    let has_api = summaries.iter().any(|s| s.insertions.iter().any(|i| i.contains("API route")));
-    let has_db = summaries.iter().any(|s| s.insertions.iter().any(|i| i.contains("database")));
-    let has_components = summaries.iter().any(|s| s.symbol_kind == Some(SymbolKind::Component));
+    // Detect patterns from any language present (accumulate, don't pick winners)
 
-    if has_api && has_db && has_components {
-        patterns.push("Full-stack web application".to_string());
-    } else if has_api && has_db {
-        patterns.push("API with database backend".to_string());
-    } else if has_components {
-        patterns.push("React component library".to_string());
+    // CLI patterns (any language)
+    let has_cli = summaries.iter().any(|s| {
+        s.added_dependencies.iter().any(|d| {
+            d.contains("clap")
+                || d.contains("argparse")
+                || d.contains("commander")
+                || d.contains("yargs")
+                || d.contains("cobra")
+                || d.contains("Parser")
+        })
+    });
+    if has_cli {
+        patterns.push("CLI application".to_string());
+    }
+
+    // MCP/Protocol patterns
+    let has_mcp = summaries
+        .iter()
+        .any(|s| s.added_dependencies.iter().any(|d| d.contains("rmcp") || d.contains("mcp")));
+    if has_mcp {
+        patterns.push("MCP server".to_string());
+    }
+
+    // Async patterns
+    let has_async = summaries.iter().any(|s| {
+        s.added_dependencies.iter().any(|d| {
+            d.contains("tokio")
+                || d.contains("async")
+                || d.contains("asyncio")
+                || d.contains("goroutine")
+        })
+    });
+    if has_async {
+        patterns.push("Async/concurrent".to_string());
+    }
+
+    // Serialization patterns
+    let has_serialization = summaries.iter().any(|s| {
+        s.added_dependencies
+            .iter()
+            .any(|d| d.contains("Serialize") || d.contains("Deserialize") || d.contains("serde"))
+    });
+    if has_serialization {
+        patterns.push("Data serialization".to_string());
+    }
+
+    // AST/code analysis
+    let has_ast = summaries.iter().any(|s| {
+        s.file.contains("tree_sitter")
+            || s.added_dependencies
+                .iter()
+                .any(|d| d.contains("tree_sitter") || d.contains("ast") || d.contains("parser"))
+    });
+    if has_ast {
+        patterns.push("AST/code analysis".to_string());
+    }
+
+    // API patterns
+    let has_api = summaries
+        .iter()
+        .any(|s| s.insertions.iter().any(|i| i.contains("API route")));
+    if has_api {
+        patterns.push("API endpoints".to_string());
+    }
+
+    // Database patterns
+    let has_db = summaries
+        .iter()
+        .any(|s| s.insertions.iter().any(|i| i.contains("database")));
+    if has_db {
+        patterns.push("Database integration".to_string());
+    }
+
+    // React/UI component patterns (require significant count)
+    let component_count = summaries
+        .iter()
+        .filter(|s| s.symbol_kind == Some(SymbolKind::Component))
+        .count();
+    if component_count > 2 {
+        patterns.push("UI components".to_string());
     }
 
     // Docker
-    if summaries.iter().any(|s| s.file.to_lowercase().contains("docker")) {
-        patterns.push("Dockerized deployment".to_string());
+    if summaries
+        .iter()
+        .any(|s| s.file.to_lowercase().contains("docker"))
+    {
+        patterns.push("Dockerized".to_string());
+    }
+
+    // Git operations
+    if summaries.iter().any(|s| {
+        s.file.to_lowercase().contains("/git/")
+            || s.added_dependencies.iter().any(|d| d.contains("git"))
+    }) {
+        patterns.push("Git integration".to_string());
     }
 
     patterns

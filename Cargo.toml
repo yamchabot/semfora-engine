@@ -9,6 +9,10 @@ license = "MIT"
 name = "mcp-diff"
 path = "src/main.rs"
 
+[[bin]]
+name = "mcp-diff-server"
+path = "src/mcp_server/bin.rs"
+
 [dependencies]
 # Core parsing
 tree-sitter = "0.24"
@@ -39,6 +43,14 @@ thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rtoon = "0.2.1"
+
+# MCP Server dependencies
+rmcp = { version = "0.9", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
+schemars = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [build-dependencies]
 cc = "1.0"

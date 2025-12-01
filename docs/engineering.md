@@ -9,7 +9,7 @@
 ### Completed
 | Component | File | Status | Notes |
 |-----------|------|--------|-------|
-| Project setup | `Cargo.toml` | Done | 16 language grammars, clap, serde |
+| Project setup | `Cargo.toml` | Done | 16 language grammars, clap, serde, rmcp |
 | Error handling | `src/error.rs` | Done | Exit codes 0-4 per spec |
 | CLI interface | `src/cli.rs` | Done | `--format`, `--verbose`, `--print-ast` |
 | Language detection | `src/lang.rs` | Done | 16 languages, families |
@@ -19,6 +19,8 @@
 | Extraction engine | `src/extract.rs` | Done | Direct AST traversal |
 | Library exports | `src/lib.rs` | Done | Public API |
 | Entry point | `src/main.rs` | Done | Full CLI |
+| **MCP Server** | `src/mcp_server/` | Done | stdio transport, 4 tools |
+| **MCP Binary** | `src/mcp_server/bin.rs` | Done | `mcp-diff-server` binary |
 
 ### Language Extraction Support
 | Language | Symbols | Imports | State | Control Flow | JSX |
@@ -35,14 +37,22 @@
 | HTML/CSS/MD | Fallback | - | - | - | - |
 | JSON/YAML/TOML | Fallback | - | - | - | - |
 
+### MCP Server Tools
+| Tool | Description |
+|------|-------------|
+| `analyze_file` | Analyze a single source file, returns TOON/JSON summary |
+| `analyze_directory` | Analyze entire codebase with repo overview |
+| `analyze_diff` | Analyze git diff between branches/commits |
+| `list_languages` | List all supported programming languages |
+
 ### Pending / Phase 2
 - [ ] External `.scm` query files (currently using direct AST traversal)
 - [ ] Separate detector modules per language family
 - [ ] Function argument extraction
 - [ ] Component props extraction
 - [ ] More insertion rules
-- [ ] Git diff support (Phase 2)
-- [ ] MCP integration (Phase 4)
+- [ ] Git diff semantic comparison (before/after)
+- [x] MCP integration (moved from Phase 4 to Phase 1)
 
 ### Test Results
 ```

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mcp-diff": {
+      "type": "stdio",
+      "command": "/home/kadajett/Dev/localCouncil/target/release/mcp-diff-server",
+      "args": [],
+      "env": {
+        "RUST_LOG": "mcp_diff=info,rmcp=warn"
+      }
+    }
+  }
+}

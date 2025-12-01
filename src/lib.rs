@@ -45,6 +45,7 @@ pub mod error;
 pub mod extract;
 pub mod git;
 pub mod lang;
+pub mod mcp_server;
 pub mod risk;
 pub mod schema;
 pub mod tokens;
