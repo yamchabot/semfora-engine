@@ -14,6 +14,18 @@ use serde_json::{json, Map, Value};
 
 use crate::schema::{ModuleGroup, RepoOverview, RepoStats, RiskLevel, SemanticSummary, SymbolKind};
 
+/// Safely truncate a string at a UTF-8 char boundary
+fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 // ============================================================================
 // Noisy call filtering - these are implementation details, not architecture
 // ============================================================================
@@ -759,6 +771,7 @@ pub fn encode_toon_directory(overview: &RepoOverview, summaries: &[SemanticSumma
 fn encode_repo_overview(overview: &RepoOverview) -> String {
     let mut obj = Map::new();
 
+    obj.insert("schema_version".to_string(), json!(crate::schema::SCHEMA_VERSION));
     obj.insert("_type".to_string(), json!("repo_overview"));
 
     if let Some(ref fw) = overview.framework {
@@ -828,6 +841,12 @@ pub fn encode_toon_clean(summary: &SemanticSummary) -> String {
     obj.insert("file".to_string(), json!(summary.file));
     obj.insert("language".to_string(), json!(summary.language));
 
+    // Stable symbol ID for cross-commit tracking
+    if let Some(ref id) = summary.symbol_id {
+        obj.insert("symbol_id".to_string(), json!(id.hash));
+        obj.insert("symbol_namespace".to_string(), json!(id.namespace));
+    }
+
     if let Some(ref sym) = summary.symbol {
         obj.insert("symbol".to_string(), json!(sym));
     }
@@ -840,7 +859,11 @@ pub fn encode_toon_clean(summary: &SemanticSummary) -> String {
         obj.insert("return_type".to_string(), json!(ret));
     }
 
-    // Skip public_surface_changed in directory mode (always false without diff)
+    // Only include public_surface_changed if true (to save tokens)
+    if summary.public_surface_changed {
+        obj.insert("public_surface_changed".to_string(), json!(true));
+    }
+
     // Only include behavioral_risk if not low
     if summary.behavioral_risk != RiskLevel::Low {
         obj.insert(
@@ -918,7 +941,7 @@ pub fn encode_toon_clean(summary: &SemanticSummary) -> String {
                     if content.len() <= 100 {
                         obj.insert("raw".to_string(), json!(content));
                     } else {
-                        obj.insert("raw".to_string(), json!(format!("{}...", &content[..97])));
+                        obj.insert("raw".to_string(), json!(format!("{}...", truncate_to_char_boundary(&content, 97))));
                     }
                 } else {
                     obj.insert("raw".to_string(), json!(format!("({} lines)", lines.len())));
@@ -936,9 +959,18 @@ pub fn encode_toon(summary: &SemanticSummary) -> String {
     // Build a JSON value that will encode nicely to TOON
     let mut obj = Map::new();
 
+    // Schema version for output stability
+    obj.insert("schema_version".to_string(), json!(crate::schema::SCHEMA_VERSION));
+
     // Simple scalar fields
     obj.insert("file".to_string(), json!(summary.file));
     obj.insert("language".to_string(), json!(summary.language));
+
+    // Stable symbol ID for cross-commit tracking
+    if let Some(ref id) = summary.symbol_id {
+        obj.insert("symbol_id".to_string(), json!(id.hash));
+        obj.insert("symbol_namespace".to_string(), json!(id.namespace));
+    }
 
     if let Some(ref sym) = summary.symbol {
         obj.insert("symbol".to_string(), json!(sym));
@@ -1058,7 +1090,7 @@ pub fn encode_toon(summary: &SemanticSummary) -> String {
                 if content.len() <= 200 {
                     obj.insert("raw_source".to_string(), json!(content));
                 } else {
-                    obj.insert("raw_source".to_string(), json!(format!("{}...", &content[..197])));
+                    obj.insert("raw_source".to_string(), json!(format!("{}...", truncate_to_char_boundary(&content, 197))));
                 }
             } else {
                 // Longer files: just report structure

@@ -14,6 +14,7 @@ use mcp_diff::git::{
 use mcp_diff::{
     encode_toon, encode_toon_directory, extract, format_analysis_compact, format_analysis_report,
     generate_repo_overview, Cli, Lang, McpDiffError, OutputFormat, SemanticSummary, TokenAnalyzer,
+    CacheDir, ShardWriter, get_cache_base_dir, list_cached_repos, prune_old_caches,
 };
 
 fn main() -> ExitCode {
@@ -31,7 +32,32 @@ fn main() -> ExitCode {
 
 fn run() -> mcp_diff::Result<String> {
     let cli = Cli::parse();
+
+    // Handle cache commands first (they don't require operation mode)
+    if cli.cache_info {
+        return run_cache_info();
+    }
+
+    if cli.cache_clear {
+        return run_cache_clear();
+    }
+
+    if let Some(days) = cli.cache_prune {
+        return run_cache_prune(days);
+    }
+
     let mode = cli.operation_mode()?;
+
+    // Handle sharded output mode
+    if cli.shard {
+        return match mode {
+            OperationMode::Directory { path, max_depth } => run_shard(&cli, &path, max_depth),
+            OperationMode::SingleFile(path) if path.is_dir() => run_shard(&cli, &path, cli.max_depth),
+            _ => Err(McpDiffError::GitError {
+                message: "Shard mode requires a directory. Use --dir or provide a directory path.".to_string(),
+            }),
+        };
+    }
 
     match mode {
         OperationMode::SingleFile(path) => run_single_file(&cli, &path),
@@ -216,6 +242,193 @@ fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> mcp_diff::Resu
         };
         eprintln!("{}", report);
     }
+
+    Ok(output)
+}
+
+/// Run sharded indexing mode for large repositories
+fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> mcp_diff::Result<String> {
+    if !dir_path.exists() {
+        return Err(McpDiffError::FileNotFound {
+            path: dir_path.display().to_string(),
+        });
+    }
+
+    if !dir_path.is_dir() {
+        return Err(McpDiffError::GitError {
+            message: format!("{} is not a directory", dir_path.display()),
+        });
+    }
+
+    eprintln!("Initializing sharded index for: {}", dir_path.display());
+
+    // Create shard writer
+    let mut shard_writer = ShardWriter::new(dir_path)?;
+
+    eprintln!("Cache location: {}", shard_writer.cache_path().display());
+
+    // Collect all supported files
+    let files = collect_files(dir_path, max_depth, cli);
+
+    if files.is_empty() {
+        return Ok(format!(
+            "directory: {}\nfiles_found: 0\nNo files to shard.\n",
+            dir_path.display()
+        ));
+    }
+
+    eprintln!("Found {} files to analyze", files.len());
+
+    // First pass: collect all summaries
+    let mut summaries: Vec<SemanticSummary> = Vec::new();
+    let mut total_source_bytes = 0usize;
+    let mut processed = 0usize;
+    let total = files.len();
+
+    for file_path in &files {
+        processed += 1;
+        if processed % 100 == 0 || processed == total {
+            eprintln!("Processing: {}/{} ({:.1}%)", processed, total, (processed as f64 / total as f64) * 100.0);
+        }
+
+        // Try to detect language
+        let lang = match Lang::from_path(file_path) {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        // Read and analyze file
+        let source = match fs::read_to_string(file_path) {
+            Ok(s) => s,
+            Err(e) => {
+                if cli.verbose {
+                    eprintln!("Skipping {}: {}", file_path.display(), e);
+                }
+                continue;
+            }
+        };
+
+        total_source_bytes += source.len();
+
+        let summary = match parse_and_extract_string(file_path, &source, lang) {
+            Ok(s) => s,
+            Err(e) => {
+                if cli.verbose {
+                    eprintln!("Failed to analyze {}: {}", file_path.display(), e);
+                }
+                continue;
+            }
+        };
+
+        summaries.push(summary);
+    }
+
+    eprintln!("Analyzed {} files ({} bytes source)", summaries.len(), total_source_bytes);
+
+    // Add summaries to shard writer
+    shard_writer.add_summaries(summaries);
+
+    // Write all shards
+    let dir_str = dir_path.display().to_string();
+    let stats = shard_writer.write_all(&dir_str)?;
+
+    // Format output
+    let (cache_size, _module_count) = shard_writer.cache_stats();
+    let compression = if total_source_bytes > 0 {
+        ((total_source_bytes as f64 - stats.total_bytes() as f64) / total_source_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let mut output = String::new();
+    output.push_str(&format!("═══════════════════════════════════════════════════════\n"));
+    output.push_str(&format!("  SHARDED INDEX CREATED\n"));
+    output.push_str(&format!("═══════════════════════════════════════════════════════\n\n"));
+
+    output.push_str(&format!("directory: {}\n", dir_path.display()));
+    output.push_str(&format!("cache: {}\n", shard_writer.cache_path().display()));
+    output.push_str(&format!("\n"));
+
+    output.push_str(&format!("Files:\n"));
+    output.push_str(&format!("  files_written: {}\n", stats.files_written));
+    output.push_str(&format!("  modules: {}\n", stats.modules_written));
+    output.push_str(&format!("  symbols: {}\n", stats.symbols_written));
+    output.push_str(&format!("\n"));
+
+    output.push_str(&format!("Size:\n"));
+    output.push_str(&format!("  source_bytes: {}\n", total_source_bytes));
+    output.push_str(&format!("  shard_bytes: {}\n", stats.total_bytes()));
+    output.push_str(&format!("  compression: {:.1}%\n", compression));
+    output.push_str(&format!("  cache_total: {} bytes\n", cache_size));
+    output.push_str(&format!("\n"));
+
+    output.push_str(&format!("Breakdown:\n"));
+    output.push_str(&format!("  overview: {} bytes\n", stats.overview_bytes));
+    output.push_str(&format!("  modules: {} bytes\n", stats.module_bytes));
+    output.push_str(&format!("  symbols: {} bytes\n", stats.symbol_bytes));
+    output.push_str(&format!("  graphs: {} bytes\n", stats.graph_bytes));
+
+    Ok(output)
+}
+
+/// Show cache information
+fn run_cache_info() -> mcp_diff::Result<String> {
+    let base_dir = get_cache_base_dir();
+    let cached_repos = list_cached_repos();
+
+    let mut output = String::new();
+    output.push_str(&format!("═══════════════════════════════════════════════════════\n"));
+    output.push_str(&format!("  SEMFORA CACHE INFO\n"));
+    output.push_str(&format!("═══════════════════════════════════════════════════════\n\n"));
+
+    output.push_str(&format!("cache_base: {}\n", base_dir.display()));
+    output.push_str(&format!("cached_repos: {}\n\n", cached_repos.len()));
+
+    if cached_repos.is_empty() {
+        output.push_str("No cached repositories found.\n");
+    } else {
+        let total_size: u64 = cached_repos.iter().map(|(_, _, s)| *s).sum();
+        output.push_str(&format!("total_size: {} bytes ({:.2} MB)\n\n", total_size, total_size as f64 / (1024.0 * 1024.0)));
+
+        output.push_str(&format!("repos:\n"));
+        for (hash, path, size) in &cached_repos {
+            output.push_str(&format!("  - hash: {}\n", hash));
+            output.push_str(&format!("    path: {}\n", path.display()));
+            output.push_str(&format!("    size: {} bytes ({:.2} MB)\n", size, *size as f64 / (1024.0 * 1024.0)));
+        }
+    }
+
+    Ok(output)
+}
+
+/// Clear the cache for the current directory
+fn run_cache_clear() -> mcp_diff::Result<String> {
+    let current_dir = std::env::current_dir().map_err(|e| McpDiffError::FileNotFound {
+        path: format!("current directory: {}", e),
+    })?;
+
+    let cache = CacheDir::for_repo(&current_dir)?;
+
+    let mut output = String::new();
+
+    if cache.exists() {
+        let size = cache.size();
+        cache.clear()?;
+        output.push_str(&format!("Cache cleared for: {}\n", current_dir.display()));
+        output.push_str(&format!("Freed: {} bytes ({:.2} MB)\n", size, size as f64 / (1024.0 * 1024.0)));
+    } else {
+        output.push_str(&format!("No cache exists for: {}\n", current_dir.display()));
+    }
+
+    Ok(output)
+}
+
+/// Prune caches older than specified days
+fn run_cache_prune(days: u32) -> mcp_diff::Result<String> {
+    let count = prune_old_caches(days)?;
+
+    let mut output = String::new();
+    output.push_str(&format!("Pruned {} cache(s) older than {} days.\n", count, days));
 
     Ok(output)
 }

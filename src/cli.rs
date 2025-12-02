@@ -13,7 +13,7 @@ use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyz
 #[command(author)]
 pub struct Cli {
     /// Path to file to analyze (single file mode)
-    #[arg(value_name = "FILE", required_unless_present_any = ["diff", "commit", "commits"])]
+    #[arg(value_name = "FILE", required_unless_present_any = ["diff", "commit", "commits", "cache_info", "cache_clear", "cache_prune"])]
     pub file: Option<PathBuf>,
 
     /// Output format
@@ -72,6 +72,26 @@ pub struct Cli {
     /// Maximum directory depth for recursive scan (default: 10)
     #[arg(long, default_value = "10")]
     pub max_depth: usize,
+
+    // ============================================
+    // Sharded Output Options
+    // ============================================
+
+    /// Generate sharded output for large repos (writes to cache directory)
+    #[arg(long)]
+    pub shard: bool,
+
+    /// Show cache information
+    #[arg(long)]
+    pub cache_info: bool,
+
+    /// Clear the cache for the current directory
+    #[arg(long)]
+    pub cache_clear: bool,
+
+    /// Prune caches older than N days
+    #[arg(long, value_name = "DAYS")]
+    pub cache_prune: Option<u32>,
 }
 
 /// Token analysis output mode

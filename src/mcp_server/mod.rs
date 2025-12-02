@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     encode_toon, encode_toon_directory, extract, generate_repo_overview, Lang, McpDiffError,
-    SemanticSummary,
+    SemanticSummary, CacheDir, ShardWriter,
 };
 
 // ============================================================================
@@ -76,6 +76,58 @@ pub struct AnalyzeDiffRequest {
 /// Request to list supported languages
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListLanguagesRequest {}
+
+/// Request to get repository overview from sharded index
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetRepoOverviewRequest {
+    /// Path to the repository (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+}
+
+/// Request to get a module from sharded index
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetModuleRequest {
+    /// Path to the repository (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Name of the module to retrieve (e.g., "api", "components", "lib")
+    #[schemars(description = "Module name (e.g., 'api', 'components', 'lib', 'tests')")]
+    pub module_name: String,
+}
+
+/// Request to get a symbol from sharded index
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetSymbolRequest {
+    /// Path to the repository (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Symbol hash (from repo_overview or module listing)
+    #[schemars(description = "Symbol hash from the repo overview or module shard")]
+    pub symbol_hash: String,
+}
+
+/// Request to list modules in a sharded index
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListModulesRequest {
+    /// Path to the repository (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+}
+
+/// Request to generate/regenerate sharded index
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GenerateIndexRequest {
+    /// Path to the repository to index
+    #[schemars(description = "Path to the repository to index")]
+    pub path: String,
+
+    /// Maximum directory depth (default: 10)
+    #[schemars(description = "Maximum directory depth for file collection (default: 10)")]
+    pub max_depth: Option<usize>,
+}
 
 // ============================================================================
 // MCP Server Implementation
@@ -388,6 +440,276 @@ impl McpDiffServer {
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
+
+    // ========================================================================
+    // Sharded Index Query Tools
+    // ========================================================================
+
+    /// Get repository overview from sharded index (small, high-level summary)
+    #[tool(description = "Get the repository overview from a pre-built sharded index. Returns a compact summary (~300KB even for massive repos) with framework detection, module list, risk breakdown, and entry points. Use this FIRST to understand a codebase before diving into specific modules.")]
+    async fn get_repo_overview(
+        &self,
+        Parameters(request): Parameters<GetRepoOverviewRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.working_dir.lock().await.clone(),
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]));
+            }
+        };
+
+        let overview_path = cache.repo_overview_path();
+        if !overview_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run `mcp-diff --shard {}` to generate one, or use generate_index tool.",
+                repo_path.display(),
+                repo_path.display()
+            ))]));
+        }
+
+        match fs::read_to_string(&overview_path) {
+            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to read overview: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// List available modules in sharded index
+    #[tool(description = "List all modules available in a repository's sharded index. Returns module names that can be queried with get_module.")]
+    async fn list_modules(
+        &self,
+        Parameters(request): Parameters<ListModulesRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.working_dir.lock().await.clone(),
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]));
+            }
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}",
+                repo_path.display()
+            ))]));
+        }
+
+        let modules = cache.list_modules();
+        if modules.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "No modules found in index.",
+            )]));
+        }
+
+        let mut output = format!("Available modules ({}):\n", modules.len());
+        for module in &modules {
+            output.push_str(&format!("  - {}\n", module));
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    /// Get a specific module from sharded index
+    #[tool(description = "Get detailed semantic information for a specific module (e.g., 'api', 'components', 'lib'). Returns all symbols in that module with their risk levels, dependencies, and function calls. Use after get_repo_overview to drill down into specific areas.")]
+    async fn get_module(
+        &self,
+        Parameters(request): Parameters<GetModuleRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.working_dir.lock().await.clone(),
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]));
+            }
+        };
+
+        let module_path = cache.module_path(&request.module_name);
+        if !module_path.exists() {
+            let available = cache.list_modules();
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Module '{}' not found. Available modules: {}",
+                request.module_name,
+                available.join(", ")
+            ))]));
+        }
+
+        match fs::read_to_string(&module_path) {
+            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to read module: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get a specific symbol from sharded index
+    #[tool(description = "Get detailed semantic information for a specific symbol by its hash. Symbol hashes are found in the repo_overview or module shards. Returns the complete semantic summary including all calls, state changes, and control flow.")]
+    async fn get_symbol(
+        &self,
+        Parameters(request): Parameters<GetSymbolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.working_dir.lock().await.clone(),
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]));
+            }
+        };
+
+        let symbol_path = cache.symbol_path(&request.symbol_hash);
+        if !symbol_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Symbol '{}' not found in index",
+                request.symbol_hash
+            ))]));
+        }
+
+        match fs::read_to_string(&symbol_path) {
+            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to read symbol: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Generate or regenerate sharded index for a repository
+    #[tool(description = "Generate a sharded semantic index for a repository. This creates a queryable cache with repo_overview, module shards, symbol shards, and dependency graphs. Run this once for a repo, then use get_repo_overview/get_module/get_symbol for fast queries.")]
+    async fn generate_index(
+        &self,
+        Parameters(request): Parameters<GenerateIndexRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let dir_path = self.resolve_path(&request.path).await;
+
+        if !dir_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Directory not found: {}",
+                dir_path.display()
+            ))]));
+        }
+
+        if !dir_path.is_dir() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Not a directory: {}",
+                dir_path.display()
+            ))]));
+        }
+
+        let max_depth = request.max_depth.unwrap_or(10);
+
+        // Create shard writer
+        let mut shard_writer = match ShardWriter::new(&dir_path) {
+            Ok(w) => w,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to initialize shard writer: {}",
+                    e
+                ))]));
+            }
+        };
+
+        // Collect files
+        let files = collect_files(&dir_path, max_depth, &[]);
+
+        if files.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "No supported files found in {}",
+                dir_path.display()
+            ))]));
+        }
+
+        // Analyze all files
+        let mut summaries: Vec<SemanticSummary> = Vec::new();
+        let mut total_bytes = 0usize;
+
+        for file_path in &files {
+            let lang = match Lang::from_path(file_path) {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
+
+            let source = match fs::read_to_string(file_path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            total_bytes += source.len();
+
+            if let Ok(summary) = parse_and_extract(file_path, &source, lang) {
+                summaries.push(summary);
+            }
+        }
+
+        // Add summaries and write shards
+        shard_writer.add_summaries(summaries.clone());
+
+        let dir_str = dir_path.display().to_string();
+        let stats = match shard_writer.write_all(&dir_str) {
+            Ok(s) => s,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to write shards: {}",
+                    e
+                ))]));
+            }
+        };
+
+        let compression = if total_bytes > 0 {
+            ((total_bytes as f64 - stats.total_bytes() as f64) / total_bytes as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        let output = format!(
+            "Sharded index created for: {}\n\
+             Cache: {}\n\n\
+             Files analyzed: {}\n\
+             Modules: {}\n\
+             Symbols: {}\n\
+             Compression: {:.1}%\n\n\
+             Use get_repo_overview to see the high-level architecture.",
+            dir_path.display(),
+            shard_writer.cache_path().display(),
+            summaries.len(),
+            stats.modules_written,
+            stats.symbols_written,
+            compression
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
 }
 
 #[tool_handler]
@@ -412,12 +734,48 @@ impl ServerHandler for McpDiffServer {
 const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis for AI Review
 
 ## Purpose
-Produces highly compressed semantic summaries in TOON format, enabling efficient code review without reading entire files.
+Produces highly compressed semantic summaries in TOON format, enabling efficient code review without reading entire files. Supports both on-demand analysis and pre-built sharded indexes for massive repositories.
+
+## Quick Start for Large Codebases
+
+For repositories over 100 files, use the **sharded index workflow**:
+
+1. **First time**: Run `generate_index` to create the index (or CLI: `mcp-diff --shard <path>`)
+2. **Get overview**: Call `get_repo_overview` to understand architecture (~300KB even for 2GB repos)
+3. **Drill down**: Use `get_module` to explore specific areas (api, components, tests, etc.)
+4. **Deep dive**: Use `get_symbol` for individual function/class details
 
 ## Tools
-- analyze_file: Analyze a single source file
-- analyze_directory: Analyze entire codebases with framework detection
-- analyze_diff: Compare git branches/commits for code review
+
+### Sharded Index (Recommended for large repos)
+- **get_repo_overview**: Get high-level architecture summary (framework, modules, risk breakdown, entry points)
+- **list_modules**: List available module shards (api, components, lib, tests, etc.)
+- **get_module**: Get all symbols in a specific module
+- **get_symbol**: Get detailed info for a specific symbol by hash
+- **generate_index**: Create/regenerate the sharded index
+
+### On-Demand Analysis (For small repos or quick checks)
+- **analyze_file**: Analyze a single source file
+- **analyze_directory**: Analyze entire codebase (may be large for big repos)
+- **analyze_diff**: Compare git branches/commits for code review
+- **list_languages**: Show supported programming languages
+
+## Workflow Examples
+
+### Understanding a new codebase
+```
+1. get_repo_overview           → See framework, patterns, module breakdown
+2. get_module("api")           → Examine API routes
+3. get_module("components")    → Examine UI components
+4. get_symbol("abc123")        → Deep dive on specific function
+```
+
+### Code review workflow
+```
+1. analyze_diff(base="main")   → See what changed
+2. get_module("api")           → If API changed, get full context
+3. Read high-risk files        → Use standard file read for details
+```
 
 ## Output Fields
 - symbol: Primary function/class/component name

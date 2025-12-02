@@ -9,10 +9,23 @@ use std::path::Path;
 const MAX_FALLBACK_LEN: usize = 1000;
 use tree_sitter::Tree;
 
+/// Safely truncate a string at a UTF-8 char boundary
+fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // Find the last valid char boundary at or before max_bytes
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::risk::calculate_risk;
-use crate::schema::SemanticSummary;
+use crate::schema::{SemanticSummary, SymbolId};
 use crate::toon::is_meaningful_call;
 
 /// Extract semantic information from a parsed source file
@@ -66,11 +79,15 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
         || !summary.calls.is_empty()
         || !summary.added_dependencies.is_empty();
 
+    // Generate stable symbol ID for cross-commit tracking
+    summary.symbol_id = SymbolId::from_summary(&summary);
+
     // Add raw fallback if extraction was incomplete
     if !summary.extraction_complete {
-        // Truncate source for fallback if too long
+        // Truncate source for fallback if too long (UTF-8 safe)
         if source.len() > MAX_FALLBACK_LEN {
-            summary.raw_fallback = Some(format!("{}...", &source[..MAX_FALLBACK_LEN]));
+            let truncated = truncate_to_char_boundary(source, MAX_FALLBACK_LEN);
+            summary.raw_fallback = Some(format!("{}...", truncated));
         } else {
             summary.raw_fallback = Some(source.to_string());
         }
@@ -548,8 +565,8 @@ fn find_primary_symbol_js(
                     }
                 }
                 if summary.symbol.is_some() {
-                    // Phase 1: Single file analysis has no "before" state to compare
-                    // public_surface_changed will be set in Phase 2 diff analysis
+                    // Symbol found inside export statement = public API
+                    summary.public_surface_changed = true;
                     return;
                 }
             }
@@ -1188,6 +1205,20 @@ fn is_trivial_call(name: &str) -> bool {
 // Rust extraction helpers
 // ============================================================================
 
+/// Check if a Rust item has `pub` visibility
+fn has_pub_visibility(node: &tree_sitter::Node, source: &str) -> bool {
+    // Look for visibility_modifier child containing "pub"
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "visibility_modifier" {
+            let text = get_node_text(&child, source);
+            // Match "pub", "pub(crate)", "pub(super)", "pub(in path)"
+            return text.starts_with("pub");
+        }
+    }
+    false
+}
+
 fn find_primary_symbol_rust(
     summary: &mut SemanticSummary,
     root: &tree_sitter::Node,
@@ -1201,8 +1232,10 @@ fn find_primary_symbol_rust(
                 if let Some(name_node) = child.child_by_field_name("name") {
                     summary.symbol = Some(get_node_text(&name_node, source));
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
-                    // Phase 1: Single file analysis has no "before" state to compare
-                    // public_surface_changed will be set in Phase 2 diff analysis
+                    // Check for pub visibility
+                    if has_pub_visibility(&child, source) {
+                        summary.public_surface_changed = true;
+                    }
                     return;
                 }
             }
@@ -1210,6 +1243,9 @@ fn find_primary_symbol_rust(
                 if let Some(name_node) = child.child_by_field_name("name") {
                     summary.symbol = Some(get_node_text(&name_node, source));
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Struct);
+                    if has_pub_visibility(&child, source) {
+                        summary.public_surface_changed = true;
+                    }
                     return;
                 }
             }
@@ -1217,6 +1253,7 @@ fn find_primary_symbol_rust(
                 if let Some(type_node) = child.child_by_field_name("type") {
                     summary.symbol = Some(get_node_text(&type_node, source));
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Method);
+                    // impl blocks don't have pub, but the type they implement for might
                     return;
                 }
             }
@@ -1224,6 +1261,9 @@ fn find_primary_symbol_rust(
                 if let Some(name_node) = child.child_by_field_name("name") {
                     summary.symbol = Some(get_node_text(&name_node, source));
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Trait);
+                    if has_pub_visibility(&child, source) {
+                        summary.public_surface_changed = true;
+                    }
                     return;
                 }
             }
@@ -1231,6 +1271,9 @@ fn find_primary_symbol_rust(
                 if let Some(name_node) = child.child_by_field_name("name") {
                     summary.symbol = Some(get_node_text(&name_node, source));
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Enum);
+                    if has_pub_visibility(&child, source) {
+                        summary.public_surface_changed = true;
+                    }
                     return;
                 }
             }
@@ -1332,14 +1375,24 @@ fn find_primary_symbol_python(
         match child.kind() {
             "function_definition" => {
                 if let Some(name_node) = child.child_by_field_name("name") {
-                    summary.symbol = Some(get_node_text(&name_node, source));
+                    let name = get_node_text(&name_node, source);
+                    // Python convention: names not starting with _ are public
+                    if !name.starts_with('_') {
+                        summary.public_surface_changed = true;
+                    }
+                    summary.symbol = Some(name);
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
                     return;
                 }
             }
             "class_definition" => {
                 if let Some(name_node) = child.child_by_field_name("name") {
-                    summary.symbol = Some(get_node_text(&name_node, source));
+                    let name = get_node_text(&name_node, source);
+                    // Python convention: names not starting with _ are public
+                    if !name.starts_with('_') {
+                        summary.public_surface_changed = true;
+                    }
+                    summary.symbol = Some(name);
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Class);
                     return;
                 }
@@ -1456,10 +1509,12 @@ fn find_primary_symbol_go(
             "function_declaration" => {
                 if let Some(name_node) = child.child_by_field_name("name") {
                     let name = get_node_text(&name_node, source);
-                    summary.symbol = Some(name.clone());
+                    // Go convention: exported names start with uppercase
+                    if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                        summary.public_surface_changed = true;
+                    }
+                    summary.symbol = Some(name);
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
-                    // Phase 1: Single file analysis has no "before" state to compare
-                    // public_surface_changed will be set in Phase 2 diff analysis
                     return;
                 }
             }
@@ -1469,7 +1524,12 @@ fn find_primary_symbol_go(
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "type_spec" {
                         if let Some(name_node) = inner.child_by_field_name("name") {
-                            summary.symbol = Some(get_node_text(&name_node, source));
+                            let name = get_node_text(&name_node, source);
+                            // Go convention: exported names start with uppercase
+                            if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                                summary.public_surface_changed = true;
+                            }
+                            summary.symbol = Some(name);
                             summary.symbol_kind = Some(crate::schema::SymbolKind::Struct);
                             return;
                         }
@@ -1500,6 +1560,15 @@ fn extract_imports_go(summary: &mut SemanticSummary, root: &tree_sitter::Node, s
 // Java extraction helpers
 // ============================================================================
 
+/// Check if a Java declaration has public modifier
+fn has_public_modifier_java(node: &tree_sitter::Node, source: &str) -> bool {
+    if let Some(modifiers) = node.child_by_field_name("modifiers") {
+        let text = get_node_text(&modifiers, source);
+        return text.contains("public");
+    }
+    false
+}
+
 fn find_primary_symbol_java(
     summary: &mut SemanticSummary,
     root: &tree_sitter::Node,
@@ -1512,8 +1581,10 @@ fn find_primary_symbol_java(
             if let Some(name_node) = child.child_by_field_name("name") {
                 summary.symbol = Some(get_node_text(&name_node, source));
                 summary.symbol_kind = Some(crate::schema::SymbolKind::Class);
-                // Phase 1: Single file analysis has no "before" state to compare
-                // public_surface_changed will be set in Phase 2 diff analysis
+                // Check for public modifier
+                if has_public_modifier_java(&child, source) {
+                    summary.public_surface_changed = true;
+                }
                 return;
             }
         }
@@ -1543,6 +1614,12 @@ fn extract_imports_java(summary: &mut SemanticSummary, root: &tree_sitter::Node,
 // ============================================================================
 
 fn find_primary_symbol_c(summary: &mut SemanticSummary, root: &tree_sitter::Node, source: &str) {
+    // C/C++ convention: symbols in header files are public
+    let is_header = summary.file.ends_with(".h")
+        || summary.file.ends_with(".hpp")
+        || summary.file.ends_with(".hxx")
+        || summary.file.ends_with(".hh");
+
     let mut cursor = root.walk();
 
     for child in root.children(&mut cursor) {
@@ -1553,8 +1630,19 @@ fn find_primary_symbol_c(summary: &mut SemanticSummary, root: &tree_sitter::Node
                 if let Some(n) = name {
                     summary.symbol = Some(n);
                     summary.symbol_kind = Some(crate::schema::SymbolKind::Function);
+                    // Header file symbols are public
+                    if is_header {
+                        summary.public_surface_changed = true;
+                    }
                     return;
                 }
+            }
+        }
+        // Also check for extern declarations
+        if child.kind() == "declaration" {
+            let child_text = get_node_text(&child, source);
+            if child_text.starts_with("extern") {
+                summary.public_surface_changed = true;
             }
         }
     }
@@ -1691,9 +1779,9 @@ fn compress_initializer(init: &str) -> String {
     if trimmed.starts_with("match ") {
         if let Some(brace_pos) = trimmed.find('{') {
             let match_expr = &trimmed[6..brace_pos].trim();
-            // Truncate long match subjects
+            // Truncate long match subjects (UTF-8 safe)
             let subject = if match_expr.len() > 40 {
-                format!("{}...", &match_expr[..40])
+                format!("{}...", truncate_to_char_boundary(match_expr, 40))
             } else {
                 match_expr.to_string()
             };
@@ -1706,7 +1794,7 @@ fn compress_initializer(init: &str) -> String {
         if let Some(brace_pos) = trimmed.find('{') {
             let condition = &trimmed[3..brace_pos].trim();
             let cond_short = if condition.len() > 40 {
-                format!("{}...", &condition[..40])
+                format!("{}...", truncate_to_char_boundary(condition, 40))
             } else {
                 condition.to_string()
             };
@@ -1748,9 +1836,9 @@ fn compress_initializer(init: &str) -> String {
         }
     }
 
-    // Fallback: truncate long expressions
+    // Fallback: truncate long expressions (UTF-8 safe)
     if normalized.len() > 60 {
-        format!("{}...", &normalized[..57])
+        format!("{}...", truncate_to_char_boundary(&normalized, 57))
     } else {
         normalized
     }
@@ -1803,8 +1891,8 @@ export default function AppLayout() {
         let summary = extract(&path, source, &tree, Lang::Tsx).unwrap();
 
         assert_eq!(summary.symbol, Some("AppLayout".to_string()));
-        // Phase 1: public_surface_changed is always false (no "before" state to compare)
-        assert!(!summary.public_surface_changed);
+        // Exported function = public surface
+        assert!(summary.public_surface_changed);
         assert!(!summary.added_dependencies.is_empty());
     }
 
@@ -1827,9 +1915,8 @@ pub fn main() -> Result<()> {
         let summary = extract(&path, source, &tree, Lang::Rust).unwrap();
 
         assert_eq!(summary.symbol, Some("main".to_string()));
-        // Phase 1: public_surface_changed is always false (no "before" state to compare)
-        // Phase 2 diff mode will enable this detection
-        assert!(!summary.public_surface_changed);
+        // pub fn = public surface
+        assert!(summary.public_surface_changed);
     }
 
     #[test]
@@ -1849,6 +1936,28 @@ def process_files(paths: List[str]) -> None:
         let summary = extract(&path, source, &tree, Lang::Python).unwrap();
 
         assert_eq!(summary.symbol, Some("process_files".to_string()));
+        // Python: name without leading _ = public
+        assert!(summary.public_surface_changed);
         assert!(!summary.added_dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_to_char_boundary() {
+        // ASCII - should work normally
+        assert_eq!(truncate_to_char_boundary("hello", 3), "hel");
+        assert_eq!(truncate_to_char_boundary("hello", 10), "hello");
+
+        // UTF-8 multi-byte chars - should find safe boundary
+        let emoji_str = "Hello ⚠️ World"; // ⚠️ is multi-byte
+        let truncated = truncate_to_char_boundary(emoji_str, 8);
+        assert!(truncated.len() <= 8);
+        assert!(truncated.is_char_boundary(truncated.len()));
+
+        // Japanese characters (3 bytes each)
+        let japanese = "こんにちは"; // 5 chars, 15 bytes
+        let truncated = truncate_to_char_boundary(japanese, 7);
+        assert!(truncated.len() <= 7);
+        // Should truncate to 2 chars = 6 bytes
+        assert_eq!(truncated, "こん");
     }
 }

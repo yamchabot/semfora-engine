@@ -52,6 +52,10 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Cache and sharding
+chrono = "0.4"
+dirs = "5.0"
+
 [build-dependencies]
 cc = "1.0"
 

@@ -39,6 +39,7 @@
 //! println!("{}", toon);
 //! ```
 
+pub mod cache;
 pub mod cli;
 pub mod detectors;
 pub mod error;
@@ -48,6 +49,7 @@ pub mod lang;
 pub mod mcp_server;
 pub mod risk;
 pub mod schema;
+pub mod shard;
 pub mod tokens;
 pub mod toon;
 
@@ -59,7 +61,8 @@ pub use lang::{Lang, LangFamily};
 pub use risk::calculate_risk;
 pub use schema::{
     Argument, Call, ControlFlowChange, ControlFlowKind, Import, ImportedName, JsxElement, Location,
-    ModuleGroup, Prop, RepoOverview, RepoStats, RiskLevel, SemanticSummary, StateChange, SymbolKind,
+    ModuleGroup, Prop, RepoOverview, RepoStats, RiskLevel, SemanticDiff, SemanticSummary,
+    StateChange, SurfaceDelta, SymbolId, SymbolKind, SCHEMA_VERSION,
 };
 // Note: Call is included above for function call tracking
 pub use tokens::{format_analysis_compact, format_analysis_report, TokenAnalysis, TokenAnalyzer};
@@ -71,3 +74,12 @@ pub use git::{
     get_current_branch, get_file_at_ref, get_merge_base, get_parent_commit, get_repo_root,
     is_git_repo, ChangedFile, ChangeType, CommitInfo,
 };
+
+// Re-export cache module types
+pub use cache::{
+    get_cache_base_dir, list_cached_repos, prune_old_caches, CacheDir, CacheMeta,
+    IndexingStatus, SourceFileInfo,
+};
+
+// Re-export shard module types
+pub use shard::{ShardStats, ShardWriter};
