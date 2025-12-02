@@ -1,9 +1,9 @@
-//! Error types and exit codes for mcp-diff
+//! Error types and exit codes for semfora-mcp
 
 use std::process::ExitCode;
 use thiserror::Error;
 
-/// Main error type for mcp-diff operations
+/// Main error type for semfora-mcp operations
 #[derive(Error, Debug)]
 pub enum McpDiffError {
     #[error("File not found: {path}")]
@@ -53,5 +53,5 @@ impl McpDiffError {
     }
 }
 
-/// Result type alias for mcp-diff operations
+/// Result type alias for semfora-mcp operations
 pub type Result<T> = std::result::Result<T, McpDiffError>;

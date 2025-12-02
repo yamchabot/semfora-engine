@@ -6,13 +6,13 @@ use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::SemanticSummary;
 
-pub fn extract(summary: &mut SemanticSummary, _source: &str, tree: &Tree, lang: Lang) -> Result<()> {
+pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree, lang: Lang) -> Result<()> {
     let root = tree.root_node();
 
     match lang {
-        Lang::Json => extract_json_structure(summary, &root),
-        Lang::Yaml => extract_yaml_structure(summary, &root),
-        Lang::Toml => extract_toml_structure(summary, &root),
+        Lang::Json => extract_json_structure(summary, source, &root),
+        Lang::Yaml => extract_yaml_structure(summary, source, &root),
+        Lang::Toml => extract_toml_structure(summary, source, &root),
         _ => {}
     }
 
@@ -21,30 +21,30 @@ pub fn extract(summary: &mut SemanticSummary, _source: &str, tree: &Tree, lang: 
     Ok(())
 }
 
-fn extract_json_structure(summary: &mut SemanticSummary, root: &Node) {
+fn extract_json_structure(summary: &mut SemanticSummary, source: &str, root: &Node) {
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
         if child.kind() == "object" {
-            extract_json_keys(summary, &child, 0);
+            extract_json_keys(summary, source, &child, 0);
         }
     }
 }
 
-fn extract_json_keys(summary: &mut SemanticSummary, node: &Node, depth: usize) {
+fn extract_json_keys(summary: &mut SemanticSummary, source: &str, node: &Node, depth: usize) {
     if depth > 1 { return; }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "pair" {
             if let Some(key) = child.child_by_field_name("key") {
-                let key_str = get_node_text(&key, &summary.file);
+                let key_str = get_node_text(&key, source);
                 let key_clean = key_str.trim_matches('"');
                 if is_meaningful_key(key_clean) {
                     summary.added_dependencies.push(key_clean.to_string());
                 }
                 if let Some(value) = child.child_by_field_name("value") {
                     if value.kind() == "object" {
-                        extract_json_keys(summary, &value, depth + 1);
+                        extract_json_keys(summary, source, &value, depth + 1);
                     }
                 }
             }
@@ -52,11 +52,11 @@ fn extract_json_keys(summary: &mut SemanticSummary, node: &Node, depth: usize) {
     }
 }
 
-fn extract_yaml_structure(summary: &mut SemanticSummary, root: &Node) {
+fn extract_yaml_structure(summary: &mut SemanticSummary, source: &str, root: &Node) {
     visit_all(root, |node| {
         if node.kind() == "block_mapping_pair" {
             if let Some(key) = node.child_by_field_name("key") {
-                let key_str = get_node_text(&key, &summary.file);
+                let key_str = get_node_text(&key, source);
                 if is_meaningful_key(&key_str) {
                     summary.added_dependencies.push(key_str);
                 }
@@ -65,10 +65,10 @@ fn extract_yaml_structure(summary: &mut SemanticSummary, root: &Node) {
     });
 }
 
-fn extract_toml_structure(summary: &mut SemanticSummary, root: &Node) {
+fn extract_toml_structure(summary: &mut SemanticSummary, source: &str, root: &Node) {
     visit_all(root, |node| {
         if node.kind() == "table" || node.kind() == "table_array_element" {
-            let table_text = get_node_text(node, &summary.file);
+            let table_text = get_node_text(node, source);
             if let Some(name) = table_text.lines().next() {
                 let name = name.trim_matches('[').trim_matches(']').trim();
                 if !name.is_empty() {
@@ -77,7 +77,7 @@ fn extract_toml_structure(summary: &mut SemanticSummary, root: &Node) {
             }
         } else if node.kind() == "pair" {
             if let Some(key) = node.child(0) {
-                let key_str = get_node_text(&key, &summary.file);
+                let key_str = get_node_text(&key, source);
                 if is_meaningful_key(&key_str) {
                     summary.added_dependencies.push(key_str);
                 }

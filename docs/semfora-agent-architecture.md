@@ -6,6 +6,22 @@ This document describes the architecture for `semfora-cli`, a terminal-based cod
 
 ---
 
+## Current Status
+
+**Phase 1 (Foundation) COMPLETED:**
+- `semfora-adk` Python package created with uv
+- CLI subprocess integration with `semfora-mcp` binary
+- TOON parsing via `toon-format` library (v0.9.0b1)
+- Model B architecture implemented (orchestrator controls tools, Claude reasons)
+- 31 tests passing
+
+**Key Libraries:**
+- Rust engine: `rtoon` v0.2.1 for TOON encoding (spec v3.0 compliant)
+- Python ADK: `toon-format` for TOON decoding
+- Python deps: `litellm`, `anthropic`, `rich`
+
+---
+
 ## Scope
 
 This document covers **local tooling we fully control**:
@@ -20,6 +36,41 @@ This document covers **local tooling we fully control**:
 - External agent support (Claude Code, Cursor, Codex using our MCP)
 - Cloud service (Phase 7.0)
 - Editor extensions (VS Code, Neovim)
+
+---
+
+## Semfora Engine Binaries Overview
+
+The Semfora Engine provides two binaries built from the `semfora-engine` (Rust) project:
+
+### 1. `semfora-mcp`
+
+A command-line tool for developers that can:
+- Analyze individual files
+- Analyze directories recursively
+- Analyze git diffs
+- Print or benchmark TOON-encoded output
+- Generate sharded caches
+- Inspect or prune caches
+
+This binary is designed for local developer workflows and debugging. It is **not** used by any ADK or CLI agent.
+
+### 2. `semfora-mcp-server`
+
+A headless binary that exposes the full MCP toolset over the MCP protocol.
+This server is used by:
+
+- External agents (Claude Code, Cursor, OpenAI Codex)
+- Our internal ADK orchestrator (`semfora-adk`)
+- The terminal editor (`semfora-cli`)
+- The CI tool (`semfora-ci`)
+
+All agent-controlled semantic operations go through the server, never through the CLI flags.
+
+### Why Two Binaries?
+
+The CLI version supports human-facing operations (file scanning, benchmarking, etc.).
+The server version supports agent-facing operations (structured semantic tool calls).
 
 ---
 
@@ -112,7 +163,7 @@ The orchestrator makes ALL tool decisions. Claude API only receives curated sema
 
 ## Layer 1: Semantic Engine (Existing)
 
-The existing Semfora/mcp-diff codebase provides the semantic foundation. **No changes required to this layer.**
+The existing Semfora/semfora-mcp codebase provides the semantic foundation. **No changes required to this layer.**
 
 ### Available MCP Tools (16 total)
 
@@ -813,26 +864,27 @@ get_symbol:      1 symbol only    # Always bounded
 
 ## Implementation Phases
 
-### Phase 1: Foundation (2-3 weeks)
+### Phase 1: Foundation (COMPLETED)
 
 **Goal:** Basic ADK agent with MCP tool integration
 
-1. Create `semfora-adk` package structure
-   - Python project with pyproject.toml
-   - ADK and LiteLLM dependencies
-   - Anthropic API configuration
+1. ✅ Created `semfora-adk` package structure
+   - Python project with pyproject.toml (uv-managed)
+   - LiteLLM and Anthropic API dependencies
+   - toon-format library for TOON parsing
 
-2. Implement `SemforaTools`
-   - MCP server subprocess wrapper
-   - All 16 tool definitions
-   - Error handling and retry logic
+2. ✅ Implemented `SemforaTools`
+   - CLI subprocess wrapper for semfora-mcp binary
+   - TOON output parsing via toon-format library
+   - Core tools: analyze_file, analyze_directory, get_repo_overview, analyze_diff
+   - Error handling with fallback parsing
 
-3. Basic `SemforaOrchestrator`
-   - Single-agent setup with Claude
-   - System prompt with semantic-first guidance
-   - Tool calling integration
+3. ✅ Basic `SemforaOrchestrator`
+   - Model B architecture (orchestrator controls ALL tools)
+   - Claude API for reasoning only (no tool exposure to LLM)
+   - Context assembly from semantic summaries
 
-**Deliverable:** Agent that can answer questions using semantic tools
+**Deliverable:** Agent that can answer questions using semantic tools - COMPLETED
 
 ### Phase 2: Memory and Context (1-2 weeks)
 

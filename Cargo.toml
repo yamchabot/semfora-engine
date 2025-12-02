@@ -1,16 +1,16 @@
 [package]
-name = "mcp-diff"
+name = "semfora-mcp"
 version = "0.1.0"
 edition = "2021"
 description = "Semantic code analyzer with TOON output"
 license = "MIT"
 
 [[bin]]
-name = "mcp-diff"
+name = "semfora-mcp"
 path = "src/main.rs"
 
 [[bin]]
-name = "mcp-diff-server"
+name = "semfora-mcp-server"
 path = "src/mcp_server/bin.rs"
 
 [dependencies]

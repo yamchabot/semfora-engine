@@ -1,4 +1,4 @@
-//! MCP-Diff CLI entry point
+//! Semfora-MCP CLI entry point
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,12 +6,12 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use mcp_diff::cli::{OperationMode, TokenAnalysisMode};
-use mcp_diff::git::{
+use semfora_mcp::cli::{OperationMode, TokenAnalysisMode};
+use semfora_mcp::git::{
     get_changed_files, get_commit_changed_files, get_commits_since, get_file_at_ref,
     get_merge_base, get_repo_root, is_git_repo, ChangedFile, ChangeType,
 };
-use mcp_diff::{
+use semfora_mcp::{
     encode_toon, encode_toon_directory, extract, format_analysis_compact, format_analysis_report,
     generate_repo_overview, Cli, Lang, McpDiffError, OutputFormat, SemanticSummary, TokenAnalyzer,
     CacheDir, ShardWriter, get_cache_base_dir, list_cached_repos, prune_old_caches,
@@ -31,7 +31,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> mcp_diff::Result<String> {
+fn run() -> semfora_mcp::Result<String> {
     let cli = Cli::parse();
 
     // Handle cache commands first (they don't require operation mode)
@@ -80,7 +80,7 @@ fn run() -> mcp_diff::Result<String> {
 }
 
 /// Run single file analysis (Phase 1 mode)
-fn run_single_file(cli: &Cli, file_path: &Path) -> mcp_diff::Result<String> {
+fn run_single_file(cli: &Cli, file_path: &Path) -> semfora_mcp::Result<String> {
     // 1. Check file exists
     if !file_path.exists() {
         return Err(McpDiffError::FileNotFound {
@@ -142,7 +142,7 @@ fn run_single_file(cli: &Cli, file_path: &Path) -> mcp_diff::Result<String> {
 }
 
 /// Run directory analysis mode
-fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> mcp_diff::Result<String> {
+fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::Result<String> {
     if !dir_path.exists() {
         return Err(McpDiffError::FileNotFound {
             path: dir_path.display().to_string(),
@@ -258,7 +258,7 @@ fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> mcp_diff::Resu
 }
 
 /// Run sharded indexing mode for large repositories
-fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> mcp_diff::Result<String> {
+fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::Result<String> {
     if !dir_path.exists() {
         return Err(McpDiffError::FileNotFound {
             path: dir_path.display().to_string(),
@@ -383,7 +383,7 @@ fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> mcp_diff::Result<S
 }
 
 /// Show cache information
-fn run_cache_info() -> mcp_diff::Result<String> {
+fn run_cache_info() -> semfora_mcp::Result<String> {
     let base_dir = get_cache_base_dir();
     let cached_repos = list_cached_repos();
 
@@ -413,7 +413,7 @@ fn run_cache_info() -> mcp_diff::Result<String> {
 }
 
 /// Clear the cache for the current directory
-fn run_cache_clear() -> mcp_diff::Result<String> {
+fn run_cache_clear() -> semfora_mcp::Result<String> {
     let current_dir = std::env::current_dir().map_err(|e| McpDiffError::FileNotFound {
         path: format!("current directory: {}", e),
     })?;
@@ -435,7 +435,7 @@ fn run_cache_clear() -> mcp_diff::Result<String> {
 }
 
 /// Prune caches older than specified days
-fn run_cache_prune(days: u32) -> mcp_diff::Result<String> {
+fn run_cache_prune(days: u32) -> semfora_mcp::Result<String> {
     let count = prune_old_caches(days)?;
 
     let mut output = String::new();
@@ -445,7 +445,7 @@ fn run_cache_prune(days: u32) -> mcp_diff::Result<String> {
 }
 
 /// Run token efficiency benchmark
-fn run_benchmark(dir_path: &Path) -> mcp_diff::Result<String> {
+fn run_benchmark(dir_path: &Path) -> semfora_mcp::Result<String> {
     let metrics = analyze_repo_tokens(dir_path)?;
     Ok(metrics.report())
 }
@@ -511,7 +511,7 @@ fn collect_files_recursive(
 }
 
 /// Run diff branch analysis (Phase 2 mode)
-fn run_diff_branch(cli: &Cli, base_ref: &str) -> mcp_diff::Result<String> {
+fn run_diff_branch(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
     // Verify we're in a git repo
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
@@ -590,7 +590,7 @@ fn run_diff_branch(cli: &Cli, base_ref: &str) -> mcp_diff::Result<String> {
 }
 
 /// Run single commit analysis
-fn run_single_commit(cli: &Cli, sha: &str) -> mcp_diff::Result<String> {
+fn run_single_commit(cli: &Cli, sha: &str) -> semfora_mcp::Result<String> {
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
     }
@@ -602,7 +602,7 @@ fn run_single_commit(cli: &Cli, sha: &str) -> mcp_diff::Result<String> {
         return Ok(format!("No files changed in commit {}.\n", sha));
     }
 
-    let parent = mcp_diff::git::get_parent_commit(sha, None)?;
+    let parent = semfora_mcp::git::get_parent_commit(sha, None)?;
 
     let mut output = String::new();
     output.push_str(&format!(
@@ -634,7 +634,7 @@ fn run_single_commit(cli: &Cli, sha: &str) -> mcp_diff::Result<String> {
 }
 
 /// Run all commits analysis since base
-fn run_all_commits(cli: &Cli, base_ref: &str) -> mcp_diff::Result<String> {
+fn run_all_commits(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
     }
@@ -674,7 +674,7 @@ fn run_all_commits(cli: &Cli, base_ref: &str) -> mcp_diff::Result<String> {
 
         // Get files changed in this commit
         let changed_files = get_commit_changed_files(&commit.sha, None)?;
-        let parent = mcp_diff::git::get_parent_commit(&commit.sha, None)
+        let parent = semfora_mcp::git::get_parent_commit(&commit.sha, None)
             .unwrap_or_else(|_| commit.sha.clone());
         let repo_root = get_repo_root(None)?;
 
@@ -703,7 +703,7 @@ fn process_changed_file(
     repo_root: &str,
     changed_file: &ChangedFile,
     base_ref: &str,
-) -> mcp_diff::Result<Option<(String, DiffStats)>> {
+) -> semfora_mcp::Result<Option<(String, DiffStats)>> {
     let full_path = PathBuf::from(repo_root).join(&changed_file.path);
     let mut stats = DiffStats::default();
 
@@ -762,9 +762,9 @@ fn process_changed_file(
 
     // Update risk stats
     match current_summary.behavioral_risk {
-        mcp_diff::RiskLevel::High => stats.high_risk += 1,
-        mcp_diff::RiskLevel::Medium => stats.medium_risk += 1,
-        mcp_diff::RiskLevel::Low => stats.low_risk += 1,
+        semfora_mcp::RiskLevel::High => stats.high_risk += 1,
+        semfora_mcp::RiskLevel::Medium => stats.medium_risk += 1,
+        semfora_mcp::RiskLevel::Low => stats.low_risk += 1,
     }
 
     // For added files, just show the current state
@@ -804,7 +804,7 @@ fn parse_and_extract(
     source: &str,
     lang: Lang,
     cli: &Cli,
-) -> mcp_diff::Result<SemanticSummary> {
+) -> semfora_mcp::Result<SemanticSummary> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&lang.tree_sitter_language())
@@ -836,7 +836,7 @@ fn parse_and_extract_string(
     file_path: &Path,
     source: &str,
     lang: Lang,
-) -> mcp_diff::Result<SemanticSummary> {
+) -> semfora_mcp::Result<SemanticSummary> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&lang.tree_sitter_language())

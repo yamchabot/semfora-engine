@@ -1,10 +1,10 @@
-# MCP-Diff Engineering Requirements Document
+# Semfora-MCP Engineering Requirements Document
 
 > Companion document to `plan.md` - Implementation specifications for Phase 1
 
 ---
 
-## Implementation Status (Updated: 2025-12-01)
+## Implementation Status (Updated: 2025-12-02)
 
 ### Completed
 | Component | File | Status | Notes |
@@ -15,12 +15,13 @@
 | Language detection | `src/lang.rs` | Done | 16 languages, families |
 | Schema/types | `src/schema.rs` | Done | All structs with serde |
 | Risk calculation | `src/risk.rs` | Done | Point-based scoring |
-| TOON encoder | `src/toon.rs` | Done | All format rules |
+| TOON encoder | `src/toon.rs` | Done | rtoon v0.2.1, TOON spec v3.0 compliant |
 | Extraction engine | `src/extract.rs` | Done | Direct AST traversal |
 | Library exports | `src/lib.rs` | Done | Public API |
 | Entry point | `src/main.rs` | Done | Full CLI |
 | **MCP Server** | `src/mcp_server/` | Done | stdio transport, 4 tools |
-| **MCP Binary** | `src/mcp_server/bin.rs` | Done | `mcp-diff-server` binary |
+| **MCP Binary** | `src/mcp_server/bin.rs` | Done | `semfora-mcp-server` binary |
+| **Python ADK** | `semfora-adk/` | Done | Model B orchestration, toon-format parser |
 
 ### Language Extraction Support
 | Language | Symbols | Imports | State | Control Flow | JSX |
@@ -55,6 +56,8 @@
 - [x] MCP integration (moved from Phase 4 to Phase 1)
 
 ### Test Results
+
+**Rust Engine (semfora-engine):**
 ```
 24 tests passed, 0 failed
 - lang::tests (5 tests)
@@ -64,13 +67,22 @@
 - extract::tests (3 tests)
 ```
 
+**Python ADK (semfora-adk):**
+```
+31 tests passed, 0 failed
+- test_memory.py (4 tests)
+- test_orchestrator.py (6 tests)
+- test_tools.py (9 tests)
+- test_toon_library.py (12 tests - comparing custom parser vs toon-format)
+```
+
 ---
 
 ## 1. Overview
 
 This document provides concrete engineering specifications for implementing the MCP Semantic Diff & TOON Encoder Phase 1 MVP as described in `plan.md`.
 
-**Goal**: Build `mcp-diff`, a Rust CLI that parses source files using tree-sitter, extracts semantic information, and outputs TOON-formatted summaries.
+**Goal**: Build `semfora-mcp`, a Rust CLI that parses source files using tree-sitter, extracts semantic information, and outputs TOON-formatted summaries.
 
 ---
 
@@ -80,13 +92,16 @@ This document provides concrete engineering specifications for implementing the 
 
 ```toml
 [package]
-name = "mcp-diff"
+name = "semfora-mcp"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 # Core parsing
 tree-sitter = "0.24"          # Pin to 0.24.x for grammar compatibility
+
+# TOON encoding
+rtoon = "0.2.1"               # Rust TOON encoder (TOON spec v3.0 compliant)
 
 # Language grammars - Programming languages
 tree-sitter-typescript = "0.23"   # Includes TSX
@@ -114,18 +129,34 @@ thiserror = "1.0"
 cc = "*"
 ```
 
-### 2.2 Version Compatibility Notes
+### 2.2 Python ADK Dependencies
+
+```toml
+# semfora-adk/pyproject.toml (uv-managed)
+[project]
+dependencies = [
+    "anthropic>=0.40.0",
+    "litellm>=1.0.0",
+    "rich>=13.0.0",
+    "toon-format",  # TOON parser from GitHub
+]
+```
+
+The `toon-format` library (v0.9.0b1, 792 tests, 91% coverage) handles all TOON parsing in the Python ADK.
+
+### 2.3 Version Compatibility Notes
 
 - **Critical**: tree-sitter 0.25+ has linker issues when combining multiple grammars. Pin to 0.24.x
 - All grammar crates must be compatible with the core tree-sitter version
 - TypeScript crate provides two separate grammars: `LANGUAGE_TYPESCRIPT` and `LANGUAGE_TSX`
+- **TOON Spec Compliance**: rtoon v0.2.1 and toon-format both implement TOON spec v3.0 (no `---` separators)
 
 ---
 
 ## 3. Project Structure
 
 ```
-mcp-diff/
+semfora-mcp/
 ├── src/
 │   ├── main.rs              # CLI entry point
 │   ├── lib.rs               # Library exports
@@ -335,7 +366,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "mcp-diff")]
+#[command(name = "semfora-mcp")]
 #[command(about = "Semantic code analyzer with TOON output")]
 #[command(version)]
 pub struct Cli {

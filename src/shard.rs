@@ -361,14 +361,6 @@ fn encode_module_shard(module_name: &str, summaries: &[SemanticSummary], repo_ro
         }
     }
 
-    lines.push(format!("---"));
-
-    // Include compact summaries for each file
-    for summary in summaries {
-        lines.push(encode_toon(summary));
-        lines.push(format!("---"));
-    }
-
     lines.join("\n")
 }
 

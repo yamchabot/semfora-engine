@@ -534,42 +534,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcp-diff"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cc",
- "chrono",
- "clap",
- "dirs",
- "rmcp",
- "rtoon",
- "schemars",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-c",
- "tree-sitter-cpp",
- "tree-sitter-css",
- "tree-sitter-go",
- "tree-sitter-html",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-json",
- "tree-sitter-md",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-toml-ng",
- "tree-sitter-typescript",
- "tree-sitter-yaml",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -859,6 +823,42 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "semfora-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "chrono",
+ "clap",
+ "dirs",
+ "rmcp",
+ "rtoon",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
+ "tree-sitter-css",
+ "tree-sitter-go",
+ "tree-sitter-html",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-json",
+ "tree-sitter-md",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-toml-ng",
+ "tree-sitter-typescript",
+ "tree-sitter-yaml",
+]
 
 [[package]]
 name = "serde"

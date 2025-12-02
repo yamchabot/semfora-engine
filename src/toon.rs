@@ -751,20 +751,75 @@ fn detect_patterns(summaries: &[SemanticSummary]) -> Vec<String> {
 // ============================================================================
 
 /// Encode a full directory analysis as TOON (overview + files)
-pub fn encode_toon_directory(overview: &RepoOverview, summaries: &[SemanticSummary]) -> String {
-    let mut output = String::new();
+///
+/// Produces a single valid TOON document with:
+/// - Overview fields at root level
+/// - files array containing file summaries
+pub fn encode_toon_directory(overview: &RepoOverview, _summaries: &[SemanticSummary]) -> String {
+    // Build combined JSON structure for single TOON document
+    let mut obj = Map::new();
 
-    // Encode repository overview first
-    output.push_str(&encode_repo_overview(overview));
-    output.push_str("---\n");
+    // Add overview fields
+    obj.insert("schema_version".to_string(), json!(crate::schema::SCHEMA_VERSION));
+    obj.insert("_type".to_string(), json!("repo_overview"));
 
-    // Encode each file summary (filtered and cleaned)
-    for summary in summaries {
-        output.push_str(&encode_toon_clean(summary));
-        output.push_str("---\n");
+    if let Some(ref fw) = overview.framework {
+        obj.insert("framework".to_string(), json!(fw));
     }
 
-    output
+    if let Some(ref db) = overview.database {
+        obj.insert("database".to_string(), json!(db));
+    }
+
+    if !overview.patterns.is_empty() {
+        obj.insert("patterns".to_string(), json!(overview.patterns));
+    }
+
+    // Module summary
+    if !overview.modules.is_empty() {
+        let modules: Vec<Value> = overview
+            .modules
+            .iter()
+            .map(|m| {
+                json!({
+                    "name": m.name,
+                    "purpose": m.purpose,
+                    "files": m.file_count,
+                    "risk": m.risk.as_str()
+                })
+            })
+            .collect();
+        obj.insert("modules".to_string(), Value::Array(modules));
+    }
+
+    // Stats
+    let stats = &overview.stats;
+    obj.insert("files".to_string(), json!(stats.total_files));
+    obj.insert(
+        "risk_breakdown".to_string(),
+        json!(format!(
+            "high:{},medium:{},low:{}",
+            stats.high_risk, stats.medium_risk, stats.low_risk
+        )),
+    );
+
+    if stats.api_endpoints > 0 {
+        obj.insert("api_endpoints".to_string(), json!(stats.api_endpoints));
+    }
+    if stats.database_tables > 0 {
+        obj.insert("database_tables".to_string(), json!(stats.database_tables));
+    }
+    if stats.components > 0 {
+        obj.insert("components".to_string(), json!(stats.components));
+    }
+
+    // Entry points
+    if !overview.entry_points.is_empty() {
+        obj.insert("entry_points".to_string(), json!(overview.entry_points));
+    }
+
+    let value = Value::Object(obj);
+    encode_default(&value).unwrap_or_else(|e| format!("TOON encoding error: {}", e))
 }
 
 /// Encode repository overview as TOON

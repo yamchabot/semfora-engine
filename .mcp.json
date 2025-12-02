@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "mcp-diff": {
+    "semfora-mcp": {
       "type": "stdio",
-      "command": "/home/kadajett/Dev/localCouncil/target/release/mcp-diff-server",
+      "command": "/home/kadajett/Dev/Semfora_org/semfora-engine/target/release/semfora-mcp-server",
       "args": [],
       "env": {
-        "RUST_LOG": "mcp_diff=info,rmcp=warn"
+        "RUST_LOG": "semfora_mcp=info,rmcp=warn"
       }
     }
   }

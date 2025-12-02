@@ -58,10 +58,11 @@ This project builds a **semantic compiler front-end** that:
 |-------|------------|
 | Language | Rust |
 | Parsing | tree-sitter (multi-language) |
-| Encoding | TOON |
+| Encoding | TOON via rtoon v0.2.1 (TOON spec v3.0 compliant) |
 | Version Control | Git (native integration) |
 | Server Protocol | MCP (Model Context Protocol) |
 | Async Runtime | Tokio |
+| Python ADK | semfora-adk (uses toon-format library) |
 
 **Design Principles:**
 - No network access in core analysis
@@ -109,6 +110,31 @@ semfora/
   tests/
     fixtures/
 ```
+
+---
+
+## Developer CLI Tools (`semfora-mcp`)
+
+The Semfora Engine ships with a developer-facing CLI binary named `semfora-mcp` that provides:
+
+- File analysis
+- Recursive directory analysis
+- Diff analysis (`--diff`, `--base`, `--commit`)
+- Index generation (`--shard`)
+- Cache management (`--cache-info`, `--cache-clear`)
+- Benchmark tools for token compression (`--benchmark`)
+- AST debugging tools (`--print-ast`)
+- TOON / JSON output modes
+
+This CLI exists to support:
+- Engineering workflows
+- Debugging of semantic extraction
+- Validating TOON output
+- Testing token efficiency
+- Running one-off local analyses
+
+None of the ADK or agent-driven systems (`semfora-cli`, `semfora-ci`) use this CLI.
+They exclusively interact with the MCP server (`semfora-mcp-server`).
 
 ---
 
@@ -631,7 +657,7 @@ semfora cache prune --orphaned
 - Identify bottlenecks, add caching where needed
 
 **Priority 10: Agent Consumption Specification**
-- Create formal documentation for AI agents on how to use mcp-diff
+- Create formal documentation for AI agents on how to use semfora-mcp
 - Document all input formats, options, and CLI/MCP invocation patterns
 - Define output interpretation guide (what each field means, how to reason about it)
 - Provide decision trees for common agent tasks
@@ -648,9 +674,9 @@ semfora cache prune --orphaned
 This phase transforms the prototype into a production-ready product.
 
 **Rename & Rebrand:**
-- Rename package from `mcp-diff` to `semfora`
+- ✅ Renamed package from `mcp-diff` to `semfora-mcp`
 - Domains acquired: semfora.com, semfora.org, semfora.dev
-- Update all binaries, crates, and documentation
+- ✅ Updated all binaries, crates, and documentation
 - Design logo and brand identity
 
 **Internal Dogfooding:**
@@ -876,7 +902,8 @@ The hosted platform should be separate codebases:
 
 ```
 semfora/
-├── semfora-engine/     # Current codebase (Rust, local semantic compiler)
+├── semfora-engine/     # Rust semantic compiler (local CLI + MCP server)
+├── semfora-adk/        # Python ADK for agent orchestration (Model B architecture)
 ├── semfora-cloud/      # API server, job workers, storage (Rust or TS)
 ├── semfora-web/        # Dashboard, settings, marketing (Next.js/React)
 └── semfora-action/     # GitHub Action wrapper
@@ -1101,7 +1128,15 @@ This system explicitly does not:
 
 ## 17. Changelog
 
-**v0.1.0 (Current)**
+**v0.1.1 (Current)**
+- TOON output now fully TOON spec v3.0 compliant (removed non-spec `---` separators)
+- Using rtoon v0.2.1 Rust library for all TOON encoding
+- Created semfora-adk Python package for agent orchestration (Model B architecture)
+- Integrated toon-format Python library (v0.9.0b1) for TOON parsing in ADK
+- Fixed TOML config parsing crash in config.rs
+- Comprehensive test coverage (31 tests passing in semfora-adk)
+
+**v0.1.0**
 - Initial semantic extraction for JS/TS/Rust/Python/Go
 - TOON encoding with compression analysis
 - Git diff integration
