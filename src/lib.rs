@@ -48,6 +48,7 @@ pub mod extract;
 pub mod git;
 pub mod lang;
 pub mod mcp_server;
+pub mod overlay;
 pub mod risk;
 pub mod schema;
 pub mod shard;
@@ -89,4 +90,10 @@ pub use shard::{ShardStats, ShardWriter};
 pub use benchmark::{
     analyze_repo_tokens, estimate_tokens, RawFileRead, RepoTokenMetrics, SemanticQuery,
     TaskBenchmark, TokenMetrics,
+};
+
+// Re-export overlay types (Phase 2.5 - SEM-44)
+pub use overlay::{
+    compute_content_hash, compute_symbol_hash, FileMove, LayerKind, LayerMeta, LayeredIndex,
+    LayeredIndexStats, Overlay, SearchHints, SymbolState,
 };

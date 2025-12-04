@@ -48,7 +48,7 @@ pub struct SymbolId {
 ///
 /// This captures semantic data for each exported symbol in a file,
 /// enabling complete extraction from files with many exports.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolInfo {
     /// Symbol name
     pub name: String,
@@ -73,27 +73,27 @@ pub struct SymbolInfo {
     pub hash: Option<String>,
 
     /// Function arguments (for functions/methods)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arguments: Vec<Argument>,
 
     /// Component props (for components)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub props: Vec<Prop>,
 
     /// Return type annotation
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
 
     /// Function calls within this symbol's body
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub calls: Vec<Call>,
 
     /// Control flow constructs within this symbol
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub control_flow: Vec<ControlFlowChange>,
 
     /// State changes within this symbol (for components)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_changes: Vec<StateChange>,
 
     /// Behavioral risk level for this symbol
@@ -650,7 +650,7 @@ impl SymbolKind {
 }
 
 /// Component prop definition
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prop {
     /// Prop name
     pub name: String,
@@ -668,7 +668,7 @@ pub struct Prop {
 }
 
 /// Function argument definition
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Argument {
     /// Argument name
     pub name: String,
@@ -683,7 +683,7 @@ pub struct Argument {
 }
 
 /// State variable change
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateChange {
     /// Variable name
     pub name: String,
@@ -696,7 +696,7 @@ pub struct StateChange {
 }
 
 /// Control flow change
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlFlowChange {
     /// Kind of control flow
     pub kind: ControlFlowKind,
@@ -742,7 +742,7 @@ impl ControlFlowKind {
 }
 
 /// Source code location
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Location {
     /// Line number (1-indexed)
     pub line: usize,
@@ -808,7 +808,7 @@ pub struct JsxElement {
 }
 
 /// Function/method call for analysis
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Call {
     /// Function/method name
     pub name: String,
