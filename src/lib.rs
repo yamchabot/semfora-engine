@@ -51,6 +51,7 @@ pub mod mcp_server;
 pub mod overlay;
 pub mod risk;
 pub mod schema;
+pub mod search;
 pub mod shard;
 pub mod tokens;
 pub mod toon;
@@ -95,5 +96,8 @@ pub use benchmark::{
 // Re-export overlay types (Phase 2.5 - SEM-44)
 pub use overlay::{
     compute_content_hash, compute_symbol_hash, FileMove, LayerKind, LayerMeta, LayeredIndex,
-    LayeredIndexStats, Overlay, SearchHints, SymbolState,
+    LayeredIndexStats, Overlay, SymbolState,
 };
+
+// Re-export search types
+pub use search::{lang_from_extension, SearchHints};

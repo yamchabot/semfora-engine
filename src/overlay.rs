@@ -96,8 +96,11 @@ pub enum SymbolState {
     Active {
         /// The symbol information
         symbol: SymbolInfo,
+        /// File path where this symbol is located (for file-based lookups)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_path: Option<PathBuf>,
         /// Hash of the base content this was derived from (for conflict detection)
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         base_content_hash: Option<String>,
     },
     /// Symbol was deleted in this layer
@@ -114,6 +117,16 @@ impl SymbolState {
     pub fn active(symbol: SymbolInfo) -> Self {
         Self::Active {
             symbol,
+            file_path: None,
+            base_content_hash: None,
+        }
+    }
+
+    /// Create a new active symbol state with file path
+    pub fn active_at(symbol: SymbolInfo, file_path: PathBuf) -> Self {
+        Self::Active {
+            symbol,
+            file_path: Some(file_path),
             base_content_hash: None,
         }
     }
@@ -122,6 +135,16 @@ impl SymbolState {
     pub fn active_with_base(symbol: SymbolInfo, base_content_hash: String) -> Self {
         Self::Active {
             symbol,
+            file_path: None,
+            base_content_hash: Some(base_content_hash),
+        }
+    }
+
+    /// Create a new active symbol state with file path and base content tracking
+    pub fn active_at_with_base(symbol: SymbolInfo, file_path: PathBuf, base_content_hash: String) -> Self {
+        Self::Active {
+            symbol,
+            file_path: Some(file_path),
             base_content_hash: Some(base_content_hash),
         }
     }
@@ -152,6 +175,14 @@ impl SymbolState {
     pub fn as_symbol(&self) -> Option<&SymbolInfo> {
         match self {
             Self::Active { symbol, .. } => Some(symbol),
+            Self::Deleted { .. } => None,
+        }
+    }
+
+    /// Get the file path if available
+    pub fn file_path(&self) -> Option<&PathBuf> {
+        match self {
+            Self::Active { file_path, .. } => file_path.as_ref(),
             Self::Deleted { .. } => None,
         }
     }
@@ -276,21 +307,51 @@ impl LayerMeta {
 ///
 /// An overlay contains symbols that were added/modified/deleted in a specific layer.
 /// Symbols are indexed by their content-addressable hash.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Overlay {
     /// Layer metadata
     pub meta: LayerMeta,
     /// Symbols in this overlay, keyed by symbol hash
     pub symbols: HashMap<String, SymbolState>,
     /// Deleted symbol hashes (for quick lookup)
-    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub deleted: HashSet<String>,
     /// File moves tracked in this layer
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub moves: Vec<FileMove>,
     /// Symbols indexed by file path for quick file-based lookups
     #[serde(skip)]
     pub symbols_by_file: HashMap<PathBuf, Vec<String>>,
+}
+
+// Custom Deserialize implementation that rebuilds the file index after deserialization
+impl<'de> Deserialize<'de> for Overlay {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Shadow struct for deserialization
+        #[derive(Deserialize)]
+        struct OverlayData {
+            meta: LayerMeta,
+            symbols: HashMap<String, SymbolState>,
+            #[serde(default)]
+            deleted: HashSet<String>,
+            #[serde(default)]
+            moves: Vec<FileMove>,
+        }
+
+        let data = OverlayData::deserialize(deserializer)?;
+        let mut overlay = Overlay {
+            meta: data.meta,
+            symbols: data.symbols,
+            deleted: data.deleted,
+            moves: data.moves,
+            symbols_by_file: HashMap::new(),
+        };
+        overlay.rebuild_file_index();
+        Ok(overlay)
+    }
 }
 
 impl Overlay {
@@ -329,11 +390,10 @@ impl Overlay {
     ///
     /// Returns the previous state if any.
     pub fn upsert(&mut self, hash: String, state: SymbolState) -> Option<SymbolState> {
-        // Update file index if this is an active symbol
-        if let SymbolState::Active { ref symbol, .. } = state {
-            let file_path = PathBuf::from(&symbol.name); // TODO: Use actual file path from SymbolInfo
+        // Update file index if this is an active symbol with a file path
+        if let Some(file_path) = state.file_path() {
             self.symbols_by_file
-                .entry(file_path)
+                .entry(file_path.clone())
                 .or_default()
                 .push(hash.clone());
         }
@@ -352,14 +412,16 @@ impl Overlay {
 
     /// Mark a symbol as deleted
     ///
-    /// Returns true if the symbol was found and marked as deleted.
+    /// Returns true if the symbol existed and was marked as deleted,
+    /// false if creating a tombstone for a non-existent symbol.
     pub fn delete(&mut self, hash: &str) -> bool {
+        let existed = self.symbols.contains_key(hash);
         self.deleted.insert(hash.to_string());
         let state = SymbolState::deleted(hash.to_string());
         self.symbols.insert(hash.to_string(), state);
         self.meta.touch();
         self.update_counts();
-        true
+        existed
     }
 
     /// Get a symbol by hash
@@ -413,14 +475,15 @@ impl Overlay {
     }
 
     /// Rebuild the file index from symbols
+    ///
+    /// This should be called after deserialization to rebuild the
+    /// `symbols_by_file` index which is not serialized.
     pub fn rebuild_file_index(&mut self) {
         self.symbols_by_file.clear();
         for (hash, state) in &self.symbols {
-            if let SymbolState::Active { symbol, .. } = state {
-                // TODO: Use actual file path from symbol
-                let file_path = PathBuf::from(&symbol.name);
+            if let Some(file_path) = state.file_path() {
                 self.symbols_by_file
-                    .entry(file_path)
+                    .entry(file_path.clone())
                     .or_default()
                     .push(hash.clone());
             }
@@ -616,101 +679,6 @@ pub struct LayeredIndexStats {
     pub total_deleted: usize,
     /// Total number of file moves tracked
     pub total_moves: usize,
-}
-
-// ============================================================================
-// Search Hints (for query filtering)
-// ============================================================================
-
-/// Search hints for filtering queries
-///
-/// Supports filtering by extension, directory, file pattern, and language.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SearchHints {
-    /// File extension filter (e.g., "rs", "ts")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ext: Option<String>,
-    /// Directory filter (e.g., "src", "tests")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dir: Option<String>,
-    /// File glob pattern (e.g., "*.test.ts")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-    /// Language filter (e.g., "rust", "python")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lang: Option<String>,
-}
-
-impl SearchHints {
-    /// Create empty search hints
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Filter by extension
-    pub fn with_ext(mut self, ext: impl Into<String>) -> Self {
-        self.ext = Some(ext.into());
-        self
-    }
-
-    /// Filter by directory
-    pub fn with_dir(mut self, dir: impl Into<String>) -> Self {
-        self.dir = Some(dir.into());
-        self
-    }
-
-    /// Filter by file pattern
-    pub fn with_file(mut self, file: impl Into<String>) -> Self {
-        self.file = Some(file.into());
-        self
-    }
-
-    /// Filter by language
-    pub fn with_lang(mut self, lang: impl Into<String>) -> Self {
-        self.lang = Some(lang.into());
-        self
-    }
-
-    /// Check if a file path matches these hints
-    pub fn matches(&self, path: &str) -> bool {
-        // Extension check
-        if let Some(ref ext) = self.ext {
-            if !path.ends_with(&format!(".{}", ext)) {
-                return false;
-            }
-        }
-
-        // Directory check
-        if let Some(ref dir) = self.dir {
-            if !path.contains(&format!("/{}/", dir)) && !path.starts_with(&format!("{}/", dir)) {
-                return false;
-            }
-        }
-
-        // File pattern check (simple glob)
-        if let Some(ref pattern) = self.file {
-            let file_name = std::path::Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-
-            if pattern.starts_with('*') {
-                let suffix = &pattern[1..];
-                if !file_name.ends_with(suffix) {
-                    return false;
-                }
-            } else if pattern.ends_with('*') {
-                let prefix = &pattern[..pattern.len() - 1];
-                if !file_name.starts_with(prefix) {
-                    return false;
-                }
-            } else if file_name != pattern {
-                return false;
-            }
-        }
-
-        true
-    }
 }
 
 // ============================================================================
@@ -1190,70 +1158,6 @@ mod tests {
     }
 
     // ------------------------------------------------------------------------
-    // SearchHints Tests
-    // ------------------------------------------------------------------------
-
-    #[test]
-    fn test_search_hints_empty_matches_all() {
-        let hints = SearchHints::new();
-
-        assert!(hints.matches("src/lib.rs"));
-        assert!(hints.matches("tests/test.py"));
-        assert!(hints.matches("foo.js"));
-    }
-
-    #[test]
-    fn test_search_hints_ext_filter() {
-        let hints = SearchHints::new().with_ext("rs");
-
-        assert!(hints.matches("src/lib.rs"));
-        assert!(hints.matches("main.rs"));
-        assert!(!hints.matches("src/lib.ts"));
-        assert!(!hints.matches("test.py"));
-    }
-
-    #[test]
-    fn test_search_hints_dir_filter() {
-        let hints = SearchHints::new().with_dir("src");
-
-        assert!(hints.matches("src/lib.rs"));
-        assert!(hints.matches("project/src/main.rs"));
-        assert!(!hints.matches("tests/test.rs"));
-        assert!(!hints.matches("lib.rs"));
-    }
-
-    #[test]
-    fn test_search_hints_file_pattern_suffix() {
-        let hints = SearchHints::new().with_file("*.test.ts");
-
-        assert!(hints.matches("src/button.test.ts"));
-        assert!(hints.matches("foo.test.ts"));
-        assert!(!hints.matches("src/button.ts"));
-        assert!(!hints.matches("test.ts"));
-    }
-
-    #[test]
-    fn test_search_hints_file_pattern_prefix() {
-        let hints = SearchHints::new().with_file("test_*");
-
-        assert!(hints.matches("tests/test_foo.py"));
-        assert!(hints.matches("test_bar.rs"));
-        assert!(!hints.matches("foo_test.py"));
-    }
-
-    #[test]
-    fn test_search_hints_combined() {
-        let hints = SearchHints::new()
-            .with_ext("rs")
-            .with_dir("src");
-
-        assert!(hints.matches("src/lib.rs"));
-        assert!(hints.matches("project/src/main.rs"));
-        assert!(!hints.matches("src/lib.ts")); // Wrong extension
-        assert!(!hints.matches("tests/test.rs")); // Wrong directory
-    }
-
-    // ------------------------------------------------------------------------
     // LayerMeta Tests
     // ------------------------------------------------------------------------
 
@@ -1277,5 +1181,214 @@ mod tests {
         meta.touch();
 
         assert!(meta.updated_at >= original);
+    }
+
+    // ========================================================================
+    // BUG DETECTION TESTS - These tests expose bugs in the current implementation
+    // ========================================================================
+
+    // ------------------------------------------------------------------------
+    // Bug #1: File index uses symbol.name instead of actual file path
+    // The symbols_by_file index incorrectly uses symbol.name (e.g., "my_function")
+    // as the key instead of the actual file path (e.g., "src/lib.rs")
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_file_index_uses_correct_path() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Create a symbol named "calculate_total" that lives in "src/math.rs"
+        let symbol = SymbolInfo {
+            name: "calculate_total".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 10,
+            end_line: 20,
+            is_exported: true,
+            behavioral_risk: RiskLevel::Low,
+            ..Default::default()
+        };
+
+        let hash = "hash_calc".to_string();
+        let file_path = PathBuf::from("src/math.rs");
+        // Use active_at() to specify the file path
+        overlay.upsert(hash.clone(), SymbolState::active_at(symbol, file_path.clone()));
+
+        // Now we can look up symbols by their actual file path
+        let symbols = overlay.get_file_symbols(&file_path);
+
+        assert!(
+            !symbols.is_empty(),
+            "get_file_symbols() should find symbols by file path when using active_at()"
+        );
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].as_symbol().unwrap().name, "calculate_total");
+    }
+
+    #[test]
+    fn test_file_index_correct_after_rebuild() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        let symbol = SymbolInfo {
+            name: "process_data".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 50,
+            is_exported: true,
+            behavioral_risk: RiskLevel::Medium,
+            ..Default::default()
+        };
+
+        let file_path = PathBuf::from("src/processor.rs");
+        overlay.upsert(
+            "hash_process".to_string(),
+            SymbolState::active_at(symbol, file_path.clone()),
+        );
+
+        // Rebuild the file index
+        overlay.rebuild_file_index();
+
+        // After rebuild, looking up by actual file path should work
+        let symbols = overlay.get_file_symbols(&file_path);
+
+        assert!(
+            !symbols.is_empty(),
+            "rebuild_file_index() should correctly rebuild the file index using stored file paths"
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    // Bug #3 (FIXED): delete() now correctly returns whether symbol existed
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_delete_returns_false_for_nonexistent() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Try to delete a symbol that was never added
+        let result = overlay.delete("nonexistent_hash_12345");
+
+        // delete() should return false when the symbol didn't exist
+        assert!(
+            !result,
+            "delete() should return false when deleting a non-existent symbol"
+        );
+    }
+
+    #[test]
+    fn test_delete_returns_true_for_existing() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Add a symbol first
+        let symbol = make_test_symbol("my_func");
+        overlay.upsert("hash123".to_string(), SymbolState::active(symbol));
+
+        // Now delete it
+        let result = overlay.delete("hash123");
+
+        // delete() should return true when the symbol existed
+        assert!(
+            result,
+            "delete() should return true when deleting an existing symbol"
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    // Bug #7 (FIXED): symbols_by_file is now auto-rebuilt after deserialization
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_symbols_by_file_rebuilt_after_deserialize() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Add a symbol with a file path
+        let symbol = make_test_symbol("my_func");
+        let file_path = PathBuf::from("src/lib.rs");
+        overlay.upsert(
+            "hash123".to_string(),
+            SymbolState::active_at(symbol, file_path.clone()),
+        );
+
+        // Also add a deletion and a move
+        overlay.delete("some_other_hash");
+        overlay.record_move(PathBuf::from("old.rs"), PathBuf::from("new.rs"));
+
+        // Verify the index has something before serialization
+        assert!(
+            !overlay.symbols_by_file.is_empty(),
+            "Precondition: symbols_by_file should have entries before serialize"
+        );
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&overlay).expect("serialize");
+        let restored: Overlay = serde_json::from_str(&json).expect("deserialize");
+
+        // After deserialization, symbols_by_file should be automatically rebuilt
+        assert!(
+            !restored.symbols_by_file.is_empty(),
+            "symbols_by_file should be automatically rebuilt after deserialization"
+        );
+
+        // Verify we can look up symbols by file path
+        let symbols = restored.get_file_symbols(&file_path);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].as_symbol().unwrap().name, "my_func");
+    }
+
+    // ------------------------------------------------------------------------
+    // Bug #12 (FIXED): 'deleted' and 'moves' fields now have serde(default)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_deserialize_with_missing_deleted_field() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Add only an active symbol (no deletions) and a move
+        let symbol = make_test_symbol("my_func");
+        overlay.upsert("hash123".to_string(), SymbolState::active(symbol));
+        overlay.record_move(PathBuf::from("a.rs"), PathBuf::from("b.rs"));
+
+        // Serialize - the 'deleted' field will be omitted because it's empty
+        let json = serde_json::to_string(&overlay).expect("serialize");
+
+        // Verify 'deleted' is not in the JSON
+        assert!(
+            !json.contains("\"deleted\""),
+            "Precondition: 'deleted' should not be in JSON when empty"
+        );
+
+        // Deserialization should work even when 'deleted' is missing
+        let result: Result<Overlay, _> = serde_json::from_str(&json);
+        assert!(
+            result.is_ok(),
+            "Deserialization should work when 'deleted' field is missing. Error: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_deserialize_with_missing_moves_field() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Add a symbol and a deletion (no moves)
+        let symbol = make_test_symbol("my_func");
+        overlay.upsert("hash123".to_string(), SymbolState::active(symbol));
+        overlay.delete("some_hash");
+
+        // Serialize - the 'moves' field will be omitted because it's empty
+        let json = serde_json::to_string(&overlay).expect("serialize");
+
+        // Verify 'moves' is not in the JSON
+        assert!(
+            !json.contains("\"moves\""),
+            "Precondition: 'moves' should not be in JSON when empty"
+        );
+
+        // Deserialization should work even when 'moves' is missing
+        let result: Result<Overlay, _> = serde_json::from_str(&json);
+        assert!(
+            result.is_ok(),
+            "Deserialization should work when 'moves' field is missing. Error: {:?}",
+            result.err()
+        );
     }
 }
