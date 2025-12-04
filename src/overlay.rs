@@ -390,7 +390,21 @@ impl Overlay {
     ///
     /// Returns the previous state if any.
     pub fn upsert(&mut self, hash: String, state: SymbolState) -> Option<SymbolState> {
-        // Update file index if this is an active symbol with a file path
+        // Clean up old file index entry if updating an existing symbol
+        if let Some(old_state) = self.symbols.get(&hash) {
+            if let Some(old_path) = old_state.file_path() {
+                // Remove hash from old file path's entry
+                if let Some(hashes) = self.symbols_by_file.get_mut(old_path) {
+                    hashes.retain(|h| h != &hash);
+                    // Clean up empty entries
+                    if hashes.is_empty() {
+                        self.symbols_by_file.remove(old_path);
+                    }
+                }
+            }
+        }
+
+        // Add to new file index if this is an active symbol with a file path
         if let Some(file_path) = state.file_path() {
             self.symbols_by_file
                 .entry(file_path.clone())
@@ -1389,6 +1403,93 @@ mod tests {
             result.is_ok(),
             "Deserialization should work when 'moves' field is missing. Error: {:?}",
             result.err()
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    // Copilot Review Fix: upsert() cleans up stale file path entries
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_upsert_cleans_up_stale_file_path_on_move() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Add a symbol at src/old.rs
+        let symbol = make_test_symbol("my_func");
+        let old_path = PathBuf::from("src/old.rs");
+        overlay.upsert(
+            "hash123".to_string(),
+            SymbolState::active_at(symbol.clone(), old_path.clone()),
+        );
+
+        // Verify it's indexed at old path
+        assert_eq!(
+            overlay.get_file_symbols(&old_path).len(),
+            1,
+            "Symbol should be indexed at old path"
+        );
+
+        // Now "move" the symbol to a new file by upserting with same hash but different path
+        let new_path = PathBuf::from("src/new.rs");
+        overlay.upsert(
+            "hash123".to_string(),
+            SymbolState::active_at(symbol, new_path.clone()),
+        );
+
+        // The old file path should no longer have any symbols
+        let old_symbols = overlay.get_file_symbols(&old_path);
+        assert!(
+            old_symbols.is_empty(),
+            "Old file path should have no symbols after move. Found: {:?}",
+            old_symbols.iter().map(|s| s.as_symbol().map(|sym| &sym.name)).collect::<Vec<_>>()
+        );
+
+        // The new file path should have the symbol
+        let new_symbols = overlay.get_file_symbols(&new_path);
+        assert_eq!(
+            new_symbols.len(),
+            1,
+            "New file path should have exactly one symbol"
+        );
+        assert_eq!(new_symbols[0].as_symbol().unwrap().name, "my_func");
+
+        // The old path entry should be completely removed from the index (not just empty)
+        assert!(
+            !overlay.symbols_by_file.contains_key(&old_path),
+            "Old file path should be completely removed from symbols_by_file"
+        );
+    }
+
+    #[test]
+    fn test_upsert_does_not_duplicate_on_same_file() {
+        let mut overlay = Overlay::new(LayerKind::Working);
+
+        // Add a symbol at src/lib.rs
+        let symbol = make_test_symbol("my_func");
+        let path = PathBuf::from("src/lib.rs");
+        overlay.upsert(
+            "hash123".to_string(),
+            SymbolState::active_at(symbol.clone(), path.clone()),
+        );
+
+        // Update the same symbol at the same path (e.g., changed content)
+        let updated_symbol = SymbolInfo {
+            name: "my_func".to_string(),
+            is_exported: true, // Changed from default false
+            ..symbol
+        };
+        overlay.upsert(
+            "hash123".to_string(),
+            SymbolState::active_at(updated_symbol, path.clone()),
+        );
+
+        // Should still only have one entry, not duplicates
+        let symbols = overlay.get_file_symbols(&path);
+        assert_eq!(
+            symbols.len(),
+            1,
+            "Should have exactly one symbol, not duplicates. Found: {}",
+            symbols.len()
         );
     }
 }
