@@ -1528,8 +1528,8 @@ mod tests {
         let meta_json = serde_json::to_string_pretty(&meta).unwrap();
         fs::write(layer_dir.join("meta.json"), meta_json).expect("Write meta");
 
-        // Write corrupted symbols.jsonl (malformed JSON)
-        fs::write(layer_dir.join("symbols.jsonl"), "{ invalid json }\n{\"hash\":\"incomplete\"").expect("Write corrupted symbols");
+        // Write corrupted symbols.jsonl (malformed JSON - truncated object simulating interrupted write)
+        fs::write(layer_dir.join("symbols.jsonl"), "{\"hash\":\"abc123\",\"state\":\"active\",\"symbol\":{\"name\":\"test\"\n{\"hash\":\"incomplete\"").expect("Write corrupted symbols");
         fs::write(layer_dir.join("deleted.txt"), "").expect("Write deleted");
         fs::write(layer_dir.join("moves.jsonl"), "").expect("Write moves");
 
@@ -1537,10 +1537,14 @@ mod tests {
         let result = cache.load_layer(LayerKind::Base);
         assert!(result.is_err(), "Should fail to load layer with corrupted symbols.jsonl");
         
-        if let Err(e) = result {
-            let err_msg = format!("{:?}", e);
-            assert!(err_msg.contains("deserialize") || err_msg.contains("JSON"), 
-                "Error should indicate JSON deserialization issue: {}", err_msg);
+        // Verify it's a deserialization error
+        match result {
+            Err(crate::McpDiffError::ExtractionFailure { message }) => {
+                assert!(message.contains("deserialize") || message.contains("symbol entry"), 
+                    "Error should indicate symbol deserialization issue: {}", message);
+            }
+            Err(e) => panic!("Expected ExtractionFailure error, got: {:?}", e),
+            Ok(_) => panic!("Should have failed"),
         }
     }
 
@@ -1567,17 +1571,21 @@ mod tests {
         // Write valid files except moves.jsonl
         fs::write(layer_dir.join("symbols.jsonl"), "").expect("Write symbols");
         fs::write(layer_dir.join("deleted.txt"), "").expect("Write deleted");
-        // Write corrupted moves.jsonl (malformed JSON)
-        fs::write(layer_dir.join("moves.jsonl"), "not valid json at all\n").expect("Write corrupted moves");
+        // Write corrupted moves.jsonl (truncated JSON array simulating interrupted write)
+        fs::write(layer_dir.join("moves.jsonl"), "{\"from_path\":\"old.rs\",\"to_path\":\"new.rs\",\"moved_at\":\n").expect("Write corrupted moves");
 
         // Should return error when loading
         let result = cache.load_layer(LayerKind::Base);
         assert!(result.is_err(), "Should fail to load layer with corrupted moves.jsonl");
         
-        if let Err(e) = result {
-            let err_msg = format!("{:?}", e);
-            assert!(err_msg.contains("deserialize") || err_msg.contains("JSON") || err_msg.contains("file move"), 
-                "Error should indicate JSON deserialization issue: {}", err_msg);
+        // Verify it's a deserialization error
+        match result {
+            Err(crate::McpDiffError::ExtractionFailure { message }) => {
+                assert!(message.contains("deserialize") || message.contains("file move"), 
+                    "Error should indicate file move deserialization issue: {}", message);
+            }
+            Err(e) => panic!("Expected ExtractionFailure error, got: {:?}", e),
+            Ok(_) => panic!("Should have failed"),
         }
     }
 
@@ -1742,6 +1750,8 @@ mod tests {
         fs::write(layer_dir.join("meta.json"), meta_json).expect("Write meta");
 
         // Write invalid UTF-8 bytes to symbols.jsonl
+        // These bytes (0xFF 0xFE 0xFD) are invalid in UTF-8 encoding
+        // and simulate file corruption or encoding issues
         let invalid_utf8: Vec<u8> = vec![0xFF, 0xFE, 0xFD, 0x00];
         std::fs::write(layer_dir.join("symbols.jsonl"), invalid_utf8).expect("Write invalid UTF-8");
         fs::write(layer_dir.join("deleted.txt"), "").expect("Write deleted");
