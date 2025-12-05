@@ -1542,4 +1542,717 @@ mod tests {
         let cli = Cli::try_parse_from(args).expect("Should parse without --allow-tests");
         assert!(!cli.allow_tests, "Default should be false");
     }
+
+    // ========================================================================
+    // Staleness Detection Tests
+    // ========================================================================
+
+    /// Test is_layer_stale returns true when no cached layer exists
+    #[test]
+    fn test_is_layer_stale_missing_layer() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // No layer exists, should be stale
+        let result = cache.is_layer_stale(LayerKind::Base);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Missing layer should be stale");
+    }
+
+    /// Test is_base_layer_stale when indexed SHA is missing
+    #[test]
+    fn test_is_base_layer_stale_no_indexed_sha() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay without indexed_sha
+        let overlay = Overlay::new(LayerKind::Base);
+        assert!(overlay.meta.indexed_sha.is_none());
+
+        // Should be stale when no indexed SHA
+        let result = cache.is_base_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer without indexed SHA should be stale");
+    }
+
+    /// Test is_branch_layer_stale when indexed SHA is missing
+    #[test]
+    fn test_is_branch_layer_stale_no_indexed_sha() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay without indexed_sha
+        let overlay = Overlay::new(LayerKind::Branch);
+        assert!(overlay.meta.indexed_sha.is_none());
+
+        // Should be stale when no indexed SHA
+        let result = cache.is_branch_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer without indexed SHA should be stale");
+    }
+
+    /// Test is_working_layer_stale when no files are tracked
+    #[test]
+    fn test_is_working_layer_stale_no_files() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay with no tracked files
+        let overlay = Overlay::new(LayerKind::Working);
+        assert!(overlay.symbols_by_file.is_empty());
+
+        // Should not be stale if no files are tracked
+        let result = cache.is_working_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Layer with no tracked files should not be stale");
+    }
+
+    /// Test is_working_layer_stale when tracked file is deleted
+    #[test]
+    fn test_is_working_layer_stale_deleted_file() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay tracking a non-existent file
+        let mut overlay = Overlay::new(LayerKind::Working);
+        overlay.symbols_by_file.insert(
+            PathBuf::from("nonexistent.rs"),
+            Vec::new(),
+        );
+
+        // Should be stale when file is missing
+        let result = cache.is_working_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer with deleted file should be stale");
+    }
+
+    /// Test is_working_layer_stale when tracked file is modified
+    #[test]
+    fn test_is_working_layer_stale_modified_file() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create a test file
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(&test_file, "fn main() {}").expect("Failed to write test file");
+
+        // Create overlay with a very old update time (before file was modified)
+        let mut overlay = Overlay::new(LayerKind::Working);
+        overlay.meta.updated_at = 1; // Very old timestamp
+        overlay.symbols_by_file.insert(
+            PathBuf::from("test.rs"),
+            Vec::new(),
+        );
+
+        // Should be stale because file mtime > overlay update time
+        let result = cache.is_working_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer should be stale when file modified after cache");
+    }
+
+    /// Test is_working_layer_stale when tracked file is NOT modified
+    #[test]
+    fn test_is_working_layer_stale_unmodified_file() {
+        use tempfile::TempDir;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create a test file
+        let test_file = temp_dir.path().join("test.rs");
+        std::fs::write(&test_file, "fn main() {}").expect("Failed to write test file");
+
+        // Create overlay with a very recent update time (after file was modified)
+        let mut overlay = Overlay::new(LayerKind::Working);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+        // Set to future time to ensure overlay is newer than the file
+        const FUTURE_OFFSET_SECONDS: u64 = 1000;
+        overlay.meta.updated_at = now + FUTURE_OFFSET_SECONDS;
+        overlay.symbols_by_file.insert(
+            PathBuf::from("test.rs"),
+            Vec::new(),
+        );
+
+        // Should NOT be stale because overlay was updated after file modification
+        let result = cache.is_working_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Layer should not be stale when updated after file");
+    }
+
+    /// Test is_layer_stale dispatching for different layer kinds
+    #[test]
+    fn test_is_layer_stale_dispatching() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // AI layer should always be stale (returns true for missing layer)
+        let ai_result = cache.is_layer_stale(LayerKind::AI);
+        assert!(ai_result.is_ok());
+        // AI layer is never persisted, so loading returns None, making it "stale"
+        assert!(ai_result.unwrap(), "AI layer should be stale (no cache)");
+    }
+
+    /// Test is_layered_index_stale when no cache exists
+    #[test]
+    fn test_is_layered_index_stale_no_cache() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // No cache exists
+        assert!(!cache.has_cached_layers());
+
+        // Should be stale
+        let result = cache.is_layered_index_stale();
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Index should be stale when no cache exists");
+    }
+
+    /// Test is_layered_index_stale when base layer is stale
+    #[test]
+    fn test_is_layered_index_stale_base_stale() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create a layered index with base layer (no indexed_sha = stale)
+        let index = LayeredIndex::new();
+        cache.save_layered_index(&index).expect("Failed to save");
+
+        // Base layer has no indexed_sha, so it's stale
+        let result = cache.is_layered_index_stale();
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Index should be stale when base layer is stale");
+    }
+
+    // ========================================================================
+    // Git Integration Tests for Staleness Detection
+    // ========================================================================
+
+    /// Test is_base_layer_stale with actual git repo - HEAD changes
+    #[test]
+    fn test_is_base_layer_stale_head_changed() {
+        use tempfile::TempDir;
+        use std::process::Command;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Initialize a git repository with main as default branch
+        Command::new("git")
+            .args(&["init", "-b", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to init git");
+
+        // Configure git user for commits
+        Command::new("git")
+            .args(&["config", "user.email", "test@example.com"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git email");
+
+        Command::new("git")
+            .args(&["config", "user.name", "Test User"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git name");
+
+        // Create initial commit on main
+        std::fs::write(temp_dir.path().join("test.txt"), "initial").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "test.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "initial commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        // Get the current SHA
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let initial_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        let cache = CacheDir {
+            root: temp_dir.path().join(".semfora"),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay with the initial SHA
+        let mut overlay = Overlay::new(LayerKind::Base);
+        overlay.meta.indexed_sha = Some(initial_sha.clone());
+
+        // Should NOT be stale - SHA matches
+        let result = cache.is_base_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Layer should not be stale when SHA matches");
+
+        // Create a new commit
+        std::fs::write(temp_dir.path().join("test.txt"), "modified").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "test.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "second commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        // Now HEAD has moved, layer should be stale
+        let result = cache.is_base_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer should be stale when HEAD has moved");
+    }
+
+    /// Test is_branch_layer_stale with actual git repo - branch HEAD moves
+    #[test]
+    fn test_is_branch_layer_stale_head_moved() {
+        use tempfile::TempDir;
+        use std::process::Command;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Initialize a git repository with main as default branch
+        Command::new("git")
+            .args(&["init", "-b", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to init git");
+
+        // Configure git
+        Command::new("git")
+            .args(&["config", "user.email", "test@example.com"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git email");
+
+        Command::new("git")
+            .args(&["config", "user.name", "Test User"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git name");
+
+        // Create initial commit
+        std::fs::write(temp_dir.path().join("test.txt"), "initial").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "test.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "initial commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        // Create a branch
+        Command::new("git")
+            .args(&["checkout", "-b", "feature"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to create branch");
+
+        // Get the current SHA
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let branch_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        let cache = CacheDir {
+            root: temp_dir.path().join(".semfora"),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay with the branch SHA
+        let mut overlay = Overlay::new(LayerKind::Branch);
+        overlay.meta.indexed_sha = Some(branch_sha.clone());
+
+        // Should NOT be stale - SHA matches
+        let result = cache.is_branch_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Layer should not be stale when SHA matches");
+
+        // Create a new commit on branch
+        std::fs::write(temp_dir.path().join("feature.txt"), "feature").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "feature.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "feature commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        // Now HEAD has moved, layer should be stale
+        let result = cache.is_branch_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer should be stale when branch HEAD has moved");
+    }
+
+    /// Test is_branch_layer_stale with actual git repo - merge base changes (rebase)
+    #[test]
+    fn test_is_branch_layer_stale_merge_base_changed() {
+        use tempfile::TempDir;
+        use std::process::Command;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Initialize a git repository with main as default branch
+        Command::new("git")
+            .args(&["init", "-b", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to init git");
+
+        // Configure git
+        Command::new("git")
+            .args(&["config", "user.email", "test@example.com"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git email");
+
+        Command::new("git")
+            .args(&["config", "user.name", "Test User"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git name");
+
+        // Create initial commit on main
+        std::fs::write(temp_dir.path().join("base.txt"), "base").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "base.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "base commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        // Get initial merge base (same as HEAD at this point)
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let initial_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Create a branch
+        Command::new("git")
+            .args(&["checkout", "-b", "feature"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to create branch");
+
+        // Make a commit on feature
+        std::fs::write(temp_dir.path().join("feature.txt"), "feature").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "feature.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "feature commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let feature_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Get the current merge-base (should be initial commit)
+        let output = Command::new("git")
+            .args(&["merge-base", "HEAD", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get merge-base");
+        let current_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(initial_merge_base, current_merge_base, "Merge base should still be initial commit");
+
+        // Switch to main and add another commit
+        Command::new("git")
+            .args(&["checkout", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to checkout main");
+
+        std::fs::write(temp_dir.path().join("main.txt"), "main progress").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "main.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "main progress"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let new_main_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Switch back to feature
+        Command::new("git")
+            .args(&["checkout", "feature"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to checkout feature");
+
+        let cache = CacheDir {
+            root: temp_dir.path().join(".semfora"),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay with current HEAD and old merge base
+        let mut overlay = Overlay::new(LayerKind::Branch);
+        overlay.meta.indexed_sha = Some(feature_sha.clone());
+        overlay.meta.merge_base_sha = Some(initial_merge_base.clone());
+
+        // Merge base hasn't changed yet (still at initial commit even after main moved forward)
+        // The merge-base of feature and main is still the initial commit
+        let output = Command::new("git")
+            .args(&["merge-base", "HEAD", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get merge-base");
+        let actual_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(initial_merge_base, actual_merge_base, "Merge base should still be initial commit after main moves");
+
+        let result = cache.is_branch_layer_stale(&overlay);
+        assert!(result.is_ok());
+        // Merge-base is still the same, so should NOT be stale
+        assert!(!result.unwrap(), "Layer should not be stale when merge-base hasn't changed");
+
+        // Now rebase onto main - this will change the merge-base
+        let _rebase_result = Command::new("git")
+            .args(&["rebase", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to rebase");
+
+        // After rebase, HEAD SHA has changed (feature commit was rewritten)
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let rebased_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_ne!(feature_sha, rebased_sha, "SHA should change after rebase");
+
+        // After rebase, merge-base is now the new main SHA (where we rebased onto)
+        let output = Command::new("git")
+            .args(&["merge-base", "HEAD", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get merge-base");
+        let new_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(new_main_sha, new_merge_base, "After rebase, merge-base should be the new main HEAD");
+
+        // The layer should be stale because HEAD changed (from original feature_sha to rebased_sha)
+        let result = cache.is_branch_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Layer should be stale after rebase (HEAD changed)");
+    }
+
+    /// Test edge case: missing git reference
+    #[test]
+    fn test_is_base_layer_stale_missing_git_ref() {
+        use tempfile::TempDir;
+        use std::process::Command;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Initialize a git repository with main as default branch
+        Command::new("git")
+            .args(&["init", "-b", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to init git");
+
+        let cache = CacheDir {
+            root: temp_dir.path().join(".semfora"),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay with indexed SHA but no commits in repo (no main/master)
+        let mut overlay = Overlay::new(LayerKind::Base);
+        overlay.meta.indexed_sha = Some("abc123".to_string());
+
+        // Should return an error or report stale when git ref is missing
+        let result = cache.is_base_layer_stale(&overlay);
+        // The function will fail when trying to detect base branch or get ref SHA
+        match result {
+            Err(_) => {
+                // Error is acceptable - no commits yet
+            }
+            Ok(is_stale) => {
+                // If it returns Ok, it should report stale
+                assert!(is_stale, "Should report stale when git ref is missing");
+            }
+        }
+    }
+
+    /// Test edge case: detached HEAD
+    #[test]
+    fn test_is_branch_layer_stale_detached_head() {
+        use tempfile::TempDir;
+        use std::process::Command;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        
+        // Initialize a git repository with main as default branch
+        Command::new("git")
+            .args(&["init", "-b", "main"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to init git");
+
+        // Configure git
+        Command::new("git")
+            .args(&["config", "user.email", "test@example.com"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git email");
+
+        Command::new("git")
+            .args(&["config", "user.name", "Test User"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to config git name");
+
+        // Create initial commit
+        std::fs::write(temp_dir.path().join("test.txt"), "initial").expect("Failed to write file");
+        Command::new("git")
+            .args(&["add", "test.txt"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git add");
+
+        Command::new("git")
+            .args(&["commit", "-m", "initial commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to git commit");
+
+        // Get the commit SHA
+        let output = Command::new("git")
+            .args(&["rev-parse", "HEAD"])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to get HEAD");
+        let commit_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Detach HEAD
+        Command::new("git")
+            .args(&["checkout", &commit_sha])
+            .current_dir(temp_dir.path())
+            .output()
+            .expect("Failed to detach HEAD");
+
+        let cache = CacheDir {
+            root: temp_dir.path().join(".semfora"),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create overlay with the current SHA
+        let mut overlay = Overlay::new(LayerKind::Branch);
+        overlay.meta.indexed_sha = Some(commit_sha.clone());
+
+        // Even in detached HEAD state, if SHA matches, it shouldn't be stale
+        let result = cache.is_branch_layer_stale(&overlay);
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Layer should not be stale in detached HEAD if SHA matches");
+    }
 }
