@@ -43,6 +43,7 @@ pub mod benchmark;
 pub mod cache;
 pub mod cli;
 pub mod detectors;
+pub mod drift;
 pub mod error;
 pub mod extract;
 pub mod git;
@@ -105,3 +106,6 @@ pub use search::{is_test_file, lang_from_extension, SearchHints};
 
 // Re-export ripgrep types (Phase 2.5 - SEM-46)
 pub use ripgrep::{BlockLine, MergedBlock, RipgrepSearcher, SearchMatch, SearchOptions};
+
+// Re-export drift detection types (Phase 2.5 - SEM-47)
+pub use drift::{count_tracked_files, DriftDetector, DriftStatus, UpdateStrategy};
