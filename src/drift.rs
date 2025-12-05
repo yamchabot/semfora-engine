@@ -219,7 +219,8 @@ impl UpdateStrategy {
         match self {
             Self::Fresh => "No update needed".to_string(),
             Self::Incremental(files) => {
-                format!("Incremental update ({} files)", files.len())
+                let file_word = if files.len() == 1 { "file" } else { "files" };
+                format!("Incremental update ({} {})", files.len(), file_word)
             }
             Self::Rebase => "Rebase overlay".to_string(),
             Self::FullRebuild => "Full rebuild required".to_string(),
