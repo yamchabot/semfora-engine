@@ -268,14 +268,29 @@ impl CacheDir {
         self.root.join("layers")
     }
 
-    /// Path to a specific layer file
+    /// Path to a specific layer's directory
     ///
     /// AI layer is not persisted - returns None for LayerKind::AI
-    pub fn layer_path(&self, kind: LayerKind) -> Option<PathBuf> {
+    pub fn layer_dir(&self, kind: LayerKind) -> Option<PathBuf> {
         match kind {
             LayerKind::AI => None, // AI layer is ephemeral
-            _ => Some(self.layers_dir().join(format!("{}.json", kind.as_str()))),
+            _ => Some(self.layers_dir().join(kind.as_str())),
         }
+    }
+
+    /// Path to a layer's symbols.jsonl file
+    pub fn layer_symbols_path(&self, kind: LayerKind) -> Option<PathBuf> {
+        self.layer_dir(kind).map(|d| d.join("symbols.jsonl"))
+    }
+
+    /// Path to a layer's deleted.txt file
+    pub fn layer_deleted_path(&self, kind: LayerKind) -> Option<PathBuf> {
+        self.layer_dir(kind).map(|d| d.join("deleted.txt"))
+    }
+
+    /// Path to a layer's moves.jsonl file
+    pub fn layer_moves_path(&self, kind: LayerKind) -> Option<PathBuf> {
+        self.layer_dir(kind).map(|d| d.join("moves.jsonl"))
     }
 
     /// Path to layered index metadata file
@@ -283,9 +298,26 @@ impl CacheDir {
         self.layers_dir().join("meta.json")
     }
 
+    /// Path to head_sha file (last indexed commit)
+    pub fn head_sha_path(&self) -> PathBuf {
+        self.root.join("head_sha")
+    }
+
     /// Check if cached layers exist
     pub fn has_cached_layers(&self) -> bool {
-        self.layers_dir().exists() && self.layer_path(LayerKind::Base).map(|p| p.exists()).unwrap_or(false)
+        self.layers_dir().exists()
+            && self.layer_dir(LayerKind::Base).map(|p| p.exists()).unwrap_or(false)
+    }
+
+    /// Initialize layer directories
+    pub fn init_layer_dirs(&self) -> Result<()> {
+        fs::create_dir_all(self.layers_dir())?;
+        for kind in [LayerKind::Base, LayerKind::Branch, LayerKind::Working] {
+            if let Some(dir) = self.layer_dir(kind) {
+                fs::create_dir_all(dir)?;
+            }
+        }
+        Ok(())
     }
 
     // ========== Utility methods ==========
@@ -481,11 +513,15 @@ impl CacheDir {
 
     // ========== Layer persistence (SEM-45) ==========
 
-    /// Save a single layer overlay to cache
+    /// Save a single layer overlay to cache using separate files:
+    /// - symbols.jsonl: Symbol states (one JSON object per line)
+    /// - deleted.txt: Deleted symbol hashes (one per line)
+    /// - moves.jsonl: File moves (one JSON object per line)
     ///
-    /// Uses atomic write (temp file + rename) for crash safety.
     /// AI layer is not persisted and returns Ok(()) immediately.
     pub fn save_layer(&self, overlay: &Overlay) -> Result<()> {
+        use std::io::Write;
+
         let kind = match overlay.meta.kind {
             Some(k) => k,
             None => return Err(crate::McpDiffError::ExtractionFailure {
@@ -493,47 +529,154 @@ impl CacheDir {
             }),
         };
 
-        let path = match self.layer_path(kind) {
-            Some(p) => p,
+        let layer_dir = match self.layer_dir(kind) {
+            Some(d) => d,
             None => return Ok(()), // AI layer - skip
         };
 
-        // Ensure layers directory exists
-        fs::create_dir_all(self.layers_dir())?;
+        // Ensure layer directory exists
+        fs::create_dir_all(&layer_dir)?;
 
-        // Atomic write: write to temp file, then rename
-        let temp_path = path.with_extension("json.tmp");
-        let json = serde_json::to_string_pretty(overlay).map_err(|e| {
+        // Write symbols.jsonl
+        let symbols_path = layer_dir.join("symbols.jsonl");
+        {
+            let mut file = fs::File::create(&symbols_path)?;
+            for (hash, state) in &overlay.symbols {
+                let entry = SymbolEntry { hash: hash.clone(), state: state.clone() };
+                let json = serde_json::to_string(&entry).map_err(|e| {
+                    crate::McpDiffError::ExtractionFailure {
+                        message: format!("Failed to serialize symbol {}: {}", hash, e),
+                    }
+                })?;
+                writeln!(file, "{}", json)?;
+            }
+        }
+
+        // Write deleted.txt
+        let deleted_path = layer_dir.join("deleted.txt");
+        {
+            let mut file = fs::File::create(&deleted_path)?;
+            for hash in &overlay.deleted {
+                writeln!(file, "{}", hash)?;
+            }
+        }
+
+        // Write moves.jsonl
+        let moves_path = layer_dir.join("moves.jsonl");
+        {
+            let mut file = fs::File::create(&moves_path)?;
+            for file_move in &overlay.moves {
+                let json = serde_json::to_string(&file_move).map_err(|e| {
+                    crate::McpDiffError::ExtractionFailure {
+                        message: format!("Failed to serialize file move: {}", e),
+                    }
+                })?;
+                writeln!(file, "{}", json)?;
+            }
+        }
+
+        // Write layer metadata
+        let meta_path = layer_dir.join("meta.json");
+        let meta_json = serde_json::to_string_pretty(&overlay.meta).map_err(|e| {
             crate::McpDiffError::ExtractionFailure {
-                message: format!("Failed to serialize {} layer: {}", kind, e),
+                message: format!("Failed to serialize {} layer meta: {}", kind, e),
             }
         })?;
-
-        fs::write(&temp_path, &json)?;
-        fs::rename(&temp_path, &path)?;
+        fs::write(&meta_path, &meta_json)?;
 
         Ok(())
     }
 
     /// Load a single layer overlay from cache
     ///
-    /// Returns None if layer file doesn't exist or AI layer is requested.
+    /// Returns None if layer directory doesn't exist or AI layer is requested.
     pub fn load_layer(&self, kind: LayerKind) -> Result<Option<Overlay>> {
-        let path = match self.layer_path(kind) {
-            Some(p) => p,
+        use std::io::BufRead;
+
+        let layer_dir = match self.layer_dir(kind) {
+            Some(d) => d,
             None => return Ok(None), // AI layer - not persisted
         };
 
-        if !path.exists() {
+        if !layer_dir.exists() {
             return Ok(None);
         }
 
-        let json = fs::read_to_string(&path)?;
-        let overlay: Overlay = serde_json::from_str(&json).map_err(|e| {
-            crate::McpDiffError::ExtractionFailure {
-                message: format!("Failed to deserialize {} layer: {}", kind, e),
+        // Load layer metadata
+        let meta_path = layer_dir.join("meta.json");
+        let meta: crate::overlay::LayerMeta = if meta_path.exists() {
+            let json = fs::read_to_string(&meta_path)?;
+            serde_json::from_str(&json).map_err(|e| {
+                crate::McpDiffError::ExtractionFailure {
+                    message: format!("Failed to deserialize {} layer meta: {}", kind, e),
+                }
+            })?
+        } else {
+            crate::overlay::LayerMeta::new(kind)
+        };
+
+        // Load symbols from symbols.jsonl
+        let mut symbols = std::collections::HashMap::new();
+        let symbols_path = layer_dir.join("symbols.jsonl");
+        if symbols_path.exists() {
+            let file = fs::File::open(&symbols_path)?;
+            let reader = std::io::BufReader::new(file);
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let entry: SymbolEntry = serde_json::from_str(&line).map_err(|e| {
+                    crate::McpDiffError::ExtractionFailure {
+                        message: format!("Failed to deserialize symbol entry: {}", e),
+                    }
+                })?;
+                symbols.insert(entry.hash, entry.state);
             }
-        })?;
+        }
+
+        // Load deleted hashes from deleted.txt
+        let mut deleted = std::collections::HashSet::new();
+        let deleted_path = layer_dir.join("deleted.txt");
+        if deleted_path.exists() {
+            let content = fs::read_to_string(&deleted_path)?;
+            for line in content.lines() {
+                let hash = line.trim();
+                if !hash.is_empty() {
+                    deleted.insert(hash.to_string());
+                }
+            }
+        }
+
+        // Load moves from moves.jsonl
+        let mut moves = Vec::new();
+        let moves_path = layer_dir.join("moves.jsonl");
+        if moves_path.exists() {
+            let file = fs::File::open(&moves_path)?;
+            let reader = std::io::BufReader::new(file);
+            for line in reader.lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let file_move: crate::overlay::FileMove = serde_json::from_str(&line).map_err(|e| {
+                    crate::McpDiffError::ExtractionFailure {
+                        message: format!("Failed to deserialize file move: {}", e),
+                    }
+                })?;
+                moves.push(file_move);
+            }
+        }
+
+        // Construct the overlay and rebuild file index
+        let mut overlay = Overlay {
+            meta,
+            symbols,
+            deleted,
+            moves,
+            symbols_by_file: std::collections::HashMap::new(),
+        };
+        overlay.rebuild_file_index();
 
         Ok(Some(overlay))
     }
@@ -747,6 +890,15 @@ pub struct LayeredIndexMeta {
     /// Merge base SHA (where branch diverged from base)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merge_base: Option<String>,
+}
+
+/// Entry in symbols.jsonl for layer persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SymbolEntry {
+    /// Symbol hash
+    hash: String,
+    /// Symbol state
+    state: crate::overlay::SymbolState,
 }
 
 /// Lightweight symbol index entry for query-driven access
@@ -991,26 +1143,46 @@ mod tests {
             PathBuf::from("/tmp/semfora/abc123/layers")
         );
 
-        // Test layer paths for each kind
+        // Test layer directory paths for each kind
         assert_eq!(
-            cache.layer_path(LayerKind::Base),
-            Some(PathBuf::from("/tmp/semfora/abc123/layers/base.json"))
+            cache.layer_dir(LayerKind::Base),
+            Some(PathBuf::from("/tmp/semfora/abc123/layers/base"))
         );
         assert_eq!(
-            cache.layer_path(LayerKind::Branch),
-            Some(PathBuf::from("/tmp/semfora/abc123/layers/branch.json"))
+            cache.layer_dir(LayerKind::Branch),
+            Some(PathBuf::from("/tmp/semfora/abc123/layers/branch"))
         );
         assert_eq!(
-            cache.layer_path(LayerKind::Working),
-            Some(PathBuf::from("/tmp/semfora/abc123/layers/working.json"))
+            cache.layer_dir(LayerKind::Working),
+            Some(PathBuf::from("/tmp/semfora/abc123/layers/working"))
         );
         // AI layer should return None (ephemeral)
-        assert_eq!(cache.layer_path(LayerKind::AI), None);
+        assert_eq!(cache.layer_dir(LayerKind::AI), None);
+
+        // Test layer file paths
+        assert_eq!(
+            cache.layer_symbols_path(LayerKind::Base),
+            Some(PathBuf::from("/tmp/semfora/abc123/layers/base/symbols.jsonl"))
+        );
+        assert_eq!(
+            cache.layer_deleted_path(LayerKind::Base),
+            Some(PathBuf::from("/tmp/semfora/abc123/layers/base/deleted.txt"))
+        );
+        assert_eq!(
+            cache.layer_moves_path(LayerKind::Base),
+            Some(PathBuf::from("/tmp/semfora/abc123/layers/base/moves.jsonl"))
+        );
 
         // Test layer meta path
         assert_eq!(
             cache.layer_meta_path(),
             PathBuf::from("/tmp/semfora/abc123/layers/meta.json")
+        );
+
+        // Test head_sha path
+        assert_eq!(
+            cache.head_sha_path(),
+            PathBuf::from("/tmp/semfora/abc123/head_sha")
         );
     }
 
@@ -1032,9 +1204,13 @@ mod tests {
         // Save the layer
         cache.save_layer(&overlay).expect("Failed to save layer");
 
-        // Verify the file exists
-        let path = cache.layer_path(LayerKind::Base).unwrap();
-        assert!(path.exists(), "Layer file should exist after save");
+        // Verify the directory and files exist
+        let layer_dir = cache.layer_dir(LayerKind::Base).unwrap();
+        assert!(layer_dir.exists(), "Layer directory should exist after save");
+        assert!(layer_dir.join("symbols.jsonl").exists(), "symbols.jsonl should exist");
+        assert!(layer_dir.join("deleted.txt").exists(), "deleted.txt should exist");
+        assert!(layer_dir.join("moves.jsonl").exists(), "moves.jsonl should exist");
+        assert!(layer_dir.join("meta.json").exists(), "meta.json should exist");
 
         // Load the layer back
         let loaded = cache.load_layer(LayerKind::Base).expect("Failed to load layer");
@@ -1164,5 +1340,204 @@ mod tests {
         assert_eq!(restored.base_indexed_sha, Some("abc123".to_string()));
         assert_eq!(restored.branch_indexed_sha, None);
         assert_eq!(restored.merge_base, Some("def456".to_string()));
+    }
+
+    // ========================================================================
+    // TDD Tests from SEM-45 Ticket Requirements
+    // ========================================================================
+
+    /// TDD: test_layer_paths_created
+    /// Verifies that layer directories are created on save
+    #[test]
+    fn test_layer_paths_created() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Initially no layer directories
+        assert!(!cache.layers_dir().exists());
+
+        // Save a layer
+        let overlay = Overlay::new(LayerKind::Base);
+        cache.save_layer(&overlay).expect("Failed to save layer");
+
+        // Layer paths should now exist
+        assert!(cache.layers_dir().exists());
+        assert!(cache.layer_dir(LayerKind::Base).unwrap().exists());
+        assert!(cache.layer_symbols_path(LayerKind::Base).unwrap().exists());
+        assert!(cache.layer_deleted_path(LayerKind::Base).unwrap().exists());
+        assert!(cache.layer_moves_path(LayerKind::Base).unwrap().exists());
+    }
+
+    /// TDD: test_layer_persist_reload
+    /// Verifies layers persist correctly and reload with same data
+    #[test]
+    fn test_layer_persist_reload() {
+        use tempfile::TempDir;
+        use crate::overlay::SymbolState;
+        use crate::schema::{SymbolInfo, SymbolKind, RiskLevel};
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create an overlay with symbols, deletions, and moves
+        let mut overlay = Overlay::new(LayerKind::Base);
+        overlay.meta.indexed_sha = Some("abc123".to_string());
+
+        // Add a symbol
+        let symbol = SymbolInfo {
+            name: "test_func".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 10,
+            end_line: 20,
+            behavioral_risk: RiskLevel::Low,
+            ..Default::default()
+        };
+        overlay.upsert(
+            "hash_001".to_string(),
+            SymbolState::active_at(symbol, PathBuf::from("src/lib.rs")),
+        );
+
+        // Add a deletion
+        overlay.delete("deleted_hash");
+
+        // Add a file move
+        overlay.record_move(PathBuf::from("old.rs"), PathBuf::from("new.rs"));
+
+        // Save
+        cache.save_layer(&overlay).expect("Failed to save");
+
+        // Reload
+        let loaded = cache.load_layer(LayerKind::Base)
+            .expect("Failed to load")
+            .expect("Should have layer");
+
+        // Verify data matches
+        assert_eq!(loaded.meta.indexed_sha, Some("abc123".to_string()));
+
+        // Symbols includes both active and deleted (delete() adds to symbols map too)
+        // We have 1 active symbol + 1 deleted symbol = 2 total entries
+        assert_eq!(loaded.symbols.len(), 2);
+        assert!(loaded.symbols.contains_key("hash_001"));
+        // The deleted symbol is tracked in both deleted set and symbols map
+        assert!(loaded.symbols.contains_key("deleted_hash"));
+        assert!(loaded.deleted.contains("deleted_hash"));
+        assert_eq!(loaded.moves.len(), 1);
+        assert_eq!(loaded.moves[0].from_path, PathBuf::from("old.rs"));
+        assert_eq!(loaded.moves[0].to_path, PathBuf::from("new.rs"));
+    }
+
+    /// TDD: test_backward_compat_v1_cache
+    /// Verifies existing v1 sharded caches still work alongside new layer system
+    #[test]
+    fn test_backward_compat_v1_cache() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Initialize creates all directories including layers
+        cache.init().expect("Failed to init");
+
+        // V1 directories should exist
+        assert!(cache.modules_dir().exists());
+        assert!(cache.symbols_dir().exists());
+        assert!(cache.graphs_dir().exists());
+        assert!(cache.diffs_dir().exists());
+
+        // V2 layers directory should also exist
+        assert!(cache.layers_dir().exists());
+
+        // Both systems can coexist
+        assert!(cache.root.exists());
+    }
+
+    /// TDD: test_schema_version_bump
+    /// Verifies schema version is 2.0 for layered index support
+    #[test]
+    fn test_schema_version_bump() {
+        assert_eq!(SCHEMA_VERSION, "2.0", "Schema version should be 2.0 for SEM-45");
+    }
+
+    /// TDD: test_meta_json_structure
+    /// Verifies meta.json has correct structure
+    #[test]
+    fn test_meta_json_structure() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test_hash".to_string(),
+        };
+
+        // Create and save a layered index
+        let mut index = LayeredIndex::new();
+        index.base.meta.indexed_sha = Some("base_sha".to_string());
+        index.branch.meta.indexed_sha = Some("branch_sha".to_string());
+        index.base.meta.merge_base_sha = Some("merge_base".to_string());
+
+        cache.save_layered_index(&index).expect("Failed to save");
+
+        // Read and verify meta.json structure
+        let meta_content = std::fs::read_to_string(cache.layer_meta_path()).expect("Read meta");
+        let meta: LayeredIndexMeta = serde_json::from_str(&meta_content).expect("Parse meta");
+
+        assert_eq!(meta.schema_version, SCHEMA_VERSION);
+        assert!(meta.saved_at.len() > 0);
+        assert_eq!(meta.base_indexed_sha, Some("base_sha".to_string()));
+        assert_eq!(meta.branch_indexed_sha, Some("branch_sha".to_string()));
+        assert_eq!(meta.merge_base, Some("merge_base".to_string()));
+    }
+
+    /// TDD: test_test_file_exclusion_default
+    /// Verifies test files are detected correctly
+    #[test]
+    fn test_test_file_exclusion_default() {
+        use crate::search::is_test_file;
+
+        // Should be detected as test files
+        assert!(is_test_file("tests/test_api.rs"));
+        assert!(is_test_file("src/lib_test.rs"));
+        assert!(is_test_file("src/button.test.ts"));
+        assert!(is_test_file("__tests__/component.tsx"));
+        assert!(is_test_file("test_utils.py"));
+
+        // Should NOT be detected as test files
+        assert!(!is_test_file("src/lib.rs"));
+        assert!(!is_test_file("src/main.py"));
+        assert!(!is_test_file("src/index.ts"));
+    }
+
+    /// TDD: test_test_file_inclusion_flag
+    /// Verifies --allow-tests flag exists in CLI
+    #[test]
+    fn test_test_file_inclusion_flag() {
+        use crate::cli::Cli;
+        use clap::Parser;
+
+        // Test that --allow-tests flag is recognized
+        let args = vec!["semfora-mcp", "--allow-tests", "test.rs"];
+        let cli = Cli::try_parse_from(args).expect("Should parse with --allow-tests");
+        assert!(cli.allow_tests, "--allow-tests should be true");
+
+        // Without the flag, default is false
+        let args = vec!["semfora-mcp", "test.rs"];
+        let cli = Cli::try_parse_from(args).expect("Should parse without --allow-tests");
+        assert!(!cli.allow_tests, "Default should be false");
     }
 }

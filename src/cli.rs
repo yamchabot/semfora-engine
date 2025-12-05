@@ -78,6 +78,17 @@ pub struct Cli {
     #[arg(long, default_value = "10")]
     pub max_depth: usize,
 
+    /// Include test files in analysis (excluded by default)
+    ///
+    /// By default, files matching test patterns are excluded:
+    /// - Rust: *_test.rs, tests/**
+    /// - TypeScript/JS: *.test.ts, *.spec.ts, __tests__/**
+    /// - Python: test_*.py, *_test.py, tests/**
+    /// - Go: *_test.go
+    /// - Java: *Test.java, *Tests.java
+    #[arg(long)]
+    pub allow_tests: bool,
+
     // ============================================
     // Sharded Output Options
     // ============================================

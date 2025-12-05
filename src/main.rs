@@ -15,7 +15,7 @@ use semfora_mcp::{
     encode_toon, encode_toon_directory, extract, format_analysis_compact, format_analysis_report,
     generate_repo_overview, Cli, Lang, McpDiffError, OutputFormat, SemanticSummary, TokenAnalyzer,
     CacheDir, ShardWriter, get_cache_base_dir, list_cached_repos, prune_old_caches,
-    analyze_repo_tokens,
+    analyze_repo_tokens, is_test_file,
 };
 
 fn main() -> ExitCode {
@@ -743,6 +743,14 @@ fn collect_files_recursive(
 
                 // Check if language is supported
                 if Lang::from_extension(ext).is_ok() {
+                    // Skip test files unless --allow-tests is set
+                    if !cli.allow_tests {
+                        if let Some(path_str) = path.to_str() {
+                            if is_test_file(path_str) {
+                                continue;
+                            }
+                        }
+                    }
                     files.push(path);
                 }
             }

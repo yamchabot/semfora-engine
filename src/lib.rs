@@ -100,4 +100,4 @@ pub use overlay::{
 };
 
 // Re-export search types
-pub use search::{lang_from_extension, SearchHints};
+pub use search::{is_test_file, lang_from_extension, SearchHints};

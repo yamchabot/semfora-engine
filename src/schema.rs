@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Current schema version for output stability
-pub const SCHEMA_VERSION: &str = "1.0";
+/// 2.0 - Added layered index support (SEM-45)
+pub const SCHEMA_VERSION: &str = "2.0";
 
 // FNV-1a constants for 64-bit hash
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;

@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 use semfora_mcp::{
-    CacheDir, LayerKind, LayeredIndex, Overlay, SymbolState,
+    CacheDir, LayerKind, LayeredIndex, SymbolState,
     schema::{SymbolInfo, SymbolKind, RiskLevel},
 };
 
@@ -108,11 +108,15 @@ fn main() -> semfora_mcp::Result<()> {
     cache.save_layered_index(&index)?;
 
     println!("  Saved to: {}", cache.layers_dir().display());
-    println!("  Files created:");
+    println!("  Directories created:");
     for kind in [LayerKind::Base, LayerKind::Branch, LayerKind::Working] {
-        if let Some(path) = cache.layer_path(kind) {
-            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            println!("    - {}.json ({} bytes)", kind.as_str(), size);
+        if let Some(dir) = cache.layer_dir(kind) {
+            println!("    - {}/", kind.as_str());
+            for file in ["symbols.jsonl", "deleted.txt", "moves.jsonl", "meta.json"] {
+                let path = dir.join(file);
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                println!("        - {} ({} bytes)", file, size);
+            }
         }
     }
     let meta_size = std::fs::metadata(cache.layer_meta_path()).map(|m| m.len()).unwrap_or(0);
@@ -193,11 +197,16 @@ fn main() -> semfora_mcp::Result<()> {
     println!();
 
     // =========================================================================
-    // Step 7: Show actual JSON content
+    // Step 7: Show actual file contents
     // =========================================================================
-    println!("Step 7: Actual JSON content (base.json):");
-    if let Some(path) = cache.layer_path(LayerKind::Base) {
-        let content = std::fs::read_to_string(&path)?;
+    println!("Step 7: Actual file contents:");
+    if let Some(dir) = cache.layer_dir(LayerKind::Base) {
+        println!("\n--- base/symbols.jsonl ---");
+        let content = std::fs::read_to_string(dir.join("symbols.jsonl"))?;
+        println!("{}", content);
+
+        println!("--- base/meta.json ---");
+        let content = std::fs::read_to_string(dir.join("meta.json"))?;
         println!("{}", content);
     }
 
