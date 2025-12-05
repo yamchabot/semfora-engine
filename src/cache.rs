@@ -697,7 +697,8 @@ impl CacheDir {
             saved_at: chrono::Utc::now().to_rfc3339(),
             base_indexed_sha: index.base.meta.indexed_sha.clone(),
             branch_indexed_sha: index.branch.meta.indexed_sha.clone(),
-            merge_base: index.base.meta.merge_base_sha.clone(),
+            // merge_base_sha is stored on the branch layer (where branch diverged from base)
+            merge_base: index.branch.meta.merge_base_sha.clone(),
         };
 
         let meta_json = serde_json::to_string_pretty(&meta).map_err(|e| {
@@ -1489,7 +1490,8 @@ mod tests {
         let mut index = LayeredIndex::new();
         index.base.meta.indexed_sha = Some("base_sha".to_string());
         index.branch.meta.indexed_sha = Some("branch_sha".to_string());
-        index.base.meta.merge_base_sha = Some("merge_base".to_string());
+        // merge_base_sha belongs on the branch layer (where branch diverged from base)
+        index.branch.meta.merge_base_sha = Some("merge_base".to_string());
 
         cache.save_layered_index(&index).expect("Failed to save");
 
