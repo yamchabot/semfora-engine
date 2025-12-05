@@ -820,9 +820,14 @@ mod tests {
     #[test]
     fn test_update_strategy_description() {
         assert_eq!(UpdateStrategy::Fresh.description(), "No update needed");
+        // Singular "file" for 1 file
         assert!(UpdateStrategy::Incremental(vec![PathBuf::from("a.rs")])
             .description()
-            .contains("1 files"));
+            .contains("1 file"));
+        // Plural "files" for multiple files
+        assert!(UpdateStrategy::Incremental(vec![PathBuf::from("a.rs"), PathBuf::from("b.rs")])
+            .description()
+            .contains("2 files"));
         assert_eq!(UpdateStrategy::Rebase.description(), "Rebase overlay");
         assert_eq!(
             UpdateStrategy::FullRebuild.description(),

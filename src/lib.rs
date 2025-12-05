@@ -101,6 +101,9 @@ pub use overlay::{
     LayeredIndexStats, Overlay, SymbolState,
 };
 
+// Re-export layered query types (Phase 2.5 - SEM-53)
+pub use overlay::{LayeredSearchOptions, LayeredSearchResult};
+
 // Re-export search types
 pub use search::{is_test_file, lang_from_extension, SearchHints};
 

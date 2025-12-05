@@ -696,6 +696,378 @@ pub struct LayeredIndexStats {
 }
 
 // ============================================================================
+// Layered Query Resolution (SEM-53)
+// ============================================================================
+
+/// Options for searching symbols across layers
+///
+/// All filters are optional. When not specified, all symbols matching
+/// the query are returned.
+#[derive(Debug, Clone, Default)]
+pub struct LayeredSearchOptions {
+    /// Filter by module name (exact match)
+    pub module: Option<String>,
+    /// Filter by symbol kind (e.g., "fn", "struct", "component")
+    pub kind: Option<String>,
+    /// Filter by risk level (e.g., "high", "medium", "low")
+    pub risk: Option<String>,
+    /// Maximum results to return (default: no limit)
+    pub limit: Option<usize>,
+    /// Only search in specific layers (default: all layers)
+    pub layers: Option<Vec<LayerKind>>,
+    /// Case-insensitive search (default: true)
+    pub case_insensitive: bool,
+}
+
+impl LayeredSearchOptions {
+    /// Create new search options with defaults
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            case_insensitive: true,
+            ..Default::default()
+        }
+    }
+
+    /// Set module filter
+    #[must_use]
+    pub fn with_module(mut self, module: impl Into<String>) -> Self {
+        self.module = Some(module.into());
+        self
+    }
+
+    /// Set kind filter
+    #[must_use]
+    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
+
+    /// Set risk filter
+    #[must_use]
+    pub fn with_risk(mut self, risk: impl Into<String>) -> Self {
+        self.risk = Some(risk.into());
+        self
+    }
+
+    /// Set result limit
+    #[must_use]
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// Set layers to search
+    #[must_use]
+    pub fn with_layers(mut self, layers: Vec<LayerKind>) -> Self {
+        self.layers = Some(layers);
+        self
+    }
+
+    /// Set case sensitivity
+    #[must_use]
+    pub fn case_sensitive(mut self, sensitive: bool) -> Self {
+        self.case_insensitive = !sensitive;
+        self
+    }
+
+    /// Check if a layer should be searched
+    fn should_search_layer(&self, kind: LayerKind) -> bool {
+        match &self.layers {
+            Some(layers) => layers.contains(&kind),
+            None => true,
+        }
+    }
+}
+
+/// Result from a layered symbol search
+///
+/// Contains the symbol information along with metadata about
+/// which layer it was found in.
+#[derive(Debug, Clone)]
+pub struct LayeredSearchResult {
+    /// Symbol hash (content-addressable identifier)
+    pub hash: String,
+    /// Full symbol information
+    pub symbol: SymbolInfo,
+    /// Which layer this symbol was found in
+    pub layer: LayerKind,
+    /// File path where the symbol is located
+    pub file_path: Option<PathBuf>,
+}
+
+impl LayeredSearchResult {
+    /// Create a new search result
+    #[must_use]
+    pub fn new(hash: String, symbol: SymbolInfo, layer: LayerKind, file_path: Option<PathBuf>) -> Self {
+        Self {
+            hash,
+            symbol,
+            layer,
+            file_path,
+        }
+    }
+
+    /// Get the symbol name
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.symbol.name
+    }
+
+    /// Get the symbol kind as a string
+    #[must_use]
+    pub fn kind(&self) -> &str {
+        self.symbol.kind.as_str()
+    }
+
+    /// Get the risk level as a string
+    #[must_use]
+    pub fn risk(&self) -> &str {
+        self.symbol.behavioral_risk.as_str()
+    }
+
+    /// Get the line range as a string (e.g., "45-89")
+    #[must_use]
+    pub fn lines(&self) -> String {
+        format!("{}-{}", self.symbol.start_line, self.symbol.end_line)
+    }
+}
+
+impl LayeredIndex {
+    /// Search for symbols by name across all layers
+    ///
+    /// Searches for symbols whose names contain the query string.
+    /// Results are deduplicated: if the same symbol hash exists in multiple
+    /// layers, only the version from the highest-priority layer is returned.
+    /// Symbols that are deleted in any higher layer are excluded.
+    ///
+    /// # Arguments
+    /// * `query` - The search query (matched against symbol names)
+    /// * `opts` - Search options including filters and limits
+    ///
+    /// # Returns
+    /// A vector of search results, ordered by layer priority (highest first)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let index = LayeredIndex::new();
+    /// let opts = LayeredSearchOptions::new().with_kind("fn").with_limit(10);
+    /// let results = index.search_symbols("validate", &opts);
+    /// ```
+    #[must_use]
+    pub fn search_symbols(&self, query: &str, opts: &LayeredSearchOptions) -> Vec<LayeredSearchResult> {
+        let mut results: Vec<LayeredSearchResult> = Vec::new();
+        let mut seen_hashes: HashSet<String> = HashSet::new();
+        let mut deleted_hashes: HashSet<String> = HashSet::new();
+
+        let query_normalized = if opts.case_insensitive {
+            query.to_lowercase()
+        } else {
+            query.to_string()
+        };
+
+        // Iterate layers from highest to lowest priority
+        for kind in LayerKind::all_descending() {
+            if !opts.should_search_layer(kind) {
+                continue;
+            }
+
+            let layer = self.layer(kind);
+
+            // First, collect all deleted hashes from this layer
+            deleted_hashes.extend(layer.deleted.iter().cloned());
+
+            // Then search for symbols
+            for (hash, state) in &layer.symbols {
+                // Skip if already seen (higher layer takes precedence)
+                if seen_hashes.contains(hash) {
+                    continue;
+                }
+
+                // Skip if deleted in any higher layer
+                if deleted_hashes.contains(hash) {
+                    continue;
+                }
+
+                // Get the symbol info
+                let symbol = match state.as_symbol() {
+                    Some(s) => s,
+                    None => continue, // Skip deleted entries
+                };
+
+                // Match query against symbol name
+                let name_normalized = if opts.case_insensitive {
+                    symbol.name.to_lowercase()
+                } else {
+                    symbol.name.clone()
+                };
+
+                if !name_normalized.contains(&query_normalized) {
+                    continue;
+                }
+
+                // Apply kind filter
+                if let Some(ref kind_filter) = opts.kind {
+                    if symbol.kind.as_str() != kind_filter {
+                        continue;
+                    }
+                }
+
+                // Apply risk filter
+                if let Some(ref risk_filter) = opts.risk {
+                    if symbol.behavioral_risk.as_str() != risk_filter {
+                        continue;
+                    }
+                }
+
+                // Note: module filter would require additional metadata tracking
+                // For now, module filtering is not supported in LayeredIndex
+                // (it works at the cache/shard level)
+
+                // Add to results
+                seen_hashes.insert(hash.clone());
+                results.push(LayeredSearchResult::new(
+                    hash.clone(),
+                    symbol.clone(),
+                    kind,
+                    state.file_path().cloned(),
+                ));
+
+                // Check limit
+                if let Some(limit) = opts.limit {
+                    if results.len() >= limit {
+                        return results;
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Get all symbols for a file path across all layers
+    ///
+    /// Resolves the file path through any moves, then collects all symbols
+    /// associated with that file. Results are deduplicated: if the same
+    /// symbol hash exists in multiple layers, only the highest-priority
+    /// version is returned. Deleted symbols are excluded.
+    ///
+    /// # Arguments
+    /// * `path` - The file path to look up (can be original or current path)
+    ///
+    /// # Returns
+    /// A vector of search results for symbols in that file
+    ///
+    /// # Example
+    /// ```ignore
+    /// let index = LayeredIndex::new();
+    /// let results = index.get_file_symbols(Path::new("src/auth.rs"));
+    /// ```
+    #[must_use]
+    pub fn get_file_symbols(&self, path: &std::path::Path) -> Vec<LayeredSearchResult> {
+        let mut results: Vec<LayeredSearchResult> = Vec::new();
+        let mut seen_hashes: HashSet<String> = HashSet::new();
+        let mut deleted_hashes: HashSet<String> = HashSet::new();
+
+        // Resolve the path through all moves
+        let resolved_path = self.resolve_path(&path.to_path_buf());
+
+        // We need to check both the original path and the resolved path
+        // in case some layers have old paths and some have new paths
+        let paths_to_check: Vec<PathBuf> = if resolved_path == path.to_path_buf() {
+            vec![resolved_path]
+        } else {
+            vec![path.to_path_buf(), resolved_path]
+        };
+
+        // Iterate layers from highest to lowest priority
+        for kind in LayerKind::all_descending() {
+            let layer = self.layer(kind);
+
+            // Collect deleted hashes from this layer
+            deleted_hashes.extend(layer.deleted.iter().cloned());
+
+            // Check each path variant
+            for check_path in &paths_to_check {
+                // Get symbols for this file from the symbols_by_file index
+                if let Some(hashes) = layer.symbols_by_file.get(check_path) {
+                    for hash in hashes {
+                        // Skip if already seen
+                        if seen_hashes.contains(hash) {
+                            continue;
+                        }
+
+                        // Skip if deleted
+                        if deleted_hashes.contains(hash) {
+                            continue;
+                        }
+
+                        // Get the symbol state
+                        if let Some(state) = layer.symbols.get(hash) {
+                            if let Some(symbol) = state.as_symbol() {
+                                seen_hashes.insert(hash.clone());
+                                results.push(LayeredSearchResult::new(
+                                    hash.clone(),
+                                    symbol.clone(),
+                                    kind,
+                                    state.file_path().cloned(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Resolve a symbol by hash and return with layer info
+    ///
+    /// Similar to `resolve_symbol` but returns the full result with
+    /// layer information.
+    ///
+    /// # Arguments
+    /// * `hash` - The symbol hash to look up
+    ///
+    /// # Returns
+    /// The search result if found, None if not found or deleted
+    #[must_use]
+    pub fn resolve_symbol_with_layer(&self, hash: &str) -> Option<LayeredSearchResult> {
+        for kind in LayerKind::all_descending() {
+            let layer = self.layer(kind);
+
+            // Check if deleted in this layer
+            if layer.is_deleted(hash) {
+                return None;
+            }
+
+            // Check if exists in this layer
+            if let Some(state) = layer.get(hash) {
+                if let Some(symbol) = state.as_symbol() {
+                    return Some(LayeredSearchResult::new(
+                        hash.to_string(),
+                        symbol.clone(),
+                        kind,
+                        state.file_path().cloned(),
+                    ));
+                }
+            }
+        }
+        None
+    }
+
+    /// Count total active symbols across all layers (with deduplication)
+    ///
+    /// This is more accurate than summing individual layer counts because
+    /// it accounts for shadowing and deletions.
+    #[must_use]
+    pub fn total_active_symbols(&self) -> usize {
+        self.all_symbol_hashes().len()
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1491,5 +1863,731 @@ mod tests {
             "Should have exactly one symbol, not duplicates. Found: {}",
             symbols.len()
         );
+    }
+
+    // ------------------------------------------------------------------------
+    // SEM-53: Layered Query Resolution Tests
+    // ------------------------------------------------------------------------
+
+    /// Helper to create a test symbol with specific properties
+    fn make_test_symbol_with_kind(name: &str, kind: SymbolKind) -> SymbolInfo {
+        SymbolInfo {
+            name: name.to_string(),
+            kind,
+            start_line: 1,
+            end_line: 10,
+            is_exported: true,
+            behavioral_risk: RiskLevel::Low,
+            ..Default::default()
+        }
+    }
+
+    /// Helper to create a test symbol with specific risk level
+    fn make_test_symbol_with_risk(name: &str, risk: RiskLevel) -> SymbolInfo {
+        SymbolInfo {
+            name: name.to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 10,
+            is_exported: true,
+            behavioral_risk: risk,
+            ..Default::default()
+        }
+    }
+
+    // ========================================================================
+    // TDD Required Tests (from SEM-53 ticket)
+    // ========================================================================
+
+    #[test]
+    fn test_ai_layer_shadows_base_in_search() {
+        // SEM-53 TDD: test_ai_layer_shadows_base
+        let mut index = LayeredIndex::new();
+        let hash = "shared_hash".to_string();
+
+        // Add symbol to base layer
+        let base_symbol = SymbolInfo {
+            name: "validateUser".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 10,
+            end_line: 20,
+            ..Default::default()
+        };
+        index.base.upsert(hash.clone(), SymbolState::active(base_symbol));
+
+        // Add modified version to AI layer (same hash, different content)
+        let ai_symbol = SymbolInfo {
+            name: "validateUser".to_string(), // Same name
+            kind: SymbolKind::Function,
+            start_line: 10,
+            end_line: 50, // Different end line (modified)
+            ..Default::default()
+        };
+        index.ai.upsert(hash.clone(), SymbolState::active(ai_symbol));
+
+        // Search should return AI version, not base
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("validateUser", &opts);
+
+        assert_eq!(results.len(), 1, "Should find exactly one result (deduplicated)");
+        assert_eq!(results[0].layer, LayerKind::AI, "Should be from AI layer");
+        assert_eq!(results[0].symbol.end_line, 50, "Should have AI layer's content");
+    }
+
+    #[test]
+    fn test_deleted_marker_stops_search() {
+        // SEM-53 TDD: test_deleted_marker_stops_search
+        let mut index = LayeredIndex::new();
+        let hash = "to_delete".to_string();
+
+        // Add symbol to base layer
+        let symbol = make_test_symbol("deletedFunction");
+        index.base.upsert(hash.clone(), SymbolState::active(symbol));
+
+        // Verify it exists
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("deletedFunction", &opts);
+        assert_eq!(results.len(), 1, "Should find the symbol before deletion");
+
+        // Delete in working layer
+        index.working.delete(&hash);
+
+        // Search should now return nothing
+        let results = index.search_symbols("deletedFunction", &opts);
+        assert!(results.is_empty(), "Deleted symbol should not appear in search results");
+    }
+
+    #[test]
+    fn test_file_move_resolves_path_in_get_file_symbols() {
+        // SEM-53 TDD: test_file_move_resolves_path
+        let mut index = LayeredIndex::new();
+        let hash = "moved_symbol".to_string();
+        let old_path = PathBuf::from("src/old_auth.rs");
+        let new_path = PathBuf::from("src/auth/validator.rs");
+
+        // Add symbol at old path in base layer
+        let symbol = make_test_symbol("validateToken");
+        index.base.upsert(hash.clone(), SymbolState::active_at(symbol.clone(), old_path.clone()));
+
+        // Record move in branch layer
+        index.branch.record_move(old_path.clone(), new_path.clone());
+
+        // Add updated symbol at new path in working layer
+        let updated_symbol = SymbolInfo {
+            name: "validateToken".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 30, // Updated
+            ..Default::default()
+        };
+        index.working.upsert(hash.clone(), SymbolState::active_at(updated_symbol, new_path.clone()));
+
+        // Query by old path should resolve through moves and find the symbol
+        let results = index.get_file_symbols(&old_path);
+        assert_eq!(results.len(), 1, "Should find symbol through move resolution");
+        assert_eq!(results[0].symbol.end_line, 30, "Should return working layer version");
+        assert_eq!(results[0].layer, LayerKind::Working);
+
+        // Query by new path should also work
+        let results = index.get_file_symbols(&new_path);
+        assert_eq!(results.len(), 1, "Should find symbol at new path");
+    }
+
+    #[test]
+    fn test_search_merges_all_layers() {
+        // SEM-53 TDD: test_search_merges_all_layers
+        let mut index = LayeredIndex::new();
+
+        // Add different symbols to each layer
+        index.base.upsert(
+            "base_hash".to_string(),
+            SymbolState::active(make_test_symbol("baseFunction")),
+        );
+        index.branch.upsert(
+            "branch_hash".to_string(),
+            SymbolState::active(make_test_symbol("branchFunction")),
+        );
+        index.working.upsert(
+            "working_hash".to_string(),
+            SymbolState::active(make_test_symbol("workingFunction")),
+        );
+        index.ai.upsert(
+            "ai_hash".to_string(),
+            SymbolState::active(make_test_symbol("aiFunction")),
+        );
+
+        // Search for "Function" should find all four
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("Function", &opts);
+
+        assert_eq!(results.len(), 4, "Should find symbols from all layers");
+
+        // Verify we got one from each layer
+        let layers: Vec<LayerKind> = results.iter().map(|r| r.layer).collect();
+        assert!(layers.contains(&LayerKind::Base));
+        assert!(layers.contains(&LayerKind::Branch));
+        assert!(layers.contains(&LayerKind::Working));
+        assert!(layers.contains(&LayerKind::AI));
+    }
+
+    #[test]
+    fn test_deduplication_across_layers() {
+        // SEM-53 TDD: test_deduplication_across_layers
+        let mut index = LayeredIndex::new();
+        let hash = "shared_hash".to_string();
+
+        // Add same symbol (same hash) to multiple layers with different content
+        let base_symbol = SymbolInfo {
+            name: "sharedFunc".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 10,
+            ..Default::default()
+        };
+        let branch_symbol = SymbolInfo {
+            name: "sharedFunc".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 20, // Modified
+            ..Default::default()
+        };
+        let working_symbol = SymbolInfo {
+            name: "sharedFunc".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 30, // Further modified
+            ..Default::default()
+        };
+
+        index.base.upsert(hash.clone(), SymbolState::active(base_symbol));
+        index.branch.upsert(hash.clone(), SymbolState::active(branch_symbol));
+        index.working.upsert(hash.clone(), SymbolState::active(working_symbol));
+
+        // Search should return only one result (from highest priority layer)
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("sharedFunc", &opts);
+
+        assert_eq!(results.len(), 1, "Should deduplicate to one result");
+        assert_eq!(results[0].layer, LayerKind::Working, "Should be from highest layer");
+        assert_eq!(results[0].symbol.end_line, 30, "Should have working layer content");
+    }
+
+    #[test]
+    fn test_layer_ordering_correct() {
+        // SEM-53 TDD: test_layer_ordering_correct
+        // Verify that layers are checked in correct order: AI > Working > Branch > Base
+
+        let mut index = LayeredIndex::new();
+
+        // Add symbols with predictable order markers
+        for (i, kind) in LayerKind::all_descending().iter().enumerate() {
+            let symbol = SymbolInfo {
+                name: format!("func_{}", i),
+                kind: SymbolKind::Function,
+                start_line: (i + 1) * 100, // Unique marker
+                end_line: (i + 1) * 100 + 10,
+                ..Default::default()
+            };
+            index.layer_mut(*kind).upsert(
+                format!("hash_{}", i),
+                SymbolState::active(symbol),
+            );
+        }
+
+        // Search and verify order
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("func", &opts);
+
+        assert_eq!(results.len(), 4);
+
+        // Results should be in layer priority order (AI first, Base last)
+        assert_eq!(results[0].layer, LayerKind::AI);
+        assert_eq!(results[1].layer, LayerKind::Working);
+        assert_eq!(results[2].layer, LayerKind::Branch);
+        assert_eq!(results[3].layer, LayerKind::Base);
+    }
+
+    // ========================================================================
+    // Additional Comprehensive Tests
+    // ========================================================================
+
+    #[test]
+    fn test_search_empty_query_matches_all() {
+        let mut index = LayeredIndex::new();
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("alpha")));
+        index.base.upsert("h2".to_string(), SymbolState::active(make_test_symbol("beta")));
+        index.base.upsert("h3".to_string(), SymbolState::active(make_test_symbol("gamma")));
+
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("", &opts);
+
+        assert_eq!(results.len(), 3, "Empty query should match all symbols");
+    }
+
+    #[test]
+    fn test_search_no_matches_returns_empty() {
+        let mut index = LayeredIndex::new();
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("alpha")));
+
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("nonexistent", &opts);
+
+        assert!(results.is_empty(), "Non-matching query should return empty");
+    }
+
+    #[test]
+    fn test_search_case_insensitive_by_default() {
+        let mut index = LayeredIndex::new();
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("ValidateUser")));
+
+        let opts = LayeredSearchOptions::new();
+
+        // Should match regardless of case
+        assert_eq!(index.search_symbols("validateuser", &opts).len(), 1);
+        assert_eq!(index.search_symbols("VALIDATEUSER", &opts).len(), 1);
+        assert_eq!(index.search_symbols("ValidateUser", &opts).len(), 1);
+    }
+
+    #[test]
+    fn test_search_case_sensitive_when_requested() {
+        let mut index = LayeredIndex::new();
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("ValidateUser")));
+
+        let opts = LayeredSearchOptions::new().case_sensitive(true);
+
+        assert_eq!(index.search_symbols("ValidateUser", &opts).len(), 1);
+        assert_eq!(index.search_symbols("validateuser", &opts).len(), 0);
+    }
+
+    #[test]
+    fn test_search_with_kind_filter() {
+        let mut index = LayeredIndex::new();
+
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol_with_kind("myFunction", SymbolKind::Function)),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active(make_test_symbol_with_kind("MyStruct", SymbolKind::Struct)),
+        );
+        index.base.upsert(
+            "h3".to_string(),
+            SymbolState::active(make_test_symbol_with_kind("MyComponent", SymbolKind::Component)),
+        );
+
+        // Filter by function
+        let opts = LayeredSearchOptions::new().with_kind("function");
+        let results = index.search_symbols("my", &opts);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].symbol.name, "myFunction");
+
+        // Filter by struct
+        let opts = LayeredSearchOptions::new().with_kind("struct");
+        let results = index.search_symbols("My", &opts);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].symbol.name, "MyStruct");
+    }
+
+    #[test]
+    fn test_search_with_risk_filter() {
+        let mut index = LayeredIndex::new();
+
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol_with_risk("lowRiskFn", RiskLevel::Low)),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active(make_test_symbol_with_risk("highRiskFn", RiskLevel::High)),
+        );
+
+        // Filter by high risk
+        let opts = LayeredSearchOptions::new().with_risk("high");
+        let results = index.search_symbols("Fn", &opts);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].symbol.name, "highRiskFn");
+
+        // Filter by low risk
+        let opts = LayeredSearchOptions::new().with_risk("low");
+        let results = index.search_symbols("Fn", &opts);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].symbol.name, "lowRiskFn");
+    }
+
+    #[test]
+    fn test_search_with_limit() {
+        let mut index = LayeredIndex::new();
+
+        for i in 0..10 {
+            index.base.upsert(
+                format!("hash_{}", i),
+                SymbolState::active(make_test_symbol(&format!("function_{}", i))),
+            );
+        }
+
+        let opts = LayeredSearchOptions::new().with_limit(3);
+        let results = index.search_symbols("function", &opts);
+
+        assert_eq!(results.len(), 3, "Should respect limit");
+    }
+
+    #[test]
+    fn test_search_with_layer_filter() {
+        let mut index = LayeredIndex::new();
+
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("baseFunc")));
+        index.branch.upsert("h2".to_string(), SymbolState::active(make_test_symbol("branchFunc")));
+        index.working.upsert("h3".to_string(), SymbolState::active(make_test_symbol("workingFunc")));
+
+        // Only search base and branch
+        let opts = LayeredSearchOptions::new()
+            .with_layers(vec![LayerKind::Base, LayerKind::Branch]);
+        let results = index.search_symbols("Func", &opts);
+
+        assert_eq!(results.len(), 2);
+        let names: Vec<&str> = results.iter().map(|r| r.symbol.name.as_str()).collect();
+        assert!(names.contains(&"baseFunc"));
+        assert!(names.contains(&"branchFunc"));
+        assert!(!names.contains(&"workingFunc"));
+    }
+
+    #[test]
+    fn test_get_file_symbols_basic() {
+        let mut index = LayeredIndex::new();
+        let path = PathBuf::from("src/auth.rs");
+
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active_at(make_test_symbol("validateToken"), path.clone()),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active_at(make_test_symbol("refreshToken"), path.clone()),
+        );
+
+        let results = index.get_file_symbols(&path);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_get_file_symbols_with_deletions() {
+        let mut index = LayeredIndex::new();
+        let path = PathBuf::from("src/auth.rs");
+
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active_at(make_test_symbol("keepMe"), path.clone()),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active_at(make_test_symbol("deleteMe"), path.clone()),
+        );
+
+        // Delete one in working layer
+        index.working.delete("h2");
+
+        let results = index.get_file_symbols(&path);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].symbol.name, "keepMe");
+    }
+
+    #[test]
+    fn test_get_file_symbols_with_shadowing() {
+        let mut index = LayeredIndex::new();
+        let path = PathBuf::from("src/auth.rs");
+        let hash = "shared".to_string();
+
+        // Base version
+        let base_symbol = SymbolInfo {
+            name: "sharedSymbol".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 10,
+            ..Default::default()
+        };
+        index.base.upsert(hash.clone(), SymbolState::active_at(base_symbol, path.clone()));
+
+        // Working version (shadows base)
+        let working_symbol = SymbolInfo {
+            name: "sharedSymbol".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 1,
+            end_line: 50, // Modified
+            ..Default::default()
+        };
+        index.working.upsert(hash.clone(), SymbolState::active_at(working_symbol, path.clone()));
+
+        let results = index.get_file_symbols(&path);
+        assert_eq!(results.len(), 1, "Should deduplicate");
+        assert_eq!(results[0].layer, LayerKind::Working);
+        assert_eq!(results[0].symbol.end_line, 50);
+    }
+
+    #[test]
+    fn test_get_file_symbols_empty_file() {
+        let index = LayeredIndex::new();
+        let path = PathBuf::from("src/nonexistent.rs");
+
+        let results = index.get_file_symbols(&path);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_symbol_with_layer_basic() {
+        let mut index = LayeredIndex::new();
+        let hash = "test_hash";
+
+        index.base.upsert(hash.to_string(), SymbolState::active(make_test_symbol("testFunc")));
+
+        let result = index.resolve_symbol_with_layer(hash);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.hash, hash);
+        assert_eq!(result.layer, LayerKind::Base);
+        assert_eq!(result.symbol.name, "testFunc");
+    }
+
+    #[test]
+    fn test_resolve_symbol_with_layer_shadowing() {
+        let mut index = LayeredIndex::new();
+        let hash = "test_hash";
+
+        index.base.upsert(hash.to_string(), SymbolState::active(make_test_symbol("baseVersion")));
+        index.branch.upsert(hash.to_string(), SymbolState::active(make_test_symbol("branchVersion")));
+
+        let result = index.resolve_symbol_with_layer(hash).unwrap();
+        assert_eq!(result.layer, LayerKind::Branch);
+        assert_eq!(result.symbol.name, "branchVersion");
+    }
+
+    #[test]
+    fn test_resolve_symbol_with_layer_deleted() {
+        let mut index = LayeredIndex::new();
+        let hash = "test_hash";
+
+        index.base.upsert(hash.to_string(), SymbolState::active(make_test_symbol("deletedFunc")));
+        index.working.delete(hash);
+
+        let result = index.resolve_symbol_with_layer(hash);
+        assert!(result.is_none(), "Deleted symbol should return None");
+    }
+
+    #[test]
+    fn test_total_active_symbols() {
+        let mut index = LayeredIndex::new();
+
+        // Add 3 unique symbols
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("fn1")));
+        index.base.upsert("h2".to_string(), SymbolState::active(make_test_symbol("fn2")));
+        index.branch.upsert("h3".to_string(), SymbolState::active(make_test_symbol("fn3")));
+
+        // Shadow one (same hash, different layer)
+        index.working.upsert("h1".to_string(), SymbolState::active(make_test_symbol("fn1_modified")));
+
+        // Delete one
+        index.ai.delete("h2");
+
+        // Should have 2 active: h1 (shadowed) and h3
+        assert_eq!(index.total_active_symbols(), 2);
+    }
+
+    #[test]
+    fn test_search_partial_match() {
+        let mut index = LayeredIndex::new();
+
+        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("validateUserInput")));
+        index.base.upsert("h2".to_string(), SymbolState::active(make_test_symbol("validateEmail")));
+        index.base.upsert("h3".to_string(), SymbolState::active(make_test_symbol("processPayment")));
+
+        let opts = LayeredSearchOptions::new();
+
+        // Partial match at start
+        let results = index.search_symbols("validate", &opts);
+        assert_eq!(results.len(), 2);
+
+        // Partial match in middle
+        let results = index.search_symbols("User", &opts);
+        assert_eq!(results.len(), 1);
+
+        // Partial match at end
+        let results = index.search_symbols("Input", &opts);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_search_options_builder_pattern() {
+        let opts = LayeredSearchOptions::new()
+            .with_kind("function")
+            .with_risk("high")
+            .with_limit(10)
+            .with_layers(vec![LayerKind::Base, LayerKind::Branch])
+            .case_sensitive(true);
+
+        assert_eq!(opts.kind, Some("function".to_string()));
+        assert_eq!(opts.risk, Some("high".to_string()));
+        assert_eq!(opts.limit, Some(10));
+        assert_eq!(opts.layers, Some(vec![LayerKind::Base, LayerKind::Branch]));
+        assert!(!opts.case_insensitive);
+    }
+
+    #[test]
+    fn test_layered_search_result_accessors() {
+        let symbol = SymbolInfo {
+            name: "testFunc".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 10,
+            end_line: 50,
+            behavioral_risk: RiskLevel::High,
+            ..Default::default()
+        };
+
+        let result = LayeredSearchResult::new(
+            "hash123".to_string(),
+            symbol,
+            LayerKind::Working,
+            Some(PathBuf::from("src/test.rs")),
+        );
+
+        assert_eq!(result.name(), "testFunc");
+        assert_eq!(result.kind(), "function");
+        assert_eq!(result.risk(), "high");
+        assert_eq!(result.lines(), "10-50");
+    }
+
+    #[test]
+    fn test_multiple_files_same_symbol_name() {
+        let mut index = LayeredIndex::new();
+        let path1 = PathBuf::from("src/auth/user.rs");
+        let path2 = PathBuf::from("src/auth/admin.rs");
+
+        // Same function name in different files (different hashes)
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active_at(make_test_symbol("validate"), path1.clone()),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active_at(make_test_symbol("validate"), path2.clone()),
+        );
+
+        // Search should find both
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("validate", &opts);
+        assert_eq!(results.len(), 2);
+
+        // File-specific query should find only one
+        let results = index.get_file_symbols(&path1);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].file_path, Some(path1));
+    }
+
+    #[test]
+    fn test_chained_file_moves() {
+        let mut index = LayeredIndex::new();
+        let hash = "moved_symbol".to_string();
+
+        // Original location
+        let path_a = PathBuf::from("src/a.rs");
+        let path_b = PathBuf::from("src/b.rs");
+        let path_c = PathBuf::from("src/c.rs");
+
+        // Symbol starts at path_a
+        index.base.upsert(
+            hash.clone(),
+            SymbolState::active_at(make_test_symbol("movedFunc"), path_a.clone()),
+        );
+
+        // Move a -> b in branch
+        index.branch.record_move(path_a.clone(), path_b.clone());
+
+        // Move b -> c in working
+        index.working.record_move(path_b.clone(), path_c.clone());
+
+        // Add symbol at final location in AI
+        index.ai.upsert(
+            hash.clone(),
+            SymbolState::active_at(make_test_symbol("movedFunc"), path_c.clone()),
+        );
+
+        // Query by original path should resolve through chain
+        let results = index.get_file_symbols(&path_a);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].layer, LayerKind::AI);
+    }
+
+    #[test]
+    fn test_deletion_in_middle_layer() {
+        let mut index = LayeredIndex::new();
+        let hash = "test_hash".to_string();
+
+        // Add in base
+        index.base.upsert(hash.clone(), SymbolState::active(make_test_symbol("fn1")));
+
+        // Delete in branch
+        index.branch.delete(&hash);
+
+        // Re-add in working (resurrection)
+        index.working.upsert(hash.clone(), SymbolState::active(make_test_symbol("fn1_resurrected")));
+
+        // Should find the working version (resurrection works)
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("fn1", &opts);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].layer, LayerKind::Working);
+        assert_eq!(results[0].symbol.name, "fn1_resurrected");
+    }
+
+    #[test]
+    fn test_empty_index_search() {
+        let index = LayeredIndex::new();
+
+        let opts = LayeredSearchOptions::new();
+        let results = index.search_symbols("anything", &opts);
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_respects_all_filters_together() {
+        let mut index = LayeredIndex::new();
+
+        // Add various symbols
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(SymbolInfo {
+                name: "validateUser".to_string(),
+                kind: SymbolKind::Function,
+                behavioral_risk: RiskLevel::High,
+                ..Default::default()
+            }),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active(SymbolInfo {
+                name: "validateInput".to_string(),
+                kind: SymbolKind::Function,
+                behavioral_risk: RiskLevel::Low,
+                ..Default::default()
+            }),
+        );
+        index.base.upsert(
+            "h3".to_string(),
+            SymbolState::active(SymbolInfo {
+                name: "ValidateConfig".to_string(),
+                kind: SymbolKind::Struct,
+                behavioral_risk: RiskLevel::High,
+                ..Default::default()
+            }),
+        );
+
+        // Search with all filters: name contains "validate", kind is function, risk is high
+        let opts = LayeredSearchOptions::new()
+            .with_kind("function")
+            .with_risk("high");
+        let results = index.search_symbols("validate", &opts);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].symbol.name, "validateUser");
     }
 }
