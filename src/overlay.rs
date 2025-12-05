@@ -705,9 +705,7 @@ pub struct LayeredIndexStats {
 /// the query are returned.
 #[derive(Debug, Clone, Default)]
 pub struct LayeredSearchOptions {
-    /// Filter by module name (exact match)
-    pub module: Option<String>,
-    /// Filter by symbol kind (e.g., "fn", "struct", "component")
+    /// Filter by symbol kind (e.g., "function", "struct", "component")
     pub kind: Option<String>,
     /// Filter by risk level (e.g., "high", "medium", "low")
     pub risk: Option<String>,
@@ -727,13 +725,6 @@ impl LayeredSearchOptions {
             case_insensitive: true,
             ..Default::default()
         }
-    }
-
-    /// Set module filter
-    #[must_use]
-    pub fn with_module(mut self, module: impl Into<String>) -> Self {
-        self.module = Some(module.into());
-        self
     }
 
     /// Set kind filter
@@ -851,7 +842,7 @@ impl LayeredIndex {
     /// # Example
     /// ```ignore
     /// let index = LayeredIndex::new();
-    /// let opts = LayeredSearchOptions::new().with_kind("fn").with_limit(10);
+    /// let opts = LayeredSearchOptions::new().with_kind("function").with_limit(10);
     /// let results = index.search_symbols("validate", &opts);
     /// ```
     #[must_use]
@@ -919,10 +910,6 @@ impl LayeredIndex {
                         continue;
                     }
                 }
-
-                // Note: module filter would require additional metadata tracking
-                // For now, module filtering is not supported in LayeredIndex
-                // (it works at the cache/shard level)
 
                 // Add to results
                 seen_hashes.insert(hash.clone());
