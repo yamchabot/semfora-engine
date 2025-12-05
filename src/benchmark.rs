@@ -96,11 +96,11 @@ pub struct RepoTokenMetrics {
     /// Overview tokens (repo_overview.toon)
     pub overview_tokens: usize,
 
-    /// Average compression ratio
-    pub avg_compression: f64,
+    /// Total compression ratio (1 - toon_bytes/source_bytes)
+    pub total_compression: f64,
 
-    /// Average token savings
-    pub avg_token_savings: f64,
+    /// Total token savings ratio (1 - toon_tokens/source_tokens)
+    pub total_token_savings: f64,
 
     /// Estimated re-reads in typical workflow
     pub estimated_reread_factor: usize,
@@ -121,14 +121,15 @@ impl RepoTokenMetrics {
         let total_toon_tokens: usize = files.iter().map(|f| f.toon_tokens).sum();
         let overview_tokens = estimate_tokens(overview_toon);
 
-        let avg_compression = if !files.is_empty() {
-            files.iter().map(|f| f.compression_ratio).sum::<f64>() / files.len() as f64
+        // Use total-based compression (not per-file average) for accurate results
+        let total_compression = if total_source_bytes > 0 {
+            1.0 - (total_toon_bytes as f64 / total_source_bytes as f64)
         } else {
             0.0
         };
 
-        let avg_token_savings = if !files.is_empty() {
-            files.iter().map(|f| f.token_savings).sum::<f64>() / files.len() as f64
+        let total_token_savings = if total_source_tokens > 0 {
+            1.0 - (total_toon_tokens as f64 / total_source_tokens as f64)
         } else {
             0.0
         };
@@ -148,8 +149,8 @@ impl RepoTokenMetrics {
             total_toon_bytes,
             total_toon_tokens,
             overview_tokens,
-            avg_compression,
-            avg_token_savings,
+            total_compression,
+            total_token_savings,
             estimated_reread_factor,
             estimated_raw_workflow_tokens,
             estimated_semantic_workflow_tokens,
@@ -194,11 +195,11 @@ impl RepoTokenMetrics {
         output.push_str("COMPRESSION:\n");
         output.push_str(&format!(
             "  Byte compression:   {:.1}%\n",
-            self.avg_compression * 100.0
+            self.total_compression * 100.0
         ));
         output.push_str(&format!(
             "  Token savings:      {:.1}%\n",
-            self.avg_token_savings * 100.0
+            self.total_token_savings * 100.0
         ));
         output.push('\n');
 

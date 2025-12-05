@@ -162,6 +162,8 @@ impl DriftStatus {
         // Calculate thresholds
         let thirty_percent = (total_repo_files as f64 * 0.30).ceil() as usize;
 
+        // Edge case: SHA changed but no files changed (e.g., empty commit, metadata-only change)
+        // In this case, no actual update is needed despite the SHA difference
         if changed_count == 0 {
             UpdateStrategy::Fresh
         } else if changed_count < 10 {
