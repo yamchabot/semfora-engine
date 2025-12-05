@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// assert!(hints.matches("src/lib.rs"));
 /// assert!(!hints.matches("tests/test.py"));
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchHints {
     /// File extension filter (e.g., "rs", "ts")
     #[serde(skip_serializing_if = "Option::is_none")]
