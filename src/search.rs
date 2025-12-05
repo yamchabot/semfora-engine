@@ -261,16 +261,28 @@ pub fn is_test_file(path: &str) -> bool {
                 return file_name.ends_with("_test.go");
             }
             // Java/Kotlin: *Test.java, *Tests.java, *Test.kt
+            // Use original (non-lowercased) name for case-sensitive Java conventions
             "java" | "kt" | "kts" => {
-                return file_name.ends_with("test.java")
-                    || file_name.ends_with("tests.java")
-                    || file_name.ends_with("test.kt")
-                    || file_name.starts_with("test");
+                let original_name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                return original_name.ends_with("Test.java")
+                    || original_name.ends_with("Tests.java")
+                    || original_name.ends_with("Test.kt")
+                    || original_name.ends_with("Tests.kt")
+                    || original_name.ends_with("Test.kts")
+                    || original_name.ends_with("Tests.kts")
+                    || file_name.starts_with("test_")
+                    || file_name.starts_with("test.");
             }
-            // C/C++: test_*.c, *_test.cpp
+            // C/C++: test_*.c, *_test.cpp, *_test.c, *_test.cc, *_test.cxx
             "c" | "cpp" | "cc" | "cxx" => {
                 return file_name.starts_with("test_")
-                    || file_name.contains("_test.");
+                    || file_name.ends_with("_test.c")
+                    || file_name.ends_with("_test.cpp")
+                    || file_name.ends_with("_test.cc")
+                    || file_name.ends_with("_test.cxx");
             }
             _ => {}
         }
@@ -446,7 +458,14 @@ mod tests {
         assert!(is_test_file("UserServiceTest.java"));
         assert!(is_test_file("UserServiceTests.java"));
         assert!(is_test_file("test/UserService.java"));
+        assert!(is_test_file("test_utils.java"));
         assert!(!is_test_file("UserService.java"));
+        // False positive checks - these should NOT be detected as tests
+        assert!(!is_test_file("contest.java"));
+        assert!(!is_test_file("attest.java"));
+        assert!(!is_test_file("latest.java"));
+        assert!(!is_test_file("testable.java"));
+        assert!(!is_test_file("testimony.java"));
     }
 
     #[test]
@@ -468,5 +487,18 @@ mod tests {
         assert!(!is_test_file("src/index.ts"));
         assert!(!is_test_file("README.md"));
         assert!(!is_test_file("Cargo.toml"));
+    }
+
+    #[test]
+    fn test_is_test_file_cpp_false_positives() {
+        // These should NOT be detected as test files
+        assert!(!is_test_file("my_test.backup.cpp"));
+        assert!(!is_test_file("old_test.2.c"));
+        assert!(!is_test_file("latest.cpp"));
+        assert!(!is_test_file("contest.c"));
+        // But these SHOULD be detected
+        assert!(is_test_file("my_test.cpp"));
+        assert!(is_test_file("test_main.c"));
+        assert!(is_test_file("parser_test.cc"));
     }
 }

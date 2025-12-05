@@ -519,6 +519,9 @@ impl CacheDir {
     /// - moves.jsonl: File moves (one JSON object per line)
     ///
     /// AI layer is not persisted and returns Ok(()) immediately.
+    ///
+    /// Uses atomic two-phase commit: writes to .tmp files first, then renames.
+    /// This ensures cache is never left in an inconsistent state.
     pub fn save_layer(&self, overlay: &Overlay) -> Result<()> {
         use std::io::Write;
 
@@ -537,10 +540,22 @@ impl CacheDir {
         // Ensure layer directory exists
         fs::create_dir_all(&layer_dir)?;
 
-        // Write symbols.jsonl
+        // Define final and temp paths
         let symbols_path = layer_dir.join("symbols.jsonl");
+        let symbols_temp = layer_dir.join("symbols.jsonl.tmp");
+        let deleted_path = layer_dir.join("deleted.txt");
+        let deleted_temp = layer_dir.join("deleted.txt.tmp");
+        let moves_path = layer_dir.join("moves.jsonl");
+        let moves_temp = layer_dir.join("moves.jsonl.tmp");
+        let meta_path = layer_dir.join("meta.json");
+        let meta_temp = layer_dir.join("meta.json.tmp");
+
+        // Phase 1: Write all files to temp locations
+        // If any write fails, temp files are left behind but final files are intact
+
+        // Write symbols.jsonl.tmp
         {
-            let mut file = fs::File::create(&symbols_path)?;
+            let mut file = fs::File::create(&symbols_temp)?;
             for (hash, state) in &overlay.symbols {
                 let entry = SymbolEntry { hash: hash.clone(), state: state.clone() };
                 let json = serde_json::to_string(&entry).map_err(|e| {
@@ -552,19 +567,17 @@ impl CacheDir {
             }
         }
 
-        // Write deleted.txt
-        let deleted_path = layer_dir.join("deleted.txt");
+        // Write deleted.txt.tmp
         {
-            let mut file = fs::File::create(&deleted_path)?;
+            let mut file = fs::File::create(&deleted_temp)?;
             for hash in &overlay.deleted {
                 writeln!(file, "{}", hash)?;
             }
         }
 
-        // Write moves.jsonl
-        let moves_path = layer_dir.join("moves.jsonl");
+        // Write moves.jsonl.tmp
         {
-            let mut file = fs::File::create(&moves_path)?;
+            let mut file = fs::File::create(&moves_temp)?;
             for file_move in &overlay.moves {
                 let json = serde_json::to_string(&file_move).map_err(|e| {
                     crate::McpDiffError::ExtractionFailure {
@@ -575,14 +588,20 @@ impl CacheDir {
             }
         }
 
-        // Write layer metadata
-        let meta_path = layer_dir.join("meta.json");
+        // Write meta.json.tmp
         let meta_json = serde_json::to_string_pretty(&overlay.meta).map_err(|e| {
             crate::McpDiffError::ExtractionFailure {
                 message: format!("Failed to serialize {} layer meta: {}", kind, e),
             }
         })?;
-        fs::write(&meta_path, &meta_json)?;
+        fs::write(&meta_temp, &meta_json)?;
+
+        // Phase 2: Atomically rename all temp files to final locations
+        // On POSIX systems, rename is atomic within the same filesystem
+        fs::rename(&symbols_temp, &symbols_path)?;
+        fs::rename(&deleted_temp, &deleted_path)?;
+        fs::rename(&moves_temp, &moves_path)?;
+        fs::rename(&meta_temp, &meta_path)?;
 
         Ok(())
     }
@@ -811,9 +830,17 @@ impl CacheDir {
     }
 
     /// Check if working layer is stale (any tracked file has changed)
+    ///
+    /// Uses mtime comparison as a quick heuristic. This may have edge cases:
+    /// - Clock skew could produce false positives/negatives
+    /// - Files touched without content changes trigger false positives
+    ///
+    /// For more robust detection, consider content hashing (adds overhead).
+    /// The current approach favors speed over perfect accuracy since
+    /// working layer staleness is checked frequently.
     fn is_working_layer_stale(&self, overlay: &Overlay) -> Result<bool> {
         // Working layer tracks files via symbols_by_file
-        // Check if any tracked file's mtime/size has changed
+        // Check if any tracked file's mtime has changed since layer was updated
         for file_path in overlay.symbols_by_file.keys() {
             let full_path = self.repo_root.join(file_path);
             match fs::metadata(&full_path) {
