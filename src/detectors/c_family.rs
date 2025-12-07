@@ -5,15 +5,15 @@ use crate::detectors::common::get_node_text;
 use crate::error::Result;
 use crate::schema::{RiskLevel, SemanticSummary, SymbolInfo, SymbolKind};
 
-pub fn extract(summary: &mut SemanticSummary, _source: &str, tree: &Tree) -> Result<()> {
+pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Result<()> {
     let root = tree.root_node();
     let is_header = summary.file.ends_with(".h")
         || summary.file.ends_with(".hpp")
         || summary.file.ends_with(".hxx")
         || summary.file.ends_with(".hh");
 
-    find_primary_symbol(summary, &root, is_header);
-    extract_includes(summary, &root);
+    find_primary_symbol(summary, &root, is_header, source);
+    extract_includes(summary, &root, source);
 
     Ok(())
 }
@@ -28,7 +28,7 @@ struct SymbolCandidate {
     score: i32,
 }
 
-fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, is_header: bool) {
+fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, is_header: bool, source: &str) {
     let mut candidates: Vec<SymbolCandidate> = Vec::new();
     let mut cursor = root.walk();
 
@@ -36,7 +36,7 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, is_header: bo
         match child.kind() {
             "function_definition" => {
                 if let Some(declarator) = child.child_by_field_name("declarator") {
-                    if let Some(name) = extract_declarator_name(&declarator, &summary.file) {
+                    if let Some(name) = extract_declarator_name(&declarator, source) {
                         // Functions in headers are public, main gets bonus
                         let is_public = is_header;
                         let mut score = if is_public { 50 } else { 10 };
@@ -57,7 +57,7 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, is_header: bo
             }
             "struct_specifier" | "class_specifier" => {
                 if let Some(name_node) = child.child_by_field_name("name") {
-                    let name = get_node_text(&name_node, &summary.file);
+                    let name = get_node_text(&name_node, source);
                     let is_public = is_header;
                     let score = if is_public { 80 } else { 30 }; // Structs/classes are important
 
@@ -72,7 +72,7 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, is_header: bo
                 }
             }
             "declaration" => {
-                let text = get_node_text(&child, &summary.file);
+                let text = get_node_text(&child, source);
                 if text.starts_with("extern") {
                     summary.public_surface_changed = true;
                 }
@@ -117,23 +117,23 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, is_header: bo
     }
 }
 
-fn extract_declarator_name(node: &Node, file: &str) -> Option<String> {
+fn extract_declarator_name(node: &Node, source: &str) -> Option<String> {
     match node.kind() {
-        "identifier" => Some(get_node_text(node, file)),
+        "identifier" => Some(get_node_text(node, source)),
         "function_declarator" | "pointer_declarator" => {
             node.child_by_field_name("declarator")
-                .and_then(|d| extract_declarator_name(&d, file))
+                .and_then(|d| extract_declarator_name(&d, source))
         }
         _ => None,
     }
 }
 
-fn extract_includes(summary: &mut SemanticSummary, root: &Node) {
+fn extract_includes(summary: &mut SemanticSummary, root: &Node, source: &str) {
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
         if child.kind() == "preproc_include" {
             if let Some(path) = child.child_by_field_name("path") {
-                let include = get_node_text(&path, &summary.file);
+                let include = get_node_text(&path, source);
                 let clean = include.trim_matches('"').trim_matches('<').trim_matches('>');
                 summary.added_dependencies.push(clean.to_string());
             }

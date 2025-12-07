@@ -5,12 +5,12 @@ use crate::detectors::common::get_node_text;
 use crate::error::Result;
 use crate::schema::{RiskLevel, SemanticSummary, SymbolInfo, SymbolKind};
 
-pub fn extract(summary: &mut SemanticSummary, _source: &str, tree: &Tree) -> Result<()> {
+pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Result<()> {
     let root = tree.root_node();
     let filename_stem = extract_filename_stem(&summary.file);
 
-    find_primary_symbol(summary, &root, &filename_stem);
-    extract_imports(summary, &root);
+    find_primary_symbol(summary, &root, &filename_stem, source);
+    extract_imports(summary, &root, source);
 
     Ok(())
 }
@@ -33,7 +33,7 @@ struct SymbolCandidate {
     score: i32,
 }
 
-fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, filename_stem: &str) {
+fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, filename_stem: &str, source: &str) {
     let mut candidates: Vec<SymbolCandidate> = Vec::new();
     let mut cursor = root.walk();
 
@@ -41,7 +41,7 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, filename_stem
         match child.kind() {
             "class_declaration" | "interface_declaration" | "enum_declaration" => {
                 if let Some(name_node) = child.child_by_field_name("name") {
-                    let name = get_node_text(&name_node, &summary.file);
+                    let name = get_node_text(&name_node, source);
                     let is_public = has_public_modifier(&child);
                     let kind = match child.kind() {
                         "interface_declaration" => SymbolKind::Trait,
@@ -122,12 +122,12 @@ fn has_public_modifier(node: &Node) -> bool {
     false
 }
 
-fn extract_imports(summary: &mut SemanticSummary, root: &Node) {
+fn extract_imports(summary: &mut SemanticSummary, root: &Node, source: &str) {
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
         if child.kind() == "import_declaration" {
             if let Some(scope) = child.child_by_field_name("scope") {
-                let import_text = get_node_text(&scope, &summary.file);
+                let import_text = get_node_text(&scope, source);
                 if let Some(last) = import_text.split('.').last() {
                     if last != "*" {
                         summary.added_dependencies.push(last.to_string());
