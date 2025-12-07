@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use rtoon::encode_default;
 use serde_json::{json, Map, Value};
 
+use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
 use crate::schema::{ModuleGroup, RepoOverview, RepoStats, RiskLevel, SemanticSummary, SymbolKind};
 
 /// Safely truncate a string at a UTF-8 char boundary
@@ -932,6 +933,16 @@ pub fn encode_toon_clean(summary: &SemanticSummary) -> String {
         );
     }
 
+    // Cognitive complexity metrics (only if significant)
+    let cc = calculate_cognitive_complexity(&summary.control_flow_changes);
+    let nest = max_nesting_depth(&summary.control_flow_changes);
+    if cc > 0 {
+        obj.insert("cognitive_complexity".to_string(), json!(cc));
+    }
+    if nest > 1 {
+        obj.insert("max_nesting_depth".to_string(), json!(nest));
+    }
+
     // Insertions array
     if !summary.insertions.is_empty() {
         obj.insert("insertions".to_string(), json!(summary.insertions));
@@ -1057,6 +1068,16 @@ pub fn encode_toon(summary: &SemanticSummary) -> String {
         "behavioral_risk".to_string(),
         json!(risk_to_string(summary.behavioral_risk)),
     );
+
+    // Cognitive complexity metrics
+    let cc = calculate_cognitive_complexity(&summary.control_flow_changes);
+    let nest = max_nesting_depth(&summary.control_flow_changes);
+    if cc > 0 {
+        obj.insert("cognitive_complexity".to_string(), json!(cc));
+    }
+    if nest > 0 {
+        obj.insert("max_nesting_depth".to_string(), json!(nest));
+    }
 
     // Insertions array
     if !summary.insertions.is_empty() {
