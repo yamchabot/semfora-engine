@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semfora Daemon Test UI</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --surface: #16213e;
+            --primary: #0f3460;
+            --accent: #e94560;
+            --text: #eee;
+            --text-dim: #888;
+            --success: #4ade80;
+            --error: #f87171;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        h1 {
+            color: var(--accent);
+            margin-bottom: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .panel {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .panel h2 {
+            color: var(--accent);
+            font-size: 14px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+        .col {
+            flex: 1;
+        }
+        input, select, button {
+            background: var(--primary);
+            border: 1px solid var(--text-dim);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        button {
+            background: var(--accent);
+            border: none;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:hover {
+            opacity: 0.8;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+        .status.connected {
+            background: rgba(74, 222, 128, 0.2);
+            color: var(--success);
+        }
+        .status.disconnected {
+            background: rgba(248, 113, 113, 0.2);
+            color: var(--error);
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        .log {
+            background: var(--bg);
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .log-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .log-entry.sent {
+            color: #93c5fd;
+        }
+        .log-entry.received {
+            color: #86efac;
+        }
+        .log-entry.error {
+            color: var(--error);
+        }
+        .log-entry.info {
+            color: var(--text-dim);
+        }
+        .log-timestamp {
+            color: var(--text-dim);
+            margin-right: 8px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .info-item {
+            background: var(--bg);
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .info-label {
+            color: var(--text-dim);
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        .info-value {
+            font-size: 14px;
+            word-break: break-all;
+        }
+        .query-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .query-form input {
+            flex: 1;
+        }
+        .results {
+            background: var(--bg);
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        .tab {
+            background: var(--primary);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .tab.active {
+            background: var(--accent);
+        }
+        .worktree-list, .index-list {
+            list-style: none;
+        }
+        .worktree-list li, .index-list li {
+            background: var(--bg);
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+            margin-left: 5px;
+        }
+        .badge.semfora {
+            background: var(--accent);
+        }
+        .badge.ready {
+            background: var(--success);
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Semfora Daemon Test UI</h1>
+
+        <!-- Connection Panel -->
+        <div class="panel">
+            <h2>Connection</h2>
+            <div class="row">
+                <div class="col">
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <input type="text" id="serverUrl" value="ws://127.0.0.1:9847" placeholder="WebSocket URL" style="width: 200px;">
+                        <button id="connectBtn" onclick="toggleConnection()">Connect</button>
+                        <span id="connectionStatus" class="status disconnected">
+                            <span class="dot"></span>
+                            Disconnected
+                        </span>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="repoPath" value="/home/kadajett/Dev/Semfora_org/pokemon-test" placeholder="Repository path" style="flex: 1;">
+                        <button id="connectRepoBtn" onclick="connectToRepo()" disabled>Connect to Repo</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Repo Info Panel -->
+        <div class="row">
+            <div class="col">
+                <div class="panel">
+                    <h2>Repository Info</h2>
+                    <div class="info-grid" id="repoInfo">
+                        <div class="info-item">
+                            <div class="info-label">Status</div>
+                            <div class="info-value" id="repoStatus">Not connected</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Worktrees -->
+            <div class="col">
+                <div class="panel">
+                    <h2>Worktrees</h2>
+                    <ul class="worktree-list" id="worktreeList">
+                        <li>No worktrees loaded</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Indexes -->
+            <div class="col">
+                <div class="panel">
+                    <h2>Indexes</h2>
+                    <ul class="index-list" id="indexList">
+                        <li>No indexes loaded</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Queries Panel -->
+        <div class="panel">
+            <h2>Queries</h2>
+            <div class="tabs">
+                <div class="tab active" onclick="selectTab('search')">Search Symbols</div>
+                <div class="tab" onclick="selectTab('overview')">Get Overview</div>
+                <div class="tab" onclick="selectTab('worktrees')">List Worktrees</div>
+                <div class="tab" onclick="selectTab('callgraph')">Call Graph</div>
+                <div class="tab" onclick="selectTab('custom')">Custom Query</div>
+            </div>
+
+            <div id="searchTab">
+                <div class="query-form">
+                    <input type="text" id="searchQuery" placeholder="Search query (e.g., App, fetch, useState)">
+                    <button onclick="searchSymbols()">Search</button>
+                </div>
+            </div>
+
+            <div id="overviewTab" style="display: none;">
+                <button onclick="getOverview()">Get Repository Overview</button>
+            </div>
+
+            <div id="worktreesTab" style="display: none;">
+                <button onclick="listWorktrees()">Refresh Worktrees</button>
+            </div>
+
+            <div id="callgraphTab" style="display: none;">
+                <button onclick="getCallGraph()">Get Call Graph</button>
+            </div>
+
+            <div id="customTab" style="display: none;">
+                <div class="query-form">
+                    <input type="text" id="customMethod" placeholder="Method (e.g., get_repo_info)">
+                    <input type="text" id="customParams" placeholder='Params JSON (e.g., {"query": "App"})'>
+                    <button onclick="customQuery()">Send</button>
+                </div>
+            </div>
+
+            <div class="results" id="results">
+                <pre>Results will appear here...</pre>
+            </div>
+        </div>
+
+        <!-- Subscriptions Panel -->
+        <div class="panel">
+            <h2>Event Subscriptions</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <select id="eventType">
+                    <option value="base_branch">base_branch</option>
+                    <option value="feature_branch">feature_branch</option>
+                    <option value="active_worktree">active_worktree</option>
+                    <option value="repo">repo</option>
+                    <option value="*">* (all)</option>
+                </select>
+                <button onclick="subscribe()">Subscribe</button>
+                <button onclick="unsubscribe()">Unsubscribe</button>
+            </div>
+            <div id="activeSubscriptions" style="font-size: 12px; color: var(--text-dim);">
+                Active: none
+            </div>
+        </div>
+
+        <!-- Log Panel -->
+        <div class="panel">
+            <h2>Message Log</h2>
+            <div class="log" id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let queryId = 1;
+        let subscriptions = [];
+
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="log-timestamp">${time}</span>${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const connectRepoBtn = document.getElementById('connectRepoBtn');
+
+            if (connected) {
+                status.className = 'status connected';
+                status.innerHTML = '<span class="dot"></span>Connected';
+                connectBtn.textContent = 'Disconnect';
+                connectRepoBtn.disabled = false;
+            } else {
+                status.className = 'status disconnected';
+                status.innerHTML = '<span class="dot"></span>Disconnected';
+                connectBtn.textContent = 'Connect';
+                connectRepoBtn.disabled = true;
+            }
+        }
+
+        function toggleConnection() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            } else {
+                connect();
+            }
+        }
+
+        function connect() {
+            const url = document.getElementById('serverUrl').value;
+            log(`Connecting to ${url}...`);
+
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                log('WebSocket connected', 'received');
+                updateStatus(true);
+            };
+
+            ws.onmessage = (event) => {
+                log(`← ${event.data}`, 'received');
+                handleMessage(JSON.parse(event.data));
+            };
+
+            ws.onerror = (error) => {
+                log(`Error: ${error.message || 'Connection error'}`, 'error');
+            };
+
+            ws.onclose = () => {
+                log('WebSocket disconnected', 'info');
+                updateStatus(false);
+                document.getElementById('repoStatus').textContent = 'Not connected';
+            };
+        }
+
+        function send(obj) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected!', 'error');
+                return;
+            }
+            const json = JSON.stringify(obj);
+            log(`→ ${json}`, 'sent');
+            ws.send(json);
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'connected':
+                    displayConnectionInfo(msg);
+                    break;
+                case 'response':
+                    // Check if this is an index info response
+                    if (msg.result && msg.result.indexes) {
+                        updateIndexList(msg.result.indexes);
+                        if (msg.result.worktrees) {
+                            updateWorktreeList(msg.result.worktrees);
+                        }
+                    }
+                    displayResults(msg.result);
+                    break;
+                case 'error':
+                    displayResults({ error: msg.message, code: msg.code });
+                    break;
+                case 'event':
+                    log(`Event: ${msg.name}`, 'received');
+                    displayResults({ event: msg.name, payload: msg.payload });
+                    // Auto-refresh indexes when layer_updated event received
+                    if (msg.name && msg.name.includes('layer_updated')) {
+                        refreshIndexes();
+                    }
+                    break;
+                case 'subscribed':
+                    subscriptions = [...new Set([...subscriptions, ...msg.events])];
+                    updateSubscriptions();
+                    break;
+                case 'unsubscribed':
+                    subscriptions = subscriptions.filter(s => !msg.events.includes(s));
+                    updateSubscriptions();
+                    break;
+            }
+        }
+
+        function refreshIndexes() {
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'get_index_info',
+                params: {}
+            });
+        }
+
+        function displayConnectionInfo(info) {
+            document.getElementById('repoStatus').textContent = 'Connected';
+
+            const infoGrid = document.getElementById('repoInfo');
+            infoGrid.innerHTML = `
+                <div class="info-item">
+                    <div class="info-label">Client ID</div>
+                    <div class="info-value">${info.client_id}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Repo ID</div>
+                    <div class="info-value">${info.repo_id}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Path</div>
+                    <div class="info-value">${info.base_repo_path}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Base Branch</div>
+                    <div class="info-value">${info.base_branch}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Feature Branch</div>
+                    <div class="info-value">${info.feature_branch || 'none'}</div>
+                </div>
+            `;
+
+            // Update worktrees
+            const wtList = document.getElementById('worktreeList');
+            if (info.worktrees && info.worktrees.length > 0) {
+                wtList.innerHTML = info.worktrees.map(wt => `
+                    <li>
+                        <strong>${wt.branch}</strong>
+                        ${wt.is_semfora ? '<span class="badge semfora">semfora</span>' : ''}
+                        <br><small>${wt.path}</small>
+                    </li>
+                `).join('');
+            } else {
+                wtList.innerHTML = '<li>No worktrees</li>';
+            }
+
+            // Update indexes
+            const idxList = document.getElementById('indexList');
+            if (info.indexes && info.indexes.length > 0) {
+                idxList.innerHTML = info.indexes.map(idx => `
+                    <li>
+                        <strong>${idx.scope}</strong>
+                        <span class="badge ready">${idx.status}</span>
+                        <br><small>${idx.symbol_count} symbols</small>
+                    </li>
+                `).join('');
+            } else {
+                idxList.innerHTML = '<li>No indexes (run semfora-mcp --shard)</li>';
+            }
+        }
+
+        function displayResults(result) {
+            const resultsEl = document.getElementById('results');
+            resultsEl.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+        }
+
+        function updateIndexList(indexes) {
+            const idxList = document.getElementById('indexList');
+            if (indexes && indexes.length > 0) {
+                idxList.innerHTML = indexes.map(idx => `
+                    <li>
+                        <strong>${idx.scope}</strong>
+                        <span class="badge ready">${idx.status}</span>
+                        <br><small>${idx.symbol_count} symbols</small>
+                    </li>
+                `).join('');
+            } else {
+                idxList.innerHTML = '<li>No indexes (run semfora-mcp --shard)</li>';
+            }
+        }
+
+        function updateWorktreeList(worktrees) {
+            const wtList = document.getElementById('worktreeList');
+            if (worktrees && worktrees.length > 0) {
+                wtList.innerHTML = worktrees.map(wt => `
+                    <li>
+                        <strong>${wt.branch}</strong>
+                        ${wt.is_semfora ? '<span class="badge semfora">semfora</span>' : ''}
+                        <br><small>${wt.path}</small>
+                    </li>
+                `).join('');
+            } else {
+                wtList.innerHTML = '<li>No worktrees</li>';
+            }
+        }
+
+        function connectToRepo() {
+            const path = document.getElementById('repoPath').value;
+            send({ type: 'connect', directory: path });
+        }
+
+        function searchSymbols() {
+            const query = document.getElementById('searchQuery').value;
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'search_symbols',
+                params: { query, limit: 20 }
+            });
+        }
+
+        function getOverview() {
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'get_overview',
+                params: {}
+            });
+        }
+
+        function listWorktrees() {
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'list_worktrees',
+                params: {}
+            });
+        }
+
+        function getCallGraph() {
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'get_call_graph',
+                params: {}
+            });
+        }
+
+        function customQuery() {
+            const method = document.getElementById('customMethod').value;
+            let params = {};
+            try {
+                const paramsStr = document.getElementById('customParams').value;
+                if (paramsStr) params = JSON.parse(paramsStr);
+            } catch (e) {
+                log('Invalid JSON in params', 'error');
+                return;
+            }
+            send({
+                type: 'query',
+                id: queryId++,
+                method,
+                params
+            });
+        }
+
+        function subscribe() {
+            const event = document.getElementById('eventType').value;
+            send({ type: 'subscribe', events: [event] });
+        }
+
+        function unsubscribe() {
+            const event = document.getElementById('eventType').value;
+            send({ type: 'unsubscribe', events: [event] });
+        }
+
+        function updateSubscriptions() {
+            document.getElementById('activeSubscriptions').textContent =
+                'Active: ' + (subscriptions.length > 0 ? subscriptions.join(', ') : 'none');
+        }
+
+        function selectTab(tab) {
+            // Hide all tabs
+            document.querySelectorAll('[id$="Tab"]').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+
+            // Show selected tab
+            document.getElementById(tab + 'Tab').style.display = 'block';
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>

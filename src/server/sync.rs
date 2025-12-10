@@ -74,12 +74,19 @@ pub struct RebaseResult {
 pub struct LayerSynchronizer {
     /// Repository root path
     repo_root: PathBuf,
+    /// Optional cache directory for persisting changes to disk
+    cache_dir: Option<crate::cache::CacheDir>,
 }
 
 impl LayerSynchronizer {
     /// Create a new synchronizer for a repository
     pub fn new(repo_root: PathBuf) -> Self {
-        Self { repo_root }
+        Self { repo_root, cache_dir: None }
+    }
+
+    /// Create a new synchronizer with disk cache enabled
+    pub fn with_cache(repo_root: PathBuf, cache_dir: crate::cache::CacheDir) -> Self {
+        Self { repo_root, cache_dir: Some(cache_dir) }
     }
 
     /// Update a layer using the specified strategy
@@ -155,6 +162,7 @@ impl LayerSynchronizer {
     /// 3. Extract symbols
     /// 4. Compare with existing symbols
     /// 5. Update overlay
+    /// 6. Update disk cache (if cache_dir is set)
     fn update_single_file(
         &self,
         state: &ServerState,
@@ -202,16 +210,45 @@ impl LayerSynchronizer {
                 .collect()
         });
 
-        // Compute new symbol hashes
+        // Compute new symbol hashes and build index entries for cache
         let mut new_hashes = HashSet::new();
+        let mut index_entries = Vec::new();
+
+        // Extract module name from file path
+        let module_name = file_path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("root")
+            .to_string();
+
+        // Pre-compute hashes and index entries before consuming symbols
+        let symbols_with_hashes: Vec<_> = summary.symbols.into_iter().map(|symbol| {
+            let hash = crate::overlay::compute_symbol_hash(&symbol, &file_path.to_string_lossy());
+
+            // Build index entry for disk cache
+            let entry = crate::cache::SymbolIndexEntry {
+                symbol: symbol.name.clone(),
+                hash: hash.clone(),
+                kind: format!("{:?}", symbol.kind).to_lowercase(),
+                module: module_name.clone(),
+                file: full_path.to_string_lossy().to_string(),
+                lines: format!("{}-{}", symbol.start_line, symbol.end_line),
+                risk: format!("{:?}", symbol.behavioral_risk).to_lowercase(),
+                cognitive_complexity: 0, // TODO: Calculate from control_flow
+                max_nesting: 0,          // TODO: Calculate from control_flow
+            };
+
+            (symbol, hash, entry)
+        }).collect();
 
         // Update overlay with new symbols
         state.write(|index| {
             let overlay = index.layer_mut(layer);
 
-            for symbol in summary.symbols {
-                let hash = crate::overlay::compute_symbol_hash(&symbol, &file_path.to_string_lossy());
+            for (symbol, hash, entry) in symbols_with_hashes {
                 new_hashes.insert(hash.clone());
+                index_entries.push(entry);
 
                 let is_new = !existing_hashes.contains(&hash);
                 let symbol_state = SymbolState::active(symbol);
@@ -231,6 +268,18 @@ impl LayerSynchronizer {
                 stats.symbols_removed += 1;
             }
         });
+
+        // Update disk cache if available
+        if let Some(ref cache_dir) = self.cache_dir {
+            if let Err(e) = cache_dir.update_symbol_index_for_file(
+                &full_path.to_string_lossy(),
+                index_entries,
+            ) {
+                tracing::warn!("[SYNC] Failed to update disk cache for {:?}: {}", file_path, e);
+            } else {
+                tracing::info!("[SYNC] Updated disk cache for {:?}: {} symbols", file_path, new_hashes.len());
+            }
+        }
 
         stats.files_processed = 1;
         Ok(stats)

@@ -208,6 +208,8 @@ impl EngineEvent for IndexingProgressEvent {
 // ============================================================================
 
 use std::sync::OnceLock;
+use parking_lot::Mutex;
+use std::sync::mpsc;
 
 static GLOBAL_EMITTER: OnceLock<EventEmitter> = OnceLock::new();
 
@@ -221,6 +223,63 @@ pub fn emit_event<E: EngineEvent>(event: &E) {
     if let Some(emitter) = GLOBAL_EMITTER.get() {
         emitter.emit(event);
     }
+    // Also send to any registered broadcast listeners
+    broadcast_event(event);
+}
+
+// ============================================================================
+// Global Broadcast Channel for Socket Server
+// ============================================================================
+
+/// Serialized event for broadcasting
+#[derive(Debug, Clone)]
+pub struct BroadcastEvent {
+    pub event_type: String,
+    pub payload_json: String,
+}
+
+type EventSender = mpsc::Sender<BroadcastEvent>;
+
+static BROADCAST_SENDERS: OnceLock<Mutex<Vec<EventSender>>> = OnceLock::new();
+
+fn get_broadcast_senders() -> &'static Mutex<Vec<EventSender>> {
+    BROADCAST_SENDERS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Register a sender to receive broadcast events
+/// Returns the sender that should be passed to the socket server
+pub fn register_broadcast_listener() -> mpsc::Receiver<BroadcastEvent> {
+    let (tx, rx) = mpsc::channel();
+    get_broadcast_senders().lock().push(tx);
+    rx
+}
+
+/// Broadcast an event to all registered listeners
+fn broadcast_event<E: EngineEvent>(event: &E) {
+    let senders = get_broadcast_senders().lock();
+    tracing::debug!("[BROADCAST] broadcast_event called, {} listeners registered", senders.len());
+
+    if senders.is_empty() {
+        tracing::debug!("[BROADCAST] No listeners, skipping broadcast");
+        return;
+    }
+
+    let broadcast = BroadcastEvent {
+        event_type: E::event_type().to_string(),
+        payload_json: serde_json::to_string(event).unwrap_or_default(),
+    };
+
+    tracing::info!("[BROADCAST] Sending {} event to {} listeners", broadcast.event_type, senders.len());
+
+    // Send to all listeners (ignore errors for disconnected receivers)
+    let mut sent_count = 0;
+    for sender in senders.iter() {
+        match sender.send(broadcast.clone()) {
+            Ok(_) => sent_count += 1,
+            Err(e) => tracing::warn!("[BROADCAST] Failed to send to listener: {:?}", e),
+        }
+    }
+    tracing::debug!("[BROADCAST] Sent to {}/{} listeners", sent_count, senders.len());
 }
 
 // ============================================================================

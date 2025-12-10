@@ -101,6 +101,13 @@ impl FileWatcher {
     /// 2. Debounces rapid changes
     /// 3. Triggers incremental Working layer updates
     pub fn start(&self, state: Arc<ServerState>) -> Result<WatcherHandle> {
+        self.start_with_cache(state, None)
+    }
+
+    /// Start watching for file changes with disk cache updates
+    ///
+    /// Same as `start`, but also updates the disk cache when files change.
+    pub fn start_with_cache(&self, state: Arc<ServerState>, cache_dir: Option<crate::cache::CacheDir>) -> Result<WatcherHandle> {
         if self.running.swap(true, Ordering::SeqCst) {
             // Already running
             return Ok(WatcherHandle {
@@ -139,49 +146,89 @@ impl FileWatcher {
         // Spawn processing thread
         let handle_running = Arc::clone(&running);
         std::thread::spawn(move || {
-            let synchronizer = LayerSynchronizer::new(repo_root.clone());
+            let synchronizer = match cache_dir {
+                Some(cache) => LayerSynchronizer::with_cache(repo_root.clone(), cache),
+                None => LayerSynchronizer::new(repo_root.clone()),
+            };
+
+            // Track recently processed files to avoid re-processing
+            // Key: file path, Value: last processed time
+            let mut recently_processed: std::collections::HashMap<PathBuf, std::time::Instant> =
+                std::collections::HashMap::new();
+            let cooldown_duration = Duration::from_secs(3); // 3 second cooldown per file
 
             while handle_running.load(Ordering::SeqCst) {
+                // Clean up old entries from recently_processed (older than 2x cooldown)
+                let now = std::time::Instant::now();
+                recently_processed.retain(|_, processed_at| {
+                    now.duration_since(*processed_at) < cooldown_duration * 2
+                });
+
                 // Receive events with timeout
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(Ok(events)) => {
-                        // Collect changed file paths
+                        tracing::debug!("[WATCHER] Received {} raw events", events.len());
+
+                        // Collect changed file paths, filtering out recently processed
                         let mut changed_files = Vec::new();
+                        let now = std::time::Instant::now();
 
                         for event in events {
+                            tracing::debug!("[WATCHER] Event kind: {:?}, path: {:?}", event.kind, event.path);
                             if matches!(event.kind, DebouncedEventKind::Any) {
                                 // Filter out ignored paths
                                 let path = event.path;
                                 if Self::should_watch_path(&path, &repo_root) {
                                     // Convert to relative path
                                     if let Ok(rel_path) = path.strip_prefix(&repo_root) {
+                                        // Check if file is in cooldown period
+                                        if let Some(processed_at) = recently_processed.get(rel_path) {
+                                            if now.duration_since(*processed_at) < cooldown_duration {
+                                                tracing::debug!("[WATCHER] Skipping {:?} (in cooldown)", rel_path);
+                                                continue;
+                                            }
+                                        }
+                                        tracing::debug!("[WATCHER] Accepted file: {:?}", rel_path);
                                         changed_files.push(rel_path.to_path_buf());
                                     }
+                                } else {
+                                    tracing::debug!("[WATCHER] Filtered out: {:?}", path);
                                 }
                             }
                         }
 
                         if !changed_files.is_empty() {
+                            tracing::info!("[WATCHER] Processing {} changed files: {:?}", changed_files.len(), changed_files);
+
+                            // Mark files as recently processed BEFORE processing
+                            // This prevents re-processing during the cooldown
+                            let now = std::time::Instant::now();
+                            for file in &changed_files {
+                                recently_processed.insert(file.clone(), now);
+                            }
+
                             // Add to pending changes
                             pending.lock().extend(changed_files.clone());
 
                             // Trigger incremental update
-                            let strategy = UpdateStrategy::Incremental(changed_files);
+                            let strategy = UpdateStrategy::Incremental(changed_files.clone());
                             match synchronizer.update_layer(
                                 &state,
                                 LayerKind::Working,
                                 strategy,
                             ) {
                                 Ok(stats) => {
+                                    tracing::info!("[WATCHER] Layer updated successfully, emitting event");
                                     // Emit event for CLI
                                     let event = super::events::LayerUpdatedEvent::from_stats(
                                         LayerKind::Working,
                                         &stats,
                                     );
                                     super::events::emit_event(&event);
+                                    tracing::info!("[WATCHER] Event emitted");
                                 }
                                 Err(e) => {
-                                    tracing::error!("Failed to update working layer: {}", e);
+                                    tracing::error!("[WATCHER] Failed to update working layer: {}", e);
                                 }
                             }
                         }

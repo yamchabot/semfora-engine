@@ -13,6 +13,10 @@ path = "src/main.rs"
 name = "semfora-mcp-server"
 path = "src/mcp_server/bin.rs"
 
+[[bin]]
+name = "semfora-daemon"
+path = "src/socket_server/bin.rs"
+
 [dependencies]
 # Core parsing
 tree-sitter = "0.25"
@@ -78,6 +82,11 @@ parking_lot = "0.12"
 # File system watching (SEM-101)
 notify = "7.0"
 notify-debouncer-mini = "0.5"
+
+# Socket server dependencies (Phase 3)
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+uuid = { version = "1.0", features = ["v4"] }
 
 [build-dependencies]
 cc = "1.0"

@@ -57,6 +57,7 @@ pub mod schema;
 pub mod search;
 pub mod server;
 pub mod shard;
+pub mod socket_server;
 pub mod test_runner;
 pub mod tokens;
 pub mod toon;

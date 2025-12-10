@@ -165,6 +165,7 @@ impl CacheMeta {
 }
 
 /// Cache directory structure manager
+#[derive(Clone)]
 pub struct CacheDir {
     /// Root of the cache for this repo
     pub root: PathBuf,
@@ -181,6 +182,22 @@ impl CacheDir {
     pub fn for_repo(repo_path: &Path) -> Result<Self> {
         let repo_root = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
         let repo_hash = compute_repo_hash(&repo_root);
+        let cache_base = get_cache_base_dir();
+        let root = cache_base.join(&repo_hash);
+
+        Ok(Self {
+            root,
+            repo_root,
+            repo_hash,
+        })
+    }
+
+    /// Create a cache directory for a worktree (uses path-based hash, not git remote)
+    /// This ensures each worktree gets its own separate cache even if they share the same git repo
+    pub fn for_worktree(worktree_path: &Path) -> Result<Self> {
+        let repo_root = worktree_path.canonicalize().unwrap_or_else(|_| worktree_path.to_path_buf());
+        // Use path-based hash for worktrees (not git remote URL)
+        let repo_hash = format!("{:016x}", fnv1a_hash(&repo_root.to_string_lossy()));
         let cache_base = get_cache_base_dir();
         let root = cache_base.join(&repo_hash);
 
@@ -560,6 +577,78 @@ impl CacheDir {
     /// Check if symbol index exists
     pub fn has_symbol_index(&self) -> bool {
         self.symbol_index_path().exists()
+    }
+
+    /// Update symbol index for a single file (incremental update)
+    ///
+    /// This removes all existing entries for the file and adds new ones.
+    /// Used by the file watcher to keep the index up-to-date in real-time.
+    pub fn update_symbol_index_for_file(
+        &self,
+        file_path: &str,
+        new_entries: Vec<SymbolIndexEntry>,
+    ) -> Result<()> {
+        use std::io::{BufRead, Write};
+
+        let index_path = self.symbol_index_path();
+        tracing::debug!("[CACHE] update_symbol_index_for_file: file_path={}, cache={}", file_path, index_path.display());
+
+        // Read existing entries, filtering out the ones for this file
+        let mut entries: Vec<SymbolIndexEntry> = if index_path.exists() {
+            let file = fs::File::open(&index_path)?;
+            let reader = std::io::BufReader::new(file);
+            let all_entries: Vec<_> = reader
+                .lines()
+                .filter_map(|line| line.ok())
+                .filter(|line| !line.trim().is_empty())
+                .filter_map(|line| serde_json::from_str::<SymbolIndexEntry>(&line).ok())
+                .collect();
+
+            let before_count = all_entries.len();
+            let filtered: Vec<_> = all_entries
+                .into_iter()
+                .filter(|entry| {
+                    let keep = entry.file != file_path;
+                    if !keep {
+                        tracing::debug!("[CACHE] Filtering out entry for file: {}", entry.file);
+                    }
+                    keep
+                })
+                .collect();
+            tracing::debug!("[CACHE] Filtered {} -> {} entries (removed {} for {})",
+                before_count, filtered.len(), before_count - filtered.len(), file_path);
+            filtered
+        } else {
+            Vec::new()
+        };
+
+        // Add new entries
+        entries.extend(new_entries);
+
+        // Write back atomically (temp file + rename)
+        let temp_path = index_path.with_extension("jsonl.tmp");
+        {
+            let mut file = fs::File::create(&temp_path)?;
+            for entry in &entries {
+                let json = serde_json::to_string(&entry).map_err(|e| {
+                    crate::McpDiffError::ExtractionFailure {
+                        message: format!("Failed to serialize symbol index entry: {}", e),
+                    }
+                })?;
+                writeln!(file, "{}", json)?;
+            }
+        }
+
+        // Atomic rename
+        fs::rename(&temp_path, &index_path)?;
+
+        tracing::debug!(
+            "[CACHE] Updated symbol_index.jsonl for {}: {} total entries",
+            file_path,
+            entries.len()
+        );
+
+        Ok(())
     }
 
     /// Search symbol index with filters

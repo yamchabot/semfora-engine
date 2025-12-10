@@ -50,6 +50,20 @@ impl ShardWriter {
         })
     }
 
+    /// Create a shard writer with a custom cache directory
+    /// Useful for worktrees where we need to use CacheDir::for_worktree
+    pub fn with_cache(cache: CacheDir) -> Result<Self> {
+        cache.init()?;
+
+        Ok(Self {
+            cache,
+            modules: HashMap::new(),
+            all_summaries: Vec::new(),
+            overview: None,
+            progress: IndexingStatus::default(),
+        })
+    }
+
     /// Add summaries to be sharded
     pub fn add_summaries(&mut self, summaries: Vec<SemanticSummary>) {
         // Organize by module
