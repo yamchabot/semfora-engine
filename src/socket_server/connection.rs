@@ -283,6 +283,32 @@ impl ConnectionState {
                 }
             }
 
+            "list_all_symbols" => {
+                // Get ALL symbols from the index (for call graph viewer)
+                let limit = params.get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+                    .unwrap_or(1000);
+
+                tracing::info!("[list_all_symbols] Requested scope: {:?}", scope);
+                let cache = ctx.get_cache_for_scope(scope);
+                tracing::info!("[list_all_symbols] Using cache at: {:?}", cache.root);
+
+                let all_entries = cache.load_all_symbol_entries()?;
+                tracing::info!("[list_all_symbols] Loaded {} entries from cache", all_entries.len());
+
+                // Optionally limit results
+                let symbols: Vec<_> = all_entries.into_iter().take(limit).collect();
+                let count = symbols.len();
+
+                Ok(serde_json::json!({
+                    "symbols": symbols,
+                    "count": count,
+                    "scope": scope.unwrap_or("base_branch"),
+                    "cache_path": cache.root.display().to_string()
+                }))
+            }
+
             "get_symbol" => {
                 let hash = params.get("hash")
                     .and_then(|v| v.as_str())
@@ -304,6 +330,207 @@ impl ConnectionState {
                 let cache = ctx.get_cache_for_scope(scope);
                 let graph = cache.load_call_graph()?;
                 Ok(serde_json::json!({ "graph": graph, "scope": scope.unwrap_or("base_branch") }))
+            }
+
+            "get_symbol_callees" => {
+                // Get what this symbol calls (fan-out)
+                let hash = params.get("hash")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
+
+                let cache = ctx.get_cache_for_scope(scope);
+                let graph = cache.load_call_graph()?;
+                let callees = graph.get(hash).cloned().unwrap_or_default();
+
+                // Enrich with symbol names if available
+                let symbol_index = cache.load_all_symbol_entries()?;
+                let hash_to_name: std::collections::HashMap<String, String> = symbol_index.iter()
+                    .map(|e| (e.hash.clone(), e.symbol.clone()))
+                    .collect();
+
+                let enriched: Vec<serde_json::Value> = callees.iter()
+                    .map(|callee_hash| {
+                        serde_json::json!({
+                            "hash": callee_hash,
+                            "name": hash_to_name.get(callee_hash).cloned().unwrap_or_else(|| callee_hash.clone())
+                        })
+                    })
+                    .collect();
+
+                Ok(serde_json::json!({
+                    "symbol_hash": hash,
+                    "callees": enriched,
+                    "count": enriched.len(),
+                    "scope": scope.unwrap_or("base_branch")
+                }))
+            }
+
+            "get_symbol_callers" => {
+                // Get what calls this symbol (fan-in)
+                let hash = params.get("hash")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
+
+                let cache = ctx.get_cache_for_scope(scope);
+                let graph = cache.load_call_graph()?;
+
+                // Build reverse map
+                let mut callers: Vec<String> = Vec::new();
+                for (caller_hash, callees) in &graph {
+                    if callees.contains(&hash.to_string()) {
+                        callers.push(caller_hash.clone());
+                    }
+                }
+
+                // Enrich with symbol names
+                let symbol_index = cache.load_all_symbol_entries()?;
+                let hash_to_name: std::collections::HashMap<String, String> = symbol_index.iter()
+                    .map(|e| (e.hash.clone(), e.symbol.clone()))
+                    .collect();
+
+                let enriched: Vec<serde_json::Value> = callers.iter()
+                    .map(|caller_hash| {
+                        serde_json::json!({
+                            "hash": caller_hash,
+                            "name": hash_to_name.get(caller_hash).cloned().unwrap_or_else(|| caller_hash.clone())
+                        })
+                    })
+                    .collect();
+
+                Ok(serde_json::json!({
+                    "symbol_hash": hash,
+                    "callers": enriched,
+                    "count": enriched.len(),
+                    "scope": scope.unwrap_or("base_branch")
+                }))
+            }
+
+            "get_call_graph_for_symbol" => {
+                // Get bidirectional call graph centered on a symbol
+                let hash = params.get("hash")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
+
+                let depth = params.get("depth")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(2) as usize;
+
+                let cache = ctx.get_cache_for_scope(scope);
+                let graph = cache.load_call_graph()?;
+                let symbol_index = cache.load_all_symbol_entries()?;
+
+                let hash_to_info: std::collections::HashMap<String, (&str, &str, &str)> = symbol_index.iter()
+                    .map(|e| (e.hash.clone(), (e.symbol.as_str(), e.kind.as_str(), e.module.as_str())))
+                    .collect();
+
+                // Build reverse map for callers
+                let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+                for (caller_hash, callees) in &graph {
+                    for callee in callees {
+                        reverse_graph.entry(callee.clone()).or_default().push(caller_hash.clone());
+                    }
+                }
+
+                // Collect callees recursively
+                fn collect_callees(
+                    graph: &std::collections::HashMap<String, Vec<String>>,
+                    hash_to_info: &std::collections::HashMap<String, (&str, &str, &str)>,
+                    hash: &str,
+                    depth: usize,
+                    visited: &mut std::collections::HashSet<String>,
+                ) -> serde_json::Value {
+                    if depth == 0 || visited.contains(hash) {
+                        let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                        return serde_json::json!({
+                            "hash": hash,
+                            "name": name,
+                            "kind": kind,
+                            "module": module,
+                            "children": []
+                        });
+                    }
+                    visited.insert(hash.to_string());
+
+                    let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                    let callees = graph.get(hash).cloned().unwrap_or_default();
+                    let children: Vec<serde_json::Value> = callees.iter()
+                        .map(|callee| collect_callees(graph, hash_to_info, callee, depth - 1, visited))
+                        .collect();
+
+                    serde_json::json!({
+                        "hash": hash,
+                        "name": name,
+                        "kind": kind,
+                        "module": module,
+                        "children": children
+                    })
+                }
+
+                // Collect callers recursively
+                fn collect_callers(
+                    reverse_graph: &std::collections::HashMap<String, Vec<String>>,
+                    hash_to_info: &std::collections::HashMap<String, (&str, &str, &str)>,
+                    hash: &str,
+                    depth: usize,
+                    visited: &mut std::collections::HashSet<String>,
+                ) -> serde_json::Value {
+                    if depth == 0 || visited.contains(hash) {
+                        let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                        return serde_json::json!({
+                            "hash": hash,
+                            "name": name,
+                            "kind": kind,
+                            "module": module,
+                            "parents": []
+                        });
+                    }
+                    visited.insert(hash.to_string());
+
+                    let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                    let callers = reverse_graph.get(hash).cloned().unwrap_or_default();
+                    let parents: Vec<serde_json::Value> = callers.iter()
+                        .map(|caller| collect_callers(reverse_graph, hash_to_info, caller, depth - 1, visited))
+                        .collect();
+
+                    serde_json::json!({
+                        "hash": hash,
+                        "name": name,
+                        "kind": kind,
+                        "module": module,
+                        "parents": parents
+                    })
+                }
+
+                let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+
+                // Get downstream (callees) tree
+                let mut visited_down = std::collections::HashSet::new();
+                visited_down.insert(hash.to_string());
+                let callees = graph.get(hash).cloned().unwrap_or_default();
+                let downstream: Vec<serde_json::Value> = callees.iter()
+                    .map(|callee| collect_callees(&graph, &hash_to_info, callee, depth - 1, &mut visited_down))
+                    .collect();
+
+                // Get upstream (callers) tree
+                let mut visited_up = std::collections::HashSet::new();
+                visited_up.insert(hash.to_string());
+                let callers = reverse_graph.get(hash).cloned().unwrap_or_default();
+                let upstream: Vec<serde_json::Value> = callers.iter()
+                    .map(|caller| collect_callers(&reverse_graph, &hash_to_info, caller, depth - 1, &mut visited_up))
+                    .collect();
+
+                Ok(serde_json::json!({
+                    "center": {
+                        "hash": hash,
+                        "name": name,
+                        "kind": kind,
+                        "module": module
+                    },
+                    "upstream": upstream,   // Who calls this symbol
+                    "downstream": downstream, // What this symbol calls
+                    "depth": depth,
+                    "scope": scope.unwrap_or("base_branch")
+                }))
             }
 
             "refresh_worktrees" => {

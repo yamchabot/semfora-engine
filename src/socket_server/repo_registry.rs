@@ -380,8 +380,48 @@ impl RepoContext {
         // Parse the scope to find the matching IndexId
         let index_id = if scope_str.starts_with("worktree:") {
             let path_str = scope_str.strip_prefix("worktree:").unwrap_or("");
+            tracing::info!("[get_cache_for_scope] Looking for worktree with path_str={:?}", path_str);
+
+            // Check if it's a full path or just a directory name
             let path = PathBuf::from(path_str);
-            Some(IndexId::Worktree(path))
+            if path.is_absolute() {
+                // Full path provided
+                tracing::info!("[get_cache_for_scope] Using absolute path: {:?}", path);
+                Some(IndexId::Worktree(path))
+            } else {
+                // Just a directory name - search worktrees to find the full path
+                let worktrees = self.worktrees.read();
+                tracing::info!("[get_cache_for_scope] Searching {} worktrees for match with path_str={:?}", worktrees.len(), path_str);
+                for wt in worktrees.iter() {
+                    let dir_name = wt.path.file_name().and_then(|n| n.to_str());
+                    tracing::info!("[get_cache_for_scope] Worktree: {:?}, dir_name={:?}", wt.path, dir_name);
+                }
+
+                // First try exact match
+                let found = worktrees.iter().find(|wt| {
+                    wt.path.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|name| name == path_str)
+                        .unwrap_or(false)
+                });
+
+                // If no exact match, try partial match (but be careful about order)
+                let found = found.or_else(|| {
+                    worktrees.iter().find(|wt| {
+                        wt.path.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|name| path_str.contains(name) || name.contains(path_str))
+                            .unwrap_or(false)
+                    })
+                });
+
+                if let Some(wt) = found {
+                    tracing::info!("[get_cache_for_scope] Found matching worktree: {:?}", wt.path);
+                } else {
+                    tracing::warn!("[get_cache_for_scope] No matching worktree found for {:?}", path_str);
+                }
+                found.map(|wt| IndexId::Worktree(wt.path.clone()))
+            }
         } else if scope_str == "base_branch" || scope_str == "base" {
             Some(IndexId::BaseBranch)
         } else if scope_str == "feature_branch" || scope_str == "feature" {
@@ -398,15 +438,24 @@ impl RepoContext {
             found.map(|wt| IndexId::Worktree(wt.path.clone()))
         };
 
+        tracing::info!("[get_cache_for_scope] scope={:?} -> index_id={:?}", scope_str, index_id);
+
         // Look up the cache for this index
-        if let Some(id) = index_id {
+        if let Some(ref id) = index_id {
             let index_caches = self.index_caches.read();
-            if let Some(cache) = index_caches.get(&id) {
+            tracing::info!("[get_cache_for_scope] index_caches has {} entries", index_caches.len());
+            for (k, v) in index_caches.iter() {
+                tracing::info!("[get_cache_for_scope] Cache entry: {:?} -> {:?}", k, v.root);
+            }
+            if let Some(cache) = index_caches.get(id) {
+                tracing::info!("[get_cache_for_scope] Found cache for {:?} at {:?}", id, cache.root);
                 cache.clone()
             } else {
+                tracing::warn!("[get_cache_for_scope] No cache found for {:?}, falling back to base", id);
                 self.cache_dir.clone()
             }
         } else {
+            tracing::warn!("[get_cache_for_scope] Could not parse scope {:?}, falling back to base", scope_str);
             self.cache_dir.clone()
         }
     }

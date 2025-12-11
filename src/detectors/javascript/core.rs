@@ -770,14 +770,29 @@ pub fn extract_control_flow(summary: &mut SemanticSummary, root: &Node) {
 // Call Extraction
 // =============================================================================
 
-/// Extract function calls with context
+/// Find which symbol (by index in summary.symbols) contains a given line number.
+/// Uses the symbol's start_line and end_line to determine containment.
+fn find_containing_symbol_by_line(line: usize, symbols: &[SymbolInfo]) -> Option<usize> {
+    for (idx, symbol) in symbols.iter().enumerate() {
+        if line >= symbol.start_line && line <= symbol.end_line {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+/// Extract function calls with context and assign to symbols
 pub fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str) {
+    // Build try ranges for in_try detection
     let mut try_ranges: Vec<(usize, usize)> = Vec::new();
     visit_all(root, |node| {
         if node.kind() == "try_statement" {
             try_ranges.push((node.start_byte(), node.end_byte()));
         }
     });
+
+    // Collect all calls first
+    let mut all_calls: Vec<(Call, usize)> = Vec::new(); // (call, line_number)
 
     visit_all(root, |node| {
         if node.kind() == "call_expression" {
@@ -803,22 +818,45 @@ pub fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str) {
                     .any(|(start, end)| node_start >= *start && node_start < *end);
 
                 let is_io = Call::check_is_io(&name);
+                let line = node.start_position().row + 1;
 
-                summary.calls.push(Call {
+                let call = Call {
                     name,
                     object,
                     is_awaited,
                     in_try,
                     is_hook: false,
                     is_io,
-                    location: Location::new(
-                        node.start_position().row + 1,
-                        node.start_position().column,
-                    ),
-                });
+                    location: Location::new(line, node.start_position().column),
+                };
+
+                all_calls.push((call, line));
             }
         }
     });
+
+    // Now assign calls to symbols based on line ranges
+    let mut calls_by_symbol: std::collections::HashMap<usize, Vec<Call>> = std::collections::HashMap::new();
+    let mut file_level_calls: Vec<Call> = Vec::new();
+
+    for (call, line) in all_calls {
+        if let Some(symbol_idx) = find_containing_symbol_by_line(line, &summary.symbols) {
+            calls_by_symbol.entry(symbol_idx).or_default().push(call);
+        } else {
+            // Call is at file level (not inside any symbol)
+            file_level_calls.push(call);
+        }
+    }
+
+    // Assign calls to their respective symbols
+    for (symbol_idx, calls) in calls_by_symbol {
+        if symbol_idx < summary.symbols.len() {
+            summary.symbols[symbol_idx].calls = calls;
+        }
+    }
+
+    // Also keep file-level calls in summary.calls for backward compatibility
+    summary.calls = file_level_calls;
 }
 
 /// Extract call name and object

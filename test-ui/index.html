@@ -211,6 +211,172 @@
             background: var(--success);
             color: #000;
         }
+        /* Call Graph Styles */
+        .call-graph-container {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 15px;
+            min-height: 500px;
+        }
+        .symbol-list-panel {
+            background: var(--bg);
+            border-radius: 4px;
+            padding: 10px;
+            overflow-y: auto;
+            max-height: 500px;
+        }
+        .symbol-search {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .symbol-list {
+            list-style: none;
+        }
+        .symbol-list li {
+            padding: 6px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-bottom: 2px;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        .symbol-list li:hover {
+            background: var(--primary);
+        }
+        .symbol-list li.selected {
+            background: var(--accent);
+        }
+        .symbol-kind {
+            display: inline-block;
+            width: 60px;
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+        .symbol-module {
+            font-size: 10px;
+            color: var(--text-dim);
+            display: block;
+            margin-left: 60px;
+        }
+        .call-graph-view {
+            background: var(--bg);
+            border-radius: 4px;
+            padding: 15px;
+            overflow: auto;
+        }
+        .graph-section {
+            margin-bottom: 20px;
+        }
+        .graph-section-title {
+            color: var(--accent);
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .graph-section-title .arrow {
+            font-size: 16px;
+        }
+        .center-symbol {
+            background: var(--accent);
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        .center-symbol .name {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .center-symbol .meta {
+            font-size: 11px;
+            color: rgba(255,255,255,0.7);
+            margin-top: 4px;
+        }
+        .tree-node {
+            padding-left: 20px;
+            border-left: 2px solid var(--primary);
+            margin-left: 10px;
+        }
+        .tree-item {
+            padding: 6px 10px;
+            background: var(--surface);
+            border-radius: 4px;
+            margin: 4px 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-block;
+            min-width: 200px;
+        }
+        .tree-item:hover {
+            background: var(--primary);
+            transform: translateX(3px);
+        }
+        .tree-item .name {
+            font-size: 13px;
+        }
+        .tree-item .kind {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-left: 8px;
+        }
+        .tree-item .module {
+            font-size: 10px;
+            color: var(--text-dim);
+            display: block;
+        }
+        .tree-item.has-children {
+            position: relative;
+        }
+        .tree-item.has-children::after {
+            content: '+';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+        }
+        .tree-item.expanded::after {
+            content: '-';
+        }
+        .no-data {
+            color: var(--text-dim);
+            font-style: italic;
+            font-size: 12px;
+            padding: 10px;
+        }
+        .depth-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .depth-control label {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .depth-control input[type="range"] {
+            width: 100px;
+        }
+        .stats-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .stats-bar .stat {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .stats-bar .stat-value {
+            color: var(--accent);
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -282,7 +448,7 @@
                 <div class="tab active" onclick="selectTab('search')">Search Symbols</div>
                 <div class="tab" onclick="selectTab('overview')">Get Overview</div>
                 <div class="tab" onclick="selectTab('worktrees')">List Worktrees</div>
-                <div class="tab" onclick="selectTab('callgraph')">Call Graph</div>
+                <div class="tab" onclick="selectTab('callgraph')">Call Graph JSON</div>
                 <div class="tab" onclick="selectTab('custom')">Custom Query</div>
             </div>
 
@@ -315,6 +481,39 @@
 
             <div class="results" id="results">
                 <pre>Results will appear here...</pre>
+            </div>
+        </div>
+
+        <!-- Call Graph Viewer Panel -->
+        <div class="panel">
+            <h2>Call Graph Viewer</h2>
+            <!-- Scope Selector -->
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                <label style="font-size: 12px; color: var(--text-dim);">Index Scope:</label>
+                <select id="callGraphScope" style="flex: 1; max-width: 400px;" onchange="onScopeChange()">
+                    <option value="">-- Connect to repo first --</option>
+                </select>
+                <span id="scopeSymbolCount" style="font-size: 11px; color: var(--text-dim);"></span>
+            </div>
+            <div class="call-graph-container">
+                <!-- Symbol List -->
+                <div class="symbol-list-panel">
+                    <input type="text" class="symbol-search" id="symbolSearch" placeholder="Filter symbols..." oninput="filterSymbols()">
+                    <div class="depth-control">
+                        <label>Depth:</label>
+                        <input type="range" id="graphDepth" min="1" max="5" value="2" oninput="updateDepthLabel()">
+                        <span id="depthLabel">2</span>
+                    </div>
+                    <button onclick="loadSymbolList()" style="width: 100%; margin-bottom: 10px;">Load Symbols</button>
+                    <ul class="symbol-list" id="symbolListView">
+                        <li class="no-data">Select a scope and click "Load Symbols"</li>
+                    </ul>
+                </div>
+
+                <!-- Call Graph Visualization -->
+                <div class="call-graph-view" id="callGraphView">
+                    <div class="no-data">Select a symbol from the list to view its call graph</div>
+                </div>
             </div>
         </div>
 
@@ -419,18 +618,30 @@
             }
             const json = JSON.stringify(obj);
             log(`→ ${json}`, 'sent');
+            // Console log for debugging
+            console.log('%c[WS SEND]', 'color: #93c5fd; font-weight: bold', obj);
             ws.send(json);
         }
 
         function handleMessage(msg) {
+            // Console log for debugging
+            console.log('%c[WS RECV]', 'color: #86efac; font-weight: bold', msg);
+
             switch (msg.type) {
                 case 'connected':
+                    console.log('%c[CONNECTED]', 'color: #4ade80; font-weight: bold', msg);
                     displayConnectionInfo(msg);
                     break;
                 case 'response':
+                    console.log('%c[RESPONSE]', 'color: #fbbf24; font-weight: bold', {
+                        id: msg.id,
+                        resultKeys: msg.result ? Object.keys(msg.result) : null,
+                        result: msg.result
+                    });
                     // Check if this is an index info response
                     if (msg.result && msg.result.indexes) {
                         updateIndexList(msg.result.indexes);
+                        updateCallGraphScopeSelector(msg.result.indexes);
                         if (msg.result.worktrees) {
                             updateWorktreeList(msg.result.worktrees);
                         }
@@ -438,9 +649,11 @@
                     displayResults(msg.result);
                     break;
                 case 'error':
+                    console.error('%c[ERROR]', 'color: #f87171; font-weight: bold', msg);
                     displayResults({ error: msg.message, code: msg.code });
                     break;
                 case 'event':
+                    console.log('%c[EVENT]', 'color: #c084fc; font-weight: bold', msg);
                     log(`Event: ${msg.name}`, 'received');
                     displayResults({ event: msg.name, payload: msg.payload });
                     // Auto-refresh indexes when layer_updated event received
@@ -449,10 +662,12 @@
                     }
                     break;
                 case 'subscribed':
+                    console.log('%c[SUBSCRIBED]', 'color: #22d3ee; font-weight: bold', msg);
                     subscriptions = [...new Set([...subscriptions, ...msg.events])];
                     updateSubscriptions();
                     break;
                 case 'unsubscribed':
+                    console.log('%c[UNSUBSCRIBED]', 'color: #fb7185; font-weight: bold', msg);
                     subscriptions = subscriptions.filter(s => !msg.events.includes(s));
                     updateSubscriptions();
                     break;
@@ -519,6 +734,8 @@
                         <br><small>${idx.symbol_count} symbols</small>
                     </li>
                 `).join('');
+                // Also update the call graph scope selector
+                updateCallGraphScopeSelector(info.indexes);
             } else {
                 idxList.innerHTML = '<li>No indexes (run semfora-mcp --shard)</li>';
             }
@@ -643,6 +860,389 @@
             document.getElementById(tab + 'Tab').style.display = 'block';
             event.target.classList.add('active');
         }
+
+        // ============ Call Graph Viewer Functions ============
+
+        let allSymbols = [];
+        let selectedSymbolHash = null;
+        let currentCallGraph = null;
+        let pendingCallGraphRequest = null;
+        let availableIndexes = [];
+
+        function updateDepthLabel() {
+            document.getElementById('depthLabel').textContent = document.getElementById('graphDepth').value;
+        }
+
+        function updateCallGraphScopeSelector(indexes) {
+            availableIndexes = indexes || [];
+            const select = document.getElementById('callGraphScope');
+            const currentValue = select.value;
+
+            if (!indexes || indexes.length === 0) {
+                select.innerHTML = '<option value="">-- No indexes available --</option>';
+                document.getElementById('scopeSymbolCount').textContent = '';
+                return;
+            }
+
+            select.innerHTML = indexes.map(idx => `
+                <option value="${idx.scope}" data-symbols="${idx.symbol_count}">
+                    ${idx.scope} (${idx.symbol_count} symbols)
+                </option>
+            `).join('');
+
+            // Try to restore previous selection, or select the one with most symbols
+            if (currentValue && indexes.find(i => i.scope === currentValue)) {
+                select.value = currentValue;
+            } else {
+                // Select the index with the most symbols (usually a worktree)
+                const maxIndex = indexes.reduce((max, idx) =>
+                    idx.symbol_count > max.symbol_count ? idx : max, indexes[0]);
+                select.value = maxIndex.scope;
+            }
+
+            updateScopeSymbolCount();
+        }
+
+        function updateScopeSymbolCount() {
+            const select = document.getElementById('callGraphScope');
+            const option = select.selectedOptions[0];
+            if (option && option.dataset.symbols) {
+                document.getElementById('scopeSymbolCount').textContent =
+                    `${option.dataset.symbols} symbols in this index`;
+            } else {
+                document.getElementById('scopeSymbolCount').textContent = '';
+            }
+        }
+
+        function onScopeChange() {
+            updateScopeSymbolCount();
+            // Clear the symbol list when scope changes
+            allSymbols = [];
+            selectedSymbolHash = null;
+            document.getElementById('symbolListView').innerHTML =
+                '<li class="no-data">Click "Load Symbols" to load from selected scope</li>';
+            document.getElementById('callGraphView').innerHTML =
+                '<div class="no-data">Select a symbol from the list to view its call graph</div>';
+        }
+
+        function getSelectedScope() {
+            const select = document.getElementById('callGraphScope');
+            return select.value || null;
+        }
+
+        function loadSymbolList() {
+            const scope = getSelectedScope();
+            if (!scope) {
+                log('No scope selected - connect to a repo first', 'error');
+                return;
+            }
+
+            pendingCallGraphRequest = 'symbol_list';
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'list_all_symbols',
+                params: { limit: 1000, scope }
+            });
+            log(`Loading all symbols from scope: ${scope}`, 'info');
+        }
+
+        // Helper to normalize symbol object (server uses short names: s, h, k, m, f, l, r)
+        function normalizeSymbol(s) {
+            return {
+                symbol: s.symbol || s.s || '',
+                hash: s.hash || s.h || '',
+                kind: s.kind || s.k || '',
+                module: s.module || s.m || '',
+                file: s.file || s.f || '',
+                lines: s.lines || s.l || '',
+                risk: s.risk || s.r || ''
+            };
+        }
+
+        function filterSymbols() {
+            const filter = document.getElementById('symbolSearch').value.toLowerCase();
+            const listEl = document.getElementById('symbolListView');
+
+            const filtered = allSymbols.filter(s => {
+                const ns = normalizeSymbol(s);
+                return ns.symbol.toLowerCase().includes(filter) ||
+                    (ns.module && ns.module.toLowerCase().includes(filter)) ||
+                    (ns.kind && ns.kind.toLowerCase().includes(filter));
+            });
+
+            renderSymbolList(filtered);
+        }
+
+        function renderSymbolList(symbols) {
+            const listEl = document.getElementById('symbolListView');
+
+            if (!symbols || symbols.length === 0) {
+                listEl.innerHTML = '<li class="no-data">No symbols found</li>';
+                return;
+            }
+
+            listEl.innerHTML = symbols.map(s => {
+                const ns = normalizeSymbol(s);
+                return `
+                <li onclick="selectSymbol('${ns.hash}', '${escapeHtml(ns.symbol)}')" ${selectedSymbolHash === ns.hash ? 'class="selected"' : ''}>
+                    <span class="symbol-kind">${ns.kind || 'unknown'}</span>
+                    <strong>${escapeHtml(ns.symbol)}</strong>
+                    ${ns.module ? `<span class="symbol-module">${escapeHtml(ns.module)}</span>` : ''}
+                </li>
+            `}).join('');
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function selectSymbol(hash, name) {
+            selectedSymbolHash = hash;
+            // Update selection highlight
+            document.querySelectorAll('#symbolListView li').forEach(li => li.classList.remove('selected'));
+            event.target.closest('li').classList.add('selected');
+
+            // Fetch call graph for this symbol
+            const depth = parseInt(document.getElementById('graphDepth').value);
+            const scope = getSelectedScope();
+            pendingCallGraphRequest = 'call_graph_for_symbol';
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'get_call_graph_for_symbol',
+                params: { hash, depth, scope }
+            });
+
+            // Show loading state
+            document.getElementById('callGraphView').innerHTML = `
+                <div class="no-data">Loading call graph for ${escapeHtml(name)}...</div>
+            `;
+        }
+
+        function handleSymbolListResponse(result) {
+            console.log('%c[SYMBOL LIST RESPONSE]', 'color: #f472b6; font-weight: bold', {
+                hasResults: !!result.results,
+                hasSymbols: !!result.symbols,
+                resultsLength: result.results?.length,
+                symbolsLength: result.symbols?.length,
+                scope: result.scope,
+                fullResult: result
+            });
+
+            // list_all_symbols returns 'symbols', search_symbols returns 'results'
+            const symbols = result.symbols || result.results || [];
+
+            // Log raw and normalized samples
+            console.log('%c[SYMBOLS ARRAY - RAW]', 'color: #a78bfa; font-weight: bold', {
+                length: symbols.length,
+                firstSymbolRaw: symbols[0],
+                sampleSymbolsRaw: symbols.slice(0, 3)
+            });
+
+            if (symbols.length > 0) {
+                console.log('%c[SYMBOLS ARRAY - NORMALIZED]', 'color: #34d399; font-weight: bold', {
+                    firstSymbolNormalized: normalizeSymbol(symbols[0]),
+                    sampleSymbolsNormalized: symbols.slice(0, 3).map(normalizeSymbol)
+                });
+            }
+
+            if (symbols && symbols.length > 0) {
+                allSymbols = symbols;
+                renderSymbolList(allSymbols);
+                const first = normalizeSymbol(symbols[0]);
+                log(`Loaded ${allSymbols.length} symbols for call graph viewer from scope: ${result.scope || 'unknown'} (first: ${first.symbol})`, 'info');
+            } else {
+                allSymbols = [];
+                document.getElementById('symbolListView').innerHTML =
+                    '<li class="no-data">No symbols found in this scope. Try a different index or re-index.</li>';
+                log(`No symbols returned from scope: ${result.scope || 'unknown'}`, 'info');
+            }
+        }
+
+        function handleCallGraphForSymbolResponse(result) {
+            console.log('%c[CALL GRAPH RESPONSE]', 'color: #fb923c; font-weight: bold', {
+                center: result.center,
+                upstreamCount: result.upstream?.length,
+                downstreamCount: result.downstream?.length,
+                depth: result.depth,
+                scope: result.scope,
+                fullResult: result
+            });
+            currentCallGraph = result;
+            renderCallGraphView(result);
+        }
+
+        function renderCallGraphView(data) {
+            const view = document.getElementById('callGraphView');
+
+            if (!data || !data.center) {
+                view.innerHTML = '<div class="no-data">No call graph data available</div>';
+                return;
+            }
+
+            const { center, upstream, downstream, depth, scope } = data;
+            const upstreamCount = countNodes(upstream);
+            const downstreamCount = countNodes(downstream);
+
+            let html = `
+                <div class="stats-bar">
+                    <div class="stat">
+                        <span>Scope:</span>
+                        <span class="stat-value">${escapeHtml(scope || 'base_branch')}</span>
+                    </div>
+                    <div class="stat">
+                        <span>Callers (fan-in):</span>
+                        <span class="stat-value">${upstreamCount}</span>
+                    </div>
+                    <div class="stat">
+                        <span>Callees (fan-out):</span>
+                        <span class="stat-value">${downstreamCount}</span>
+                    </div>
+                    <div class="stat">
+                        <span>Depth:</span>
+                        <span class="stat-value">${depth}</span>
+                    </div>
+                </div>
+
+                <!-- Upstream (Callers) -->
+                <div class="graph-section">
+                    <div class="graph-section-title">
+                        <span class="arrow">&#8593;</span> Who calls this symbol (upstream)
+                    </div>
+                    ${upstream && upstream.length > 0
+                        ? renderUpstreamTree(upstream)
+                        : '<div class="no-data">No callers found</div>'
+                    }
+                </div>
+
+                <!-- Center Symbol -->
+                <div class="center-symbol">
+                    <div class="name">${escapeHtml(center.name)}</div>
+                    <div class="meta">${center.kind} ${center.module ? '| ' + escapeHtml(center.module) : ''}</div>
+                </div>
+
+                <!-- Downstream (Callees) -->
+                <div class="graph-section">
+                    <div class="graph-section-title">
+                        <span class="arrow">&#8595;</span> What this symbol calls (downstream)
+                    </div>
+                    ${downstream && downstream.length > 0
+                        ? renderDownstreamTree(downstream)
+                        : '<div class="no-data">No callees found</div>'
+                    }
+                </div>
+            `;
+
+            view.innerHTML = html;
+        }
+
+        function countNodes(nodes) {
+            if (!nodes || nodes.length === 0) return 0;
+            let count = nodes.length;
+            for (const node of nodes) {
+                if (node.children) count += countNodes(node.children);
+                if (node.parents) count += countNodes(node.parents);
+            }
+            return count;
+        }
+
+        function renderUpstreamTree(nodes, level = 0) {
+            if (!nodes || nodes.length === 0) return '';
+
+            return nodes.map(node => {
+                const hasParents = node.parents && node.parents.length > 0;
+                const nodeId = `up-${node.hash}-${level}`;
+
+                return `
+                    <div class="tree-node">
+                        ${hasParents ? renderUpstreamTree(node.parents, level + 1) : ''}
+                        <div class="tree-item ${hasParents ? 'has-children expanded' : ''}"
+                             onclick="navigateToSymbol('${node.hash}', '${escapeHtml(node.name)}')"
+                             title="Click to focus on this symbol">
+                            <span class="name">${escapeHtml(node.name)}</span>
+                            <span class="kind">${node.kind}</span>
+                            ${node.module ? `<span class="module">${escapeHtml(node.module)}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderDownstreamTree(nodes, level = 0) {
+            if (!nodes || nodes.length === 0) return '';
+
+            return nodes.map(node => {
+                const hasChildren = node.children && node.children.length > 0;
+                const nodeId = `down-${node.hash}-${level}`;
+
+                return `
+                    <div class="tree-node">
+                        <div class="tree-item ${hasChildren ? 'has-children expanded' : ''}"
+                             onclick="navigateToSymbol('${node.hash}', '${escapeHtml(node.name)}')"
+                             title="Click to focus on this symbol">
+                            <span class="name">${escapeHtml(node.name)}</span>
+                            <span class="kind">${node.kind}</span>
+                            ${node.module ? `<span class="module">${escapeHtml(node.module)}</span>` : ''}
+                        </div>
+                        ${hasChildren ? renderDownstreamTree(node.children, level + 1) : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function navigateToSymbol(hash, name) {
+            // Update selection in symbol list
+            selectedSymbolHash = hash;
+            document.querySelectorAll('#symbolListView li').forEach(li => {
+                if (li.onclick && li.onclick.toString().includes(hash)) {
+                    li.classList.add('selected');
+                } else {
+                    li.classList.remove('selected');
+                }
+            });
+
+            // Fetch new call graph
+            const depth = parseInt(document.getElementById('graphDepth').value);
+            const scope = getSelectedScope();
+            pendingCallGraphRequest = 'call_graph_for_symbol';
+            send({
+                type: 'query',
+                id: queryId++,
+                method: 'get_call_graph_for_symbol',
+                params: { hash, depth, scope }
+            });
+
+            document.getElementById('callGraphView').innerHTML = `
+                <div class="no-data">Loading call graph for ${escapeHtml(name)}...</div>
+            `;
+
+            log(`Navigating to symbol: ${name}`, 'info');
+        }
+
+        // Extend handleMessage to handle call graph responses
+        const originalHandleMessage = handleMessage;
+        handleMessage = function(msg) {
+            // Check for call graph specific responses
+            if (msg.type === 'response' && pendingCallGraphRequest) {
+                // search_symbols returns 'results' (or 'symbols' for legacy)
+                if (pendingCallGraphRequest === 'symbol_list' && msg.result && (msg.result.results || msg.result.symbols)) {
+                    handleSymbolListResponse(msg.result);
+                    pendingCallGraphRequest = null;
+                    displayResults(msg.result);
+                    return;
+                }
+                if (pendingCallGraphRequest === 'call_graph_for_symbol' && msg.result && msg.result.center) {
+                    handleCallGraphForSymbolResponse(msg.result);
+                    pendingCallGraphRequest = null;
+                    displayResults(msg.result);
+                    return;
+                }
+            }
+            // Fall through to original handler
+            originalHandleMessage(msg);
+        };
     </script>
 </body>
 </html>

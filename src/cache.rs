@@ -1398,6 +1398,581 @@ impl CacheDir {
 
         Ok(false)
     }
+
+    /// Regenerate all graphs (call graph, import graph, module graph) from source files
+    ///
+    /// This re-parses all files listed in the symbol index and rebuilds the graphs.
+    /// Should be called after file changes are processed to keep graphs in sync.
+    ///
+    /// Returns the number of files processed and graph entries written.
+    pub fn regenerate_graphs(&self) -> Result<GraphRegenerationResult> {
+        use crate::extract::extract;
+        use crate::lang::Lang;
+        use crate::schema::SemanticSummary;
+        use std::collections::{HashMap, HashSet};
+
+        tracing::info!("[CACHE] Starting graph regeneration for {}", self.root.display());
+
+        // Get unique files from symbol index
+        let entries = self.load_all_symbol_entries()?;
+        let unique_files: HashSet<String> = entries.iter().map(|e| e.file.clone()).collect();
+
+        tracing::info!("[CACHE] Found {} unique files to process", unique_files.len());
+
+        // Re-parse each file to get semantic summaries
+        let mut summaries: Vec<SemanticSummary> = Vec::new();
+        let mut files_processed = 0;
+        let mut files_failed = 0;
+
+        for file_path in unique_files {
+            let path = std::path::Path::new(&file_path);
+
+            // Skip if file doesn't exist (may have been deleted)
+            if !path.exists() {
+                tracing::debug!("[CACHE] Skipping non-existent file: {}", file_path);
+                continue;
+            }
+
+            // Detect language
+            let lang = match Lang::from_path(path) {
+                Ok(l) => l,
+                Err(_) => {
+                    tracing::debug!("[CACHE] Skipping unsupported file: {}", file_path);
+                    continue;
+                }
+            };
+
+            // Read and parse file
+            let source = match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("[CACHE] Failed to read {}: {}", file_path, e);
+                    files_failed += 1;
+                    continue;
+                }
+            };
+
+            let mut parser = tree_sitter::Parser::new();
+            if parser.set_language(&lang.tree_sitter_language()).is_err() {
+                tracing::warn!("[CACHE] Failed to set language for {}", file_path);
+                files_failed += 1;
+                continue;
+            }
+
+            let tree = match parser.parse(&source, None) {
+                Some(t) => t,
+                None => {
+                    tracing::warn!("[CACHE] Failed to parse {}", file_path);
+                    files_failed += 1;
+                    continue;
+                }
+            };
+
+            match extract(path, &source, &tree, lang) {
+                Ok(summary) => {
+                    summaries.push(summary);
+                    files_processed += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("[CACHE] Failed to extract from {}: {}", file_path, e);
+                    files_failed += 1;
+                }
+            }
+        }
+
+        tracing::info!(
+            "[CACHE] Processed {} files ({} failed), building graphs",
+            files_processed,
+            files_failed
+        );
+
+        // Build graphs from summaries
+        let (call_graph_entries, import_graph_entries, module_graph_entries) =
+            self.build_and_write_graphs(&summaries)?;
+
+        tracing::info!(
+            "[CACHE] Graph regeneration complete: {} call edges, {} import edges, {} module edges",
+            call_graph_entries,
+            import_graph_entries,
+            module_graph_entries
+        );
+
+        Ok(GraphRegenerationResult {
+            files_processed,
+            files_failed,
+            call_graph_entries,
+            import_graph_entries,
+            module_graph_entries,
+        })
+    }
+
+    /// Build and write all graphs from summaries
+    fn build_and_write_graphs(&self, summaries: &[crate::schema::SemanticSummary]) -> Result<(usize, usize, usize)> {
+        use crate::schema::SCHEMA_VERSION;
+        use std::collections::HashMap;
+
+        // Ensure graphs directory exists
+        let graphs_dir = self.graphs_dir();
+        std::fs::create_dir_all(&graphs_dir)?;
+
+        // Build call graph
+        let call_graph = self.build_call_graph_from_summaries(summaries);
+        let call_graph_entries = call_graph.len();
+
+        // Build import graph
+        let import_graph = self.build_import_graph_from_summaries(summaries);
+        let import_graph_entries = import_graph.len();
+
+        // Build module graph
+        let module_graph = self.build_module_graph_from_summaries(summaries);
+        let module_graph_entries = module_graph.len();
+
+        // Write call graph
+        let call_graph_content = Self::encode_call_graph(&call_graph);
+        std::fs::write(self.call_graph_path(), &call_graph_content)?;
+
+        // Write import graph
+        let import_graph_content = Self::encode_import_graph(&import_graph);
+        std::fs::write(self.import_graph_path(), &import_graph_content)?;
+
+        // Write module graph
+        let module_graph_content = Self::encode_module_graph(&module_graph);
+        std::fs::write(self.module_graph_path(), &module_graph_content)?;
+
+        Ok((call_graph_entries, import_graph_entries, module_graph_entries))
+    }
+
+    /// Build a lookup map from symbol name to their hashes for call resolution
+    fn build_symbol_lookup_from_summaries(
+        summaries: &[crate::schema::SemanticSummary],
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        use crate::overlay::compute_symbol_hash;
+        use std::collections::HashMap;
+
+        let mut lookup: HashMap<String, Vec<String>> = HashMap::new();
+
+        for summary in summaries {
+            // Index from primary symbol_id
+            if let Some(ref symbol_id) = summary.symbol_id {
+                lookup
+                    .entry(symbol_id.symbol.clone())
+                    .or_default()
+                    .push(symbol_id.hash.clone());
+            }
+
+            // Index from symbols array
+            for symbol in &summary.symbols {
+                let hash = compute_symbol_hash(symbol, &summary.file);
+                lookup
+                    .entry(symbol.name.clone())
+                    .or_default()
+                    .push(hash);
+            }
+        }
+
+        // Deduplicate
+        for entries in lookup.values_mut() {
+            entries.sort();
+            entries.dedup();
+        }
+
+        lookup
+    }
+
+    /// Resolve a call name to a symbol hash
+    fn resolve_call_to_hash(
+        call_name: &str,
+        lookup: &std::collections::HashMap<String, Vec<String>>,
+    ) -> String {
+        if let Some(matches) = lookup.get(call_name) {
+            if !matches.is_empty() {
+                // Return first match (could be enhanced with namespace disambiguation)
+                return matches[0].clone();
+            }
+        }
+        // External call - prefix with "ext:" to distinguish from hashes
+        format!("ext:{}", call_name)
+    }
+
+    /// Build call graph from summaries (caller hash -> callee hashes)
+    /// Uses summary.symbols and compute_symbol_hash to match symbol index hashes
+    /// Callee values are now symbol hashes (or "ext:name" for external calls)
+    fn build_call_graph_from_summaries(
+        &self,
+        summaries: &[crate::schema::SemanticSummary],
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        use crate::overlay::compute_symbol_hash;
+        use std::collections::HashMap;
+
+        // Build symbol lookup for resolving call names to hashes
+        let symbol_lookup = Self::build_symbol_lookup_from_summaries(summaries);
+
+        let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+        let mut total_symbols_from_vec = 0;
+        let mut total_calls_from_symbols = 0;
+
+        for summary in summaries {
+            // Log summary state for debugging
+            tracing::debug!(
+                "[CALL_GRAPH] File: {}, symbols.len={}, calls.len={}, has_symbol_id={}",
+                summary.file,
+                summary.symbols.len(),
+                summary.calls.len(),
+                summary.symbol_id.is_some()
+            );
+
+            // Iterate through all symbols in this file (not just the primary)
+            for symbol in &summary.symbols {
+                total_symbols_from_vec += 1;
+                // Compute hash using absolute path (summary.file) - canonical rule everywhere
+                let hash = compute_symbol_hash(symbol, &summary.file);
+
+                let mut calls: Vec<String> = Vec::new();
+
+                // Extract from the symbol's own calls array (SymbolInfo.calls)
+                for c in &symbol.calls {
+                    let call_name = if let Some(ref obj) = c.object {
+                        format!("{}.{}", obj, c.name)
+                    } else {
+                        c.name.clone()
+                    };
+                    let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                    if !calls.contains(&resolved) {
+                        calls.push(resolved);
+                    }
+                }
+
+                // Extract function calls from state_changes initializers
+                for state in &symbol.state_changes {
+                    if !state.initializer.is_empty() {
+                        if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
+                            let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                            if !calls.contains(&resolved) {
+                                calls.push(resolved);
+                            }
+                        }
+                    }
+                }
+
+                if !calls.is_empty() {
+                    total_calls_from_symbols += calls.len();
+                    tracing::debug!(
+                        "[CALL_GRAPH] Symbol {} (hash={}) has {} calls: {:?}",
+                        symbol.name,
+                        hash,
+                        calls.len(),
+                        calls
+                    );
+                    graph.insert(hash, calls);
+                }
+            }
+
+            // Also extract from file-level calls/state_changes/added_dependencies
+            // These may not belong to a specific symbol but are still in the file
+            if let Some(ref symbol_id) = summary.symbol_id {
+                let mut calls: Vec<String> = Vec::new();
+
+                // Extract from file-level calls array
+                for c in &summary.calls {
+                    let call_name = if let Some(ref obj) = c.object {
+                        format!("{}.{}", obj, c.name)
+                    } else {
+                        c.name.clone()
+                    };
+                    let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                    if !calls.contains(&resolved) {
+                        calls.push(resolved);
+                    }
+                }
+
+                // Extract function calls from file-level state_changes initializers
+                for state in &summary.state_changes {
+                    if !state.initializer.is_empty() {
+                        if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
+                            let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                            if !calls.contains(&resolved) {
+                                calls.push(resolved);
+                            }
+                        }
+                    }
+                }
+
+                // Extract from added_dependencies that look like function calls
+                for dep in &summary.added_dependencies {
+                    if !dep.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                        && !dep.contains("::")
+                    {
+                        if dep.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                            let resolved = Self::resolve_call_to_hash(dep, &symbol_lookup);
+                            if !calls.contains(&resolved) {
+                                calls.push(resolved);
+                            }
+                        }
+                    }
+                }
+
+                // For file-level calls, find the primary symbol (matching summary.symbol name)
+                // and use its hash. This ensures file-level calls get the correct symbol hash.
+                if !calls.is_empty() {
+                    // Find the symbol that matches the summary's primary symbol name
+                    let matching_symbol = if let Some(ref primary_name) = summary.symbol {
+                        summary.symbols.iter().find(|s| &s.name == primary_name)
+                    } else {
+                        None
+                    };
+
+                    // Use matching symbol's hash, or first symbol's hash, or symbol_id.hash as fallback
+                    // NOTE: Use summary.file (absolute path) - canonical rule everywhere
+                    let hash = if let Some(symbol) = matching_symbol {
+                        compute_symbol_hash(symbol, &summary.file)
+                    } else if let Some(first_symbol) = summary.symbols.first() {
+                        compute_symbol_hash(first_symbol, &summary.file)
+                    } else {
+                        symbol_id.hash.clone()
+                    };
+
+                    tracing::debug!(
+                        "[CALL_GRAPH] File {} assigning {} file-level calls to hash {}",
+                        summary.file,
+                        calls.len(),
+                        hash
+                    );
+                    // Merge with existing calls for this hash
+                    graph.entry(hash).or_default().extend(calls);
+                }
+            }
+        }
+
+        tracing::info!(
+            "[CALL_GRAPH] Summary: {} symbols from Vec<SymbolInfo>, {} calls from symbols, {} graph entries",
+            total_symbols_from_vec,
+            total_calls_from_symbols,
+            graph.len()
+        );
+
+        graph
+    }
+
+    /// Extract a function call name from an initializer expression
+    fn extract_call_from_initializer(init: &str) -> Option<String> {
+        let trimmed = init.trim();
+
+        // Skip simple literals and keywords
+        if trimmed.is_empty()
+            || trimmed.starts_with('"')
+            || trimmed.starts_with('\'')
+            || trimmed.parse::<i64>().is_ok()
+            || trimmed.parse::<f64>().is_ok()
+            || trimmed == "true"
+            || trimmed == "false"
+            || trimmed == "None"
+            || trimmed == "null"
+            || trimmed == "undefined"
+        {
+            return None;
+        }
+
+        // Look for function call pattern: something(...)
+        if let Some((before_paren, _)) = trimmed.split_once('(') {
+            let call_part = before_paren
+                .rsplit(&['.', ':'][..])
+                .next()
+                .unwrap_or(before_paren)
+                .trim();
+
+            // Skip type constructors
+            if call_part.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                if call_part == "new" || call_part == "default" {
+                    if let Some(type_part) = before_paren.rsplit("::").nth(1) {
+                        return Some(format!("{}::{}", type_part.trim(), call_part));
+                    }
+                }
+                return None;
+            }
+
+            if call_part.len() < 2 {
+                return None;
+            }
+
+            // Skip common noise
+            let noise = [
+                "iter", "map", "filter", "collect", "clone", "to_string", "len",
+                "is_empty", "unwrap", "unwrap_or", "ok", "err", "as_ref", "as_str",
+                "into", "from", "push", "pop", "get", "insert", "remove",
+            ];
+            if noise.contains(&call_part) {
+                return None;
+            }
+
+            return Some(call_part.to_string());
+        }
+
+        None
+    }
+
+    /// Build import graph from summaries (file -> imported files)
+    fn build_import_graph_from_summaries(
+        &self,
+        summaries: &[crate::schema::SemanticSummary],
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        use std::collections::HashMap;
+
+        let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+
+        for summary in summaries {
+            if !summary.local_imports.is_empty() {
+                graph.insert(summary.file.clone(), summary.local_imports.clone());
+            }
+        }
+
+        graph
+    }
+
+    /// Build module dependency graph from summaries
+    fn build_module_graph_from_summaries(
+        &self,
+        summaries: &[crate::schema::SemanticSummary],
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        use std::collections::HashMap;
+
+        // First, group summaries by module
+        let mut modules: HashMap<String, Vec<&crate::schema::SemanticSummary>> = HashMap::new();
+        for summary in summaries {
+            let module_name = Self::extract_module_name(&summary.file);
+            modules.entry(module_name).or_default().push(summary);
+        }
+
+        // Build module dependency graph
+        let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (module_name, module_summaries) in &modules {
+            let mut deps: Vec<String> = Vec::new();
+
+            for summary in module_summaries {
+                for import in &summary.local_imports {
+                    let import_module = Self::extract_module_name(import);
+                    if import_module != *module_name && !deps.contains(&import_module) {
+                        deps.push(import_module);
+                    }
+                }
+            }
+
+            if !deps.is_empty() {
+                graph.insert(module_name.clone(), deps);
+            }
+        }
+
+        graph
+    }
+
+    /// Extract module/namespace from file path.
+    ///
+    /// Returns the path-based namespace (directory structure after src/).
+    fn extract_module_name(file_path: &str) -> String {
+        // Extract the portion of the path after /src/ (or similar source roots)
+        let source_markers = ["/src/", "/lib/", "/app/", "/pages/"];
+        let mut relative_path = file_path;
+
+        for marker in &source_markers {
+            if let Some(pos) = file_path.find(marker) {
+                relative_path = &file_path[pos + marker.len()..];
+                break;
+            }
+        }
+
+        // Also handle relative paths starting with src/
+        if relative_path == file_path {
+            for prefix in &["src/", "lib/", "app/", "pages/"] {
+                if let Some(stripped) = file_path.strip_prefix(prefix) {
+                    relative_path = stripped;
+                    break;
+                }
+            }
+        }
+
+        // Get the directory path (everything before the filename)
+        let path = std::path::Path::new(relative_path);
+        if let Some(parent) = path.parent() {
+            let parent_str = parent.to_string_lossy();
+            if !parent_str.is_empty() && parent_str != "." {
+                // Convert path separators to dots for namespace
+                return parent_str.replace('/', ".").replace('\\', ".");
+            }
+        }
+
+        // File is directly in src/ - use filename without extension
+        let stem = path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("root");
+
+        // Skip generic names
+        if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
+            return "root".to_string();
+        }
+
+        stem.to_string()
+    }
+
+    /// Encode call graph to TOON format
+    fn encode_call_graph(graph: &std::collections::HashMap<String, Vec<String>>) -> String {
+        use crate::schema::SCHEMA_VERSION;
+
+        let mut lines = Vec::new();
+        lines.push("_type: call_graph".to_string());
+        lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
+        lines.push(format!("edges: {}", graph.len()));
+
+        for (symbol_hash, calls) in graph {
+            let calls_str = calls.iter().map(|c| format!("\"{}\"", c)).collect::<Vec<_>>().join(",");
+            lines.push(format!("{}: [{}]", symbol_hash, calls_str));
+        }
+
+        lines.join("\n")
+    }
+
+    /// Encode import graph to TOON format
+    fn encode_import_graph(graph: &std::collections::HashMap<String, Vec<String>>) -> String {
+        use crate::schema::SCHEMA_VERSION;
+
+        let mut lines = Vec::new();
+        lines.push("_type: import_graph".to_string());
+        lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
+        lines.push(format!("files: {}", graph.len()));
+
+        for (file, imports) in graph {
+            let imports_str = imports.iter().map(|i| format!("\"{}\"", i)).collect::<Vec<_>>().join(",");
+            lines.push(format!("\"{}\": [{}]", file, imports_str));
+        }
+
+        lines.join("\n")
+    }
+
+    /// Encode module graph to TOON format
+    fn encode_module_graph(graph: &std::collections::HashMap<String, Vec<String>>) -> String {
+        use crate::schema::SCHEMA_VERSION;
+
+        let mut lines = Vec::new();
+        lines.push("_type: module_graph".to_string());
+        lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
+        lines.push(format!("modules: {}", graph.len()));
+
+        for (module, deps) in graph {
+            let deps_str = deps.iter().map(|d| format!("\"{}\"", d)).collect::<Vec<_>>().join(",");
+            lines.push(format!("\"{}\": [{}]", module, deps_str));
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Result of graph regeneration
+#[derive(Debug, Clone, Default)]
+pub struct GraphRegenerationResult {
+    pub files_processed: usize,
+    pub files_failed: usize,
+    pub call_graph_entries: usize,
+    pub import_graph_entries: usize,
+    pub module_graph_entries: usize,
 }
 
 /// Get the SHA for a git reference
@@ -3416,5 +3991,246 @@ mod tests {
             committed_results.is_empty(),
             "Should NOT find results in committed files when using working overlay"
         );
+    }
+
+    // ========================================================================
+    // Call Graph Hash Consistency Tests (SEM-104)
+    // ========================================================================
+
+    /// Test that compute_symbol_hash produces consistent hashes for the same symbol
+    #[test]
+    fn test_compute_symbol_hash_consistency() {
+        use crate::overlay::compute_symbol_hash;
+        use crate::schema::{SymbolInfo, SymbolKind, Argument};
+
+        let symbol = SymbolInfo {
+            name: "testFunction".to_string(),
+            kind: SymbolKind::Function,
+            start_line: 10,
+            end_line: 20,
+            is_exported: true,
+            is_default_export: false,
+            hash: None,
+            arguments: vec![
+                Argument { name: "arg1".to_string(), arg_type: Some("string".to_string()), default_value: None },
+            ],
+            props: Vec::new(),
+            return_type: Some("void".to_string()),
+            calls: Vec::new(),
+            control_flow: Vec::new(),
+            state_changes: Vec::new(),
+            behavioral_risk: crate::schema::RiskLevel::Low,
+        };
+
+        let hash1 = compute_symbol_hash(&symbol, "/path/to/file.ts");
+        let hash2 = compute_symbol_hash(&symbol, "/path/to/file.ts");
+
+        assert_eq!(hash1, hash2, "Same symbol and path should produce same hash");
+
+        // Different path should produce different hash (due to namespace)
+        let hash3 = compute_symbol_hash(&symbol, "/different/path/file.ts");
+        assert_ne!(hash1, hash3, "Different paths should produce different hashes");
+    }
+
+    /// Test that extract() populates summary.symbols
+    #[test]
+    fn test_extract_populates_symbols() {
+        use crate::extract::extract;
+        use crate::lang::Lang;
+
+        let source = r#"
+function formatPokemonName(name) {
+    return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+}
+
+function App() {
+    return <div>Hello</div>;
+}
+
+export default App;
+"#;
+
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&Lang::TypeScript.tree_sitter_language()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+
+        let path = std::path::Path::new("/test/App.tsx");
+        let summary = extract(path, source, &tree, Lang::Tsx).unwrap();
+
+        // Should find both functions in symbols
+        assert!(
+            !summary.symbols.is_empty(),
+            "extract() should populate summary.symbols. Got {} symbols",
+            summary.symbols.len()
+        );
+
+        // App should be in there (it's exported)
+        let app_symbol = summary.symbols.iter().find(|s| s.name == "App");
+        assert!(app_symbol.is_some(), "Should find exported App component in symbols");
+    }
+
+    /// Test that call graph hash matches symbol index hash
+    #[test]
+    fn test_call_graph_hash_matches_symbol_index() {
+        use crate::extract::extract;
+        use crate::lang::Lang;
+        use crate::overlay::compute_symbol_hash;
+
+        // TypeScript source with a function that makes calls
+        let source = r#"
+function helper() {
+    return 42;
+}
+
+function App() {
+    const value = helper();
+    console.log(value);
+    return <div>{value}</div>;
+}
+
+export default App;
+"#;
+
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&Lang::TypeScript.tree_sitter_language()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+
+        let file_path = "/test/project/src/App.tsx";
+        let path = std::path::Path::new(file_path);
+        let summary = extract(path, source, &tree, Lang::Tsx).unwrap();
+
+        // Get hashes the way symbol_index would compute them (sync.rs style)
+        let symbol_index_hashes: Vec<String> = summary
+            .symbols
+            .iter()
+            .map(|s| compute_symbol_hash(s, file_path))
+            .collect();
+
+        // Get hashes the way call_graph should compute them
+        // (using build_call_graph_from_summaries)
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let cache = CacheDir {
+            root: temp_dir.path().to_path_buf(),
+            repo_root: temp_dir.path().to_path_buf(),
+            repo_hash: "test".to_string(),
+        };
+
+        let summaries = vec![summary.clone()];
+        let call_graph = cache.build_call_graph_from_summaries(&summaries);
+
+        // All hashes in call_graph should be found in symbol_index_hashes
+        for (call_graph_hash, _calls) in &call_graph {
+            assert!(
+                symbol_index_hashes.contains(call_graph_hash),
+                "Call graph hash '{}' should exist in symbol index hashes: {:?}",
+                call_graph_hash,
+                symbol_index_hashes
+            );
+        }
+    }
+
+    /// Test regenerate_graphs produces matching hashes
+    #[test]
+    fn test_regenerate_graphs_hash_consistency() {
+        use tempfile::TempDir;
+        use std::fs;
+        use crate::overlay::compute_symbol_hash;
+
+        let temp_dir = TempDir::new().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+
+        // Write a TypeScript file
+        let ts_source = r#"
+function formatName(name: string): string {
+    return name.toUpperCase();
+}
+
+function processData(data: any) {
+    const name = formatName(data.name);
+    console.log(name);
+    return { formatted: name };
+}
+
+export { formatName, processData };
+"#;
+        let ts_file = src_dir.join("utils.ts");
+        fs::write(&ts_file, ts_source).unwrap();
+
+        // Create cache dir
+        let cache = CacheDir::for_repo(temp_dir.path()).unwrap();
+
+        // Ensure cache root directory exists
+        fs::create_dir_all(&cache.root).unwrap();
+
+        // First, manually create symbol_index to simulate what sync.rs does
+        // Parse the file
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&crate::lang::Lang::TypeScript.tree_sitter_language()).unwrap();
+        let tree = parser.parse(ts_source, None).unwrap();
+        let summary = crate::extract::extract(&ts_file, ts_source, &tree, crate::lang::Lang::TypeScript).unwrap();
+
+        // Create symbol index entries the way sync.rs does
+        let mut symbol_entries = Vec::new();
+        for symbol in &summary.symbols {
+            let hash = compute_symbol_hash(symbol, &ts_file.to_string_lossy());
+            symbol_entries.push(SymbolIndexEntry {
+                symbol: symbol.name.clone(),
+                hash: hash.clone(),
+                kind: format!("{:?}", symbol.kind).to_lowercase(),
+                module: "src".to_string(),
+                file: ts_file.to_string_lossy().to_string(),
+                lines: format!("{}-{}", symbol.start_line, symbol.end_line),
+                risk: "low".to_string(),
+                cognitive_complexity: 0,
+                max_nesting: 0,
+            });
+        }
+
+        // Write symbol_index.jsonl
+        let symbol_index_content: String = symbol_entries
+            .iter()
+            .map(|e| serde_json::to_string(e).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(cache.symbol_index_path(), &symbol_index_content).unwrap();
+
+        // Now regenerate graphs
+        let result = cache.regenerate_graphs();
+        assert!(result.is_ok(), "regenerate_graphs should succeed: {:?}", result.err());
+
+        let stats = result.unwrap();
+        assert!(stats.files_processed > 0, "Should process at least one file");
+
+        // Load the generated call graph
+        let call_graph_path = cache.call_graph_path();
+        assert!(call_graph_path.exists(), "Call graph file should exist");
+
+        let call_graph_content = fs::read_to_string(&call_graph_path).unwrap();
+
+        // Extract hashes from call graph
+        let call_graph_hashes: Vec<String> = call_graph_content
+            .lines()
+            .filter(|line| !line.starts_with("_type:") && !line.starts_with("schema_version:") && !line.starts_with("edges:"))
+            .filter_map(|line| line.split(':').next())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        // Load symbol index hashes
+        let symbol_index_hashes: std::collections::HashSet<String> = symbol_entries
+            .iter()
+            .map(|e| e.hash.clone())
+            .collect();
+
+        // Every hash in call_graph should exist in symbol_index
+        for cg_hash in &call_graph_hashes {
+            assert!(
+                symbol_index_hashes.contains(cg_hash),
+                "Call graph hash '{}' not found in symbol index. Symbol index hashes: {:?}",
+                cg_hash,
+                symbol_index_hashes
+            );
+        }
     }
 }

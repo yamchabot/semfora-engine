@@ -645,56 +645,156 @@ fn encode_symbol_shard_from_info(
     lines.join("\n")
 }
 
-/// Build call graph from summaries
-fn build_call_graph(summaries: &[SemanticSummary]) -> HashMap<String, Vec<String>> {
-    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+/// Build a lookup map from symbol name to their SymbolIds
+/// Returns: name -> Vec<(hash, namespace)> for disambiguation
+fn build_symbol_lookup(summaries: &[SemanticSummary]) -> HashMap<String, Vec<(String, String)>> {
+    let mut lookup: HashMap<String, Vec<(String, String)>> = HashMap::new();
 
     for summary in summaries {
         if let Some(ref symbol_id) = summary.symbol_id {
+            lookup
+                .entry(symbol_id.symbol.clone())
+                .or_default()
+                .push((symbol_id.hash.clone(), symbol_id.namespace.clone()));
+        }
+
+        // Also index symbols from the symbols array
+        for symbol in &summary.symbols {
+            let hash = crate::overlay::compute_symbol_hash(symbol, &summary.file);
+            let namespace = SymbolId::namespace_from_path(&summary.file);
+            lookup
+                .entry(symbol.name.clone())
+                .or_default()
+                .push((hash, namespace));
+        }
+    }
+
+    // Deduplicate entries (same hash can appear multiple times)
+    for entries in lookup.values_mut() {
+        entries.sort();
+        entries.dedup();
+    }
+
+    lookup
+}
+
+/// Resolve a call name to a symbol hash if possible
+/// Returns the hash if uniquely resolved, or the original name if ambiguous/external
+fn resolve_call_to_hash(
+    call_name: &str,
+    lookup: &HashMap<String, Vec<(String, String)>>,
+) -> String {
+    // Try exact match first
+    if let Some(matches) = lookup.get(call_name) {
+        if matches.len() == 1 {
+            // Unique match - return hash
+            return matches[0].0.clone();
+        }
+        // Multiple matches - return first hash but log ambiguity
+        // In future, could use import info to disambiguate
+        if !matches.is_empty() {
+            return matches[0].0.clone();
+        }
+    }
+
+    // No match - external call, return as-is
+    // Prefix with "ext:" to distinguish from hashes
+    format!("ext:{}", call_name)
+}
+
+/// Build call graph from summaries with resolved symbol hashes
+/// Now uses per-symbol calls (symbol.calls) instead of file-level calls
+fn build_call_graph(summaries: &[SemanticSummary]) -> HashMap<String, Vec<String>> {
+    use crate::overlay::compute_symbol_hash;
+
+    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+
+    // Build lookup for resolving call names to hashes
+    let symbol_lookup = build_symbol_lookup(summaries);
+
+    for summary in summaries {
+        // Process each symbol in the file and use symbol.calls for per-function call tracking
+        for symbol in &summary.symbols {
+            // Compute hash using absolute path (summary.file) - canonical rule everywhere
+            let hash = compute_symbol_hash(symbol, &summary.file);
             let mut calls: Vec<String> = Vec::new();
 
-            // Extract from explicit calls array (JS/TS/Python)
+            // Extract from the symbol's own calls array (SymbolInfo.calls)
+            for c in &symbol.calls {
+                let call_name = if let Some(ref obj) = c.object {
+                    format!("{}.{}", obj, c.name)
+                } else {
+                    c.name.clone()
+                };
+                let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                if !calls.contains(&resolved) {
+                    calls.push(resolved);
+                }
+            }
+
+            // Extract function calls from symbol's state_changes initializers
+            for state in &symbol.state_changes {
+                if !state.initializer.is_empty() {
+                    if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
+                        let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                        if !calls.contains(&resolved) {
+                            calls.push(resolved);
+                        }
+                    }
+                }
+            }
+
+            if !calls.is_empty() {
+                graph.insert(hash, calls);
+            }
+        }
+
+        // Also process file-level calls (for backward compatibility and module-level code)
+        if let Some(ref symbol_id) = summary.symbol_id {
+            let mut calls: Vec<String> = Vec::new();
+
+            // Extract from file-level calls array (calls not inside any function)
             for c in &summary.calls {
                 let call_name = if let Some(ref obj) = c.object {
                     format!("{}.{}", obj, c.name)
                 } else {
                     c.name.clone()
                 };
-                if !calls.contains(&call_name) {
-                    calls.push(call_name);
+                let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                if !calls.contains(&resolved) {
+                    calls.push(resolved);
                 }
             }
 
-            // Extract function calls from state_changes initializers (Rust/Go)
-            // These look like: "CacheDir::for_repo(repo_path)?", "build_call_graph(&self.all_summaries)"
+            // Extract function calls from file-level state_changes initializers
             for state in &summary.state_changes {
                 if !state.initializer.is_empty() {
-                    // Look for function call patterns: name(...) or path::name(...)
                     if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                        if !calls.contains(&call_name) {
-                            calls.push(call_name);
+                        let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                        if !calls.contains(&resolved) {
+                            calls.push(resolved);
                         }
                     }
                 }
             }
 
             // Extract from added_dependencies that look like function calls
-            // (e.g., "encode_toon", "generate_repo_overview")
             for dep in &summary.added_dependencies {
-                // Skip type-like dependencies (capitalized or contains ::)
                 if !dep.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
                     && !dep.contains("::")
-                    && !calls.contains(dep)
                 {
-                    // Only add if it looks like a function (lowercase start)
                     if dep.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
-                        calls.push(dep.clone());
+                        let resolved = resolve_call_to_hash(dep, &symbol_lookup);
+                        if !calls.contains(&resolved) {
+                            calls.push(resolved);
+                        }
                     }
                 }
             }
 
             if !calls.is_empty() {
-                graph.insert(symbol_id.hash.clone(), calls);
+                // Merge with existing entry for this symbol
+                graph.entry(symbol_id.hash.clone()).or_default().extend(calls);
             }
         }
     }
@@ -851,98 +951,54 @@ fn encode_module_graph(graph: &HashMap<String, Vec<String>>) -> String {
     lines.join("\n")
 }
 
-/// Extract module name from a file path
+/// Extract module/namespace from file path.
+///
+/// Returns the path-based namespace (directory structure after src/).
+/// For languages with real namespaces (Rust, Python, Java, Go), the extractor
+/// should override this with the actual language namespace.
 fn extract_module_name(file_path: &str) -> String {
-    let path_lower = file_path.to_lowercase();
+    // Extract the portion of the path after /src/ (or similar source roots)
+    let source_markers = ["/src/", "/lib/", "/app/", "/pages/"];
+    let mut relative_path = file_path;
 
-    // Test files
-    if path_lower.contains("test") || path_lower.contains("spec") || path_lower.contains("fixture") {
-        return "tests".to_string();
+    for marker in &source_markers {
+        if let Some(pos) = file_path.find(marker) {
+            relative_path = &file_path[pos + marker.len()..];
+            break;
+        }
     }
 
-    // API routes
-    if path_lower.contains("/api/") || path_lower.contains("/routes/") {
-        return "api".to_string();
-    }
-
-    // Database
-    if path_lower.contains("/db/") || path_lower.contains("/database/") || path_lower.contains("/schema") {
-        return "database".to_string();
-    }
-
-    // Components
-    if path_lower.contains("/components/") {
-        return "components".to_string();
-    }
-
-    // Pages
-    if path_lower.contains("/pages/") || path_lower.contains("/app/") {
-        return "pages".to_string();
-    }
-
-    // Library/utils
-    if path_lower.contains("/lib/") || path_lower.contains("/utils/") {
-        return "lib".to_string();
-    }
-
-    // MCP server
-    if path_lower.contains("/mcp_server/") || path_lower.contains("/mcp-server/") {
-        return "mcp_server".to_string();
-    }
-
-    // Git module
-    if path_lower.contains("/git/") {
-        return "git".to_string();
-    }
-
-    // Find the src/ portion of the path (handles absolute paths)
-    let src_marker = "/src/";
-    if let Some(src_pos) = file_path.find(src_marker) {
-        let after_src = &file_path[src_pos + src_marker.len()..];
-
-        // Check if it's a direct file in src/ (like src/main.rs) or a subdirectory
-        if let Some(slash_pos) = after_src.find('/') {
-            // It's a subdirectory - use the directory name as module
-            let module = &after_src[..slash_pos];
-            if !module.is_empty() {
-                return module.to_string();
-            }
-        } else {
-            // Direct file in src/ - use the filename without extension as module
-            let module = after_src
-                .trim_end_matches(".rs")
-                .trim_end_matches(".ts")
-                .trim_end_matches(".tsx")
-                .trim_end_matches(".js")
-                .trim_end_matches(".jsx")
-                .trim_end_matches(".go")
-                .trim_end_matches(".py");
-
-            if !module.is_empty() && module != "index" && module != "mod" && module != "lib" {
-                return module.to_string();
+    // Also handle relative paths starting with src/
+    if relative_path == file_path {
+        for prefix in &["src/", "lib/", "app/", "pages/"] {
+            if let Some(stripped) = file_path.strip_prefix(prefix) {
+                relative_path = stripped;
+                break;
             }
         }
     }
 
-    // Fallback: Try relative path prefixes
-    if let Some(stripped) = file_path.strip_prefix("src/").or_else(|| file_path.strip_prefix("./src/")) {
-        if let Some(first_part) = stripped.split('/').next() {
-            let module = first_part
-                .trim_end_matches(".rs")
-                .trim_end_matches(".ts")
-                .trim_end_matches(".tsx")
-                .trim_end_matches(".js")
-                .trim_end_matches(".jsx")
-                .trim_end_matches(".go")
-                .trim_end_matches(".py");
-
-            if !module.is_empty() && module != "index" && module != "mod" {
-                return module.to_string();
-            }
+    // Get the directory path (everything before the filename)
+    let path = std::path::Path::new(relative_path);
+    if let Some(parent) = path.parent() {
+        let parent_str = parent.to_string_lossy();
+        if !parent_str.is_empty() && parent_str != "." {
+            // Convert path separators to dots for namespace
+            return parent_str.replace('/', ".").replace('\\', ".");
         }
     }
 
-    "other".to_string()
+    // File is directly in src/ - use filename without extension
+    let stem = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("root");
+
+    // Skip generic names
+    if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
+        return "root".to_string();
+    }
+
+    stem.to_string()
 }
 
 #[cfg(test)]
@@ -951,21 +1007,28 @@ mod tests {
 
     #[test]
     fn test_extract_module_name() {
-        // Relative paths
+        // Files in subdirectories get dotted namespace from directory path
         assert_eq!(extract_module_name("src/api/users.ts"), "api");
         assert_eq!(extract_module_name("src/components/Button.tsx"), "components");
-        assert_eq!(extract_module_name("src/lib/utils.ts"), "lib");
-        assert_eq!(extract_module_name("tests/unit/foo.test.ts"), "tests");
-        assert_eq!(extract_module_name("src/main.rs"), "main");
+        assert_eq!(extract_module_name("src/utils/format.ts"), "utils");
+        assert_eq!(extract_module_name("src/features/auth/login.ts"), "features.auth");
 
-        // Absolute paths
-        assert_eq!(extract_module_name("/home/user/project/src/cache.rs"), "cache");
+        // Files directly in src/ use filename as namespace
+        assert_eq!(extract_module_name("src/cache.rs"), "cache");
+        assert_eq!(extract_module_name("src/schema.rs"), "schema");
+
+        // Generic filenames fallback to "root"
+        assert_eq!(extract_module_name("src/index.ts"), "root");
+        assert_eq!(extract_module_name("src/main.rs"), "root");
+
+        // Absolute paths - extracts after /src/
         assert_eq!(extract_module_name("/home/user/project/src/git/branch.rs"), "git");
         assert_eq!(extract_module_name("/home/user/project/src/mcp_server/mod.rs"), "mcp_server");
-        assert_eq!(extract_module_name("/home/user/project/src/schema.rs"), "database"); // contains /schema
+        assert_eq!(extract_module_name("/home/user/my-test-worktree/src/App.tsx"), "App");
+        assert_eq!(extract_module_name("/home/user/my-test-worktree/src/utils/format.ts"), "utils");
 
-        // Edge cases
-        assert_eq!(extract_module_name("/random/path/file.rs"), "other");
+        // Nested directories use dots
+        assert_eq!(extract_module_name("/project/src/server/api/handlers/users.ts"), "server.api.handlers");
     }
 
     #[test]

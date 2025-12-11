@@ -132,6 +132,7 @@ impl LayerSynchronizer {
     ///
     /// This is the fastest update path for small changes (< 10 files).
     /// It parses only the changed files and updates the symbol index.
+    /// After all files are processed, regenerates all graphs (call, import, module).
     pub fn incremental_update(
         &self,
         state: &ServerState,
@@ -149,6 +150,27 @@ impl LayerSynchronizer {
             stats.symbols_added += file_stats.symbols_added;
             stats.symbols_removed += file_stats.symbols_removed;
             stats.symbols_modified += file_stats.symbols_modified;
+        }
+
+        // After updating all files, regenerate graphs from the updated symbol index
+        // This ensures call graph, import graph, and module graph stay in sync
+        if let Some(ref cache_dir) = self.cache_dir {
+            tracing::info!("[SYNC] Regenerating graphs after incremental update");
+            match cache_dir.regenerate_graphs() {
+                Ok(result) => {
+                    tracing::info!(
+                        "[SYNC] Graph regeneration complete: {} files -> {} call edges, {} import edges, {} module edges",
+                        result.files_processed,
+                        result.call_graph_entries,
+                        result.import_graph_entries,
+                        result.module_graph_entries
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("[SYNC] Graph regeneration failed: {}", e);
+                    // Don't fail the whole update if graph regeneration fails
+                }
+            }
         }
 
         Ok(stats)
@@ -223,8 +245,9 @@ impl LayerSynchronizer {
             .to_string();
 
         // Pre-compute hashes and index entries before consuming symbols
+        // NOTE: Always use full_path (absolute) for hash computation - this is the canonical rule
         let symbols_with_hashes: Vec<_> = summary.symbols.into_iter().map(|symbol| {
-            let hash = crate::overlay::compute_symbol_hash(&symbol, &file_path.to_string_lossy());
+            let hash = crate::overlay::compute_symbol_hash(&symbol, &full_path.to_string_lossy());
 
             // Build index entry for disk cache
             let entry = crate::cache::SymbolIndexEntry {
