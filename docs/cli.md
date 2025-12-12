@@ -280,5 +280,6 @@ semfora-mcp --diff origin/main --summary-only
 
 ## See Also
 
+- [Features](features.md) - Incremental indexing, layered indexes, risk assessment
 - [WebSocket Daemon](websocket-daemon.md) - Real-time index updates via WebSocket
 - [Main README](../README.md) - Supported languages and architecture

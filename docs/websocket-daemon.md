@@ -478,5 +478,6 @@ Each cache contains:
 
 ## See Also
 
+- [Features](features.md) - Incremental indexing, layered indexes, risk assessment
 - [CLI Reference](cli.md) - Command-line interface documentation
 - [Main README](../README.md) - Supported languages and architecture

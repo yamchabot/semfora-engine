@@ -178,6 +178,7 @@ src/
 
 | Document | Description |
 |----------|-------------|
+| [Features](docs/features.md) | Incremental indexing, layered indexes, risk assessment, and more |
 | [CLI Reference](docs/cli.md) | Complete CLI usage, flags, and examples |
 | [WebSocket Daemon](docs/websocket-daemon.md) | Real-time updates, protocol, and query methods |
 | [Query-Driven Architecture](docs/query-driven-architecture.md) | Token-efficient querying patterns |
