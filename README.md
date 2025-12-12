@@ -2,11 +2,33 @@
 
 Semantic code analyzer that produces compressed TOON (Text Object-Oriented Notation) output for AI-assisted code review. Extracts symbols, dependencies, control flow, state changes, and risk assessments from source files.
 
+> [!IMPORTANT]
+> **🚀 Transitioning to Rust-based ADK**
+>
+> We are moving away from the Python-based `semfora-adk` to a pure Rust implementation in [`semfora-cli`](https://github.com/Semfora-org/semfora-cli). The new Rust ADK provides better performance, single-binary distribution, and tighter integration with the semantic engine.
+>
+> ```bash
+> # Use the new Rust-based CLI agent
+> semfora-cli --rust-adk
+> ```
+>
+> See the [semfora-cli repository](https://github.com/Semfora-org/semfora-cli) for installation and usage.
+
 ## Installation
 
 ```bash
 cargo build --release
 ```
+
+## Binaries
+
+The project builds three binaries:
+
+| Binary | Purpose |
+|--------|---------|
+| `semfora-mcp` | CLI for semantic analysis, indexing, and querying |
+| `semfora-mcp-server` | MCP server for AI agent integration |
+| `semfora-daemon` | WebSocket daemon for real-time updates |
 
 ## Usage
 
@@ -14,9 +36,20 @@ cargo build --release
 # Analyze a single file
 semfora-mcp path/to/file.rs
 
-# Start MCP server
+# Analyze a directory and create sharded index
+semfora-mcp --dir . --shard
+
+# Query the index
+semfora-mcp --search-symbols "authenticate"
+
+# Start MCP server (for AI agents)
 semfora-mcp-server
+
+# Start WebSocket daemon (for real-time updates)
+semfora-daemon
 ```
+
+See [CLI Reference](docs/cli.md) for full documentation.
 
 ## Supported Languages
 
@@ -95,6 +128,17 @@ These formats were identified in test repositories but are not currently support
 
 ```
 src/
+├── main.rs              # CLI entry point (semfora-mcp binary)
+├── cli.rs               # CLI argument definitions
+├── lib.rs               # Library exports
+├── lang.rs              # Language detection from file extensions
+├── extract.rs           # Main extraction orchestration
+├── schema.rs            # SemanticSummary output schema
+├── toon.rs              # TOON format encoding
+├── risk.rs              # Behavioral risk calculation
+├── error.rs             # Error types and exit codes
+├── cache.rs             # Cache management and querying
+├── shard.rs             # Sharded index generation
 ├── detectors/           # Language-specific extractors
 │   ├── javascript/      # JS/TS with framework support
 │   │   ├── core.rs      # Core JS/TS extraction
@@ -111,11 +155,15 @@ src/
 │   ├── config.rs
 │   ├── grammar.rs       # AST node mappings per language
 │   └── generic.rs       # Generic extraction using grammars
-├── lang.rs              # Language detection from file extensions
-├── extract.rs           # Main extraction orchestration
-├── schema.rs            # SemanticSummary output schema
-├── toon.rs              # TOON format encoding
-└── mcp_server/          # MCP server implementation
+├── mcp_server/          # MCP server (semfora-mcp-server binary)
+│   ├── mod.rs           # MCP tool handlers
+│   └── bin.rs           # Server entry point
+└── socket_server/       # WebSocket daemon (semfora-daemon binary)
+    ├── mod.rs           # Server architecture
+    ├── bin.rs           # Daemon entry point
+    ├── connection.rs    # Client connection handling
+    ├── protocol.rs      # Message types
+    └── repo_registry.rs # Multi-repo context management
 ```
 
 ## Adding a New Language
@@ -125,6 +173,15 @@ src/
 3. Add `LangGrammar` in `detectors/grammar.rs` with AST node mappings
 4. (Optional) Create dedicated detector in `detectors/` for special features
 5. Wire up in `extract.rs` dispatcher
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [CLI Reference](docs/cli.md) | Complete CLI usage, flags, and examples |
+| [WebSocket Daemon](docs/websocket-daemon.md) | Real-time updates, protocol, and query methods |
+| [Query-Driven Architecture](docs/query-driven-architecture.md) | Token-efficient querying patterns |
+| [Engineering](docs/engineering.md) | Implementation details and status |
 
 ## License
 
