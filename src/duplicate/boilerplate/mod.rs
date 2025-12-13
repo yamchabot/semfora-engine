@@ -54,6 +54,16 @@ pub enum BoilerplateCategory {
     TypeGuard,
     /// Config/export boilerplate (module.exports patterns)
     ConfigExport,
+    /// Redux/RTK patterns (createSlice, createAction, useSelector, selectors)
+    ReduxPattern,
+    /// Validation schema (Zod, Yup, Joi schema definitions)
+    ValidationSchema,
+    /// Test mocks (jest.mock, vi.mock, mockImplementation, spyOn)
+    TestMock,
+    /// Next.js data fetching (getServerSideProps, getStaticProps, generateMetadata)
+    NextjsDataFetching,
+    /// React wrapper components (React.memo, forwardRef)
+    ReactWrapper,
 
     // =========================================================================
     // Rust Patterns
@@ -104,6 +114,11 @@ impl BoilerplateCategory {
             BoilerplateCategory::TestSetup => "Test setup/teardown function",
             BoilerplateCategory::TypeGuard => "Type guard function",
             BoilerplateCategory::ConfigExport => "Config/export boilerplate",
+            BoilerplateCategory::ReduxPattern => "Redux/RTK state management pattern",
+            BoilerplateCategory::ValidationSchema => "Validation schema (Zod/Yup/Joi)",
+            BoilerplateCategory::TestMock => "Test mock (Jest/Vitest)",
+            BoilerplateCategory::NextjsDataFetching => "Next.js data fetching function",
+            BoilerplateCategory::ReactWrapper => "React wrapper (memo/forwardRef)",
             // Rust
             BoilerplateCategory::RustTraitImpl => "Rust trait implementation",
             BoilerplateCategory::RustBuilder => "Rust builder pattern method",
@@ -133,7 +148,12 @@ impl BoilerplateCategory {
             | BoilerplateCategory::ApiRoute
             | BoilerplateCategory::TestSetup
             | BoilerplateCategory::TypeGuard
-            | BoilerplateCategory::ConfigExport => Some(Lang::JavaScript),
+            | BoilerplateCategory::ConfigExport
+            | BoilerplateCategory::ReduxPattern
+            | BoilerplateCategory::ValidationSchema
+            | BoilerplateCategory::TestMock
+            | BoilerplateCategory::NextjsDataFetching
+            | BoilerplateCategory::ReactWrapper => Some(Lang::JavaScript),
             // Rust patterns
             BoilerplateCategory::RustTraitImpl
             | BoilerplateCategory::RustBuilder
