@@ -568,32 +568,77 @@ pub static BASH_GRAMMAR: LangGrammar = LangGrammar {
 
 pub static GRADLE_GRAMMAR: LangGrammar = LangGrammar {
     name: "gradle",
-    function_nodes: &["method_declaration", "closure"],
-    class_nodes: &["class_declaration"],
-    interface_nodes: &["interface_declaration"],
-    enum_nodes: &["enum_declaration"],
+    // Groovy AST uses function_definition for `def func()` style
+    function_nodes: &["function_definition"],
+    class_nodes: &["class_definition"],
+    interface_nodes: &["interface_definition"],
+    enum_nodes: &["enum_definition"],
     control_flow_nodes: &[
         "if_statement",
         "for_statement",
+        "for_in_statement",
         "while_statement",
         "switch_statement",
     ],
     try_nodes: &["try_statement"],
-    var_declaration_nodes: &["variable_declaration"],
+    var_declaration_nodes: &["variable_definition", "assignment"],
     assignment_nodes: &["assignment"],
-    call_nodes: &["method_call_expression"],
+    // Groovy has method_invocation for foo() and juxt_function_call for foo "bar"
+    call_nodes: &["method_invocation", "juxt_function_call"],
     await_nodes: &[],
-    import_nodes: &["import_declaration"],
+    import_nodes: &["import_statement"],
     name_field: "name",
     value_field: "value",
     type_field: "type",
     body_field: "body",
-    params_field: "parameters",
+    params_field: "formal_parameters",
     condition_field: "condition",
     is_exported: default_is_exported,
     uppercase_is_export: false,
     visibility_modifiers: &["public", "private", "protected"],
     decorator_nodes: &["annotation"],
+};
+
+// =============================================================================
+// HCL/Terraform Grammar
+// =============================================================================
+
+/// HCL: blocks are exported by default (infrastructure as code)
+pub fn hcl_is_exported(_node: &Node, _source: &str) -> bool {
+    // All HCL blocks are "public" - they define infrastructure
+    true
+}
+
+pub static HCL_GRAMMAR: LangGrammar = LangGrammar {
+    name: "hcl",
+    // HCL blocks act like symbol definitions
+    function_nodes: &["block"],
+    class_nodes: &[],
+    interface_nodes: &[],
+    enum_nodes: &[],
+    control_flow_nodes: &[
+        // HCL uses expressions for conditionals
+        "conditional",
+        "for_tuple_expr",
+        "for_object_expr",
+    ],
+    try_nodes: &[],
+    var_declaration_nodes: &["attribute"],
+    assignment_nodes: &["attribute"],
+    // HCL function calls and references
+    call_nodes: &["function_call"],
+    await_nodes: &[],
+    import_nodes: &[], // HCL uses module blocks for imports
+    name_field: "identifier",
+    value_field: "expression",
+    type_field: "",
+    body_field: "body",
+    params_field: "",
+    condition_field: "condition",
+    is_exported: hcl_is_exported,
+    uppercase_is_export: false,
+    visibility_modifiers: &[],
+    decorator_nodes: &[],
 };
 
 // =============================================================================
@@ -614,6 +659,7 @@ pub fn get_grammar(lang_name: &str) -> Option<&'static LangGrammar> {
         "kotlin" | "kt" | "kts" => Some(&KOTLIN_GRAMMAR),
         "bash" | "sh" | "shell" => Some(&BASH_GRAMMAR),
         "gradle" | "groovy" => Some(&GRADLE_GRAMMAR),
+        "hcl" | "tf" | "terraform" => Some(&HCL_GRAMMAR),
         _ => None,
     }
 }

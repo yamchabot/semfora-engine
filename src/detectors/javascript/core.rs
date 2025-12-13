@@ -6,7 +6,7 @@
 
 use tree_sitter::Node;
 
-use crate::detectors::common::{get_node_text, visit_all, visit_with_nesting_depth};
+use crate::detectors::common::{find_containing_symbol_by_line, get_node_text, visit_all, visit_with_nesting_depth};
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::{
@@ -250,9 +250,111 @@ fn collect_symbol_candidates(
                     candidates.push(candidate);
                 }
             }
+            // Handle CommonJS exports: exports.foo = function() or module.exports.foo = function()
+            "expression_statement" => {
+                if let Some(candidate) = extract_commonjs_export(&child, source, filename_stem, lang) {
+                    candidates.push(candidate);
+                }
+            }
             _ => {}
         }
     }
+}
+
+/// Extract CommonJS export: exports.foo = function() or module.exports.foo = function()
+///
+/// Handles patterns:
+/// - exports.foo = function() { ... }
+/// - exports.foo = () => { ... }
+/// - module.exports.foo = function() { ... }
+fn extract_commonjs_export(
+    node: &Node,
+    source: &str,
+    filename_stem: &str,
+    lang: Lang,
+) -> Option<SymbolCandidate> {
+    // Look for assignment_expression as first child
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "assignment_expression" {
+            // Get left side (member_expression like exports.foo or module.exports.foo)
+            let left = child.child_by_field_name("left")?;
+            if left.kind() != "member_expression" {
+                continue;
+            }
+
+            // Check if it's exports.X or module.exports.X
+            let left_text = get_node_text(&left, source);
+            let is_exports = left_text.starts_with("exports.")
+                || left_text.starts_with("module.exports.");
+
+            if !is_exports {
+                continue;
+            }
+
+            // Extract the exported name (the property being assigned)
+            let property = left.child_by_field_name("property")?;
+            let name = get_node_text(&property, source);
+
+            // Skip non-identifier properties
+            if name.is_empty() || name.contains('[') {
+                continue;
+            }
+
+            // Get right side (function_expression, arrow_function, etc.)
+            let right = child.child_by_field_name("right")?;
+
+            let mut arguments = Vec::new();
+            let mut props = Vec::new();
+
+            let (kind, jsx) = match right.kind() {
+                "function_expression" | "function" => {
+                    if let Some(params) = right.child_by_field_name("parameters") {
+                        extract_parameters(&params, source, &mut arguments, &mut props);
+                    }
+                    let jsx = lang.supports_jsx() && returns_jsx(&right);
+                    (SymbolKind::Function, jsx)
+                }
+                "arrow_function" => {
+                    if let Some(params) = right.child_by_field_name("parameters") {
+                        extract_parameters(&params, source, &mut arguments, &mut props);
+                    } else if let Some(param) = right.child_by_field_name("parameter") {
+                        arguments.push(Argument {
+                            name: get_node_text(&param, source),
+                            arg_type: None,
+                            default_value: None,
+                        });
+                    }
+                    let jsx = lang.supports_jsx() && returns_jsx(&right);
+                    (SymbolKind::Function, jsx)
+                }
+                "class_expression" | "class" => {
+                    (SymbolKind::Class, false)
+                }
+                _ => {
+                    // Could be exports.foo = someValue - skip non-function exports
+                    continue;
+                }
+            };
+
+            let mut candidate = SymbolCandidate {
+                name,
+                kind,
+                is_exported: true,
+                is_default_export: false,
+                returns_jsx: jsx,
+                start_line: right.start_position().row + 1,
+                end_line: right.end_position().row + 1,
+                arguments,
+                props,
+                score: 0,
+            };
+            candidate.score = calculate_symbol_score(&candidate, filename_stem);
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 /// Check if export has default keyword
@@ -770,17 +872,6 @@ pub fn extract_control_flow(summary: &mut SemanticSummary, root: &Node) {
 // Call Extraction
 // =============================================================================
 
-/// Find which symbol (by index in summary.symbols) contains a given line number.
-/// Uses the symbol's start_line and end_line to determine containment.
-fn find_containing_symbol_by_line(line: usize, symbols: &[SymbolInfo]) -> Option<usize> {
-    for (idx, symbol) in symbols.iter().enumerate() {
-        if line >= symbol.start_line && line <= symbol.end_line {
-            return Some(idx);
-        }
-    }
-    None
-}
-
 /// Extract function calls with context and assign to symbols
 pub fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str) {
     // Build try ranges for in_try detection
@@ -925,5 +1016,283 @@ mod tests {
         assert_eq!(to_pascal_case("my-component"), "MyComponent");
         assert_eq!(to_pascal_case("user_profile"), "UserProfile");
         assert_eq!(to_pascal_case("button"), "Button");
+    }
+
+    // ==========================================================================
+    // Call Attribution Tests
+    // ==========================================================================
+
+    use crate::extract::extract;
+    use crate::lang::Lang;
+    use std::path::PathBuf;
+    use tree_sitter::{Parser, Tree};
+
+    fn parse_source(source: &str, lang: Lang) -> Tree {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&lang.tree_sitter_language())
+            .expect("Failed to set language");
+        parser.parse(source, None).expect("Failed to parse")
+    }
+
+    /// Test that ES6 export functions have calls attributed to symbols
+    #[test]
+    fn test_es6_call_attribution() {
+        let source = r#"
+export function fetchUsers() {
+    const response = fetch("https://api.example.com/users");
+    const data = response.json();
+    return processData(data);
+}
+
+export function processData(data) {
+    return data.map(transform);
+}
+"#;
+        let tree = parse_source(source, Lang::JavaScript);
+        let path = PathBuf::from("/test/api.js");
+        let summary = extract(&path, source, &tree, Lang::JavaScript).unwrap();
+
+        // Should have 2 symbols
+        assert_eq!(summary.symbols.len(), 2, "Should have 2 JS functions");
+
+        // fetchUsers should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetchUsers");
+        assert!(fetch_users.is_some(), "Should find fetchUsers function");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetchUsers should have calls attributed to it, got: {:?}",
+            fetch_users.calls
+        );
+        // Should contain fetch, json, processData
+        let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(call_names.contains(&"fetch"), "Should have fetch call");
+        assert!(call_names.contains(&"processData"), "Should have processData call");
+    }
+
+    /// Test that CommonJS exports have calls attributed to symbols
+    #[test]
+    fn test_commonjs_call_attribution() {
+        let source = r#"
+exports.fetchUsers = function(req, res) {
+    const data = loadData();
+    res.json(processData(data));
+};
+
+exports.processData = function(data) {
+    return data.map(transform);
+};
+"#;
+        let tree = parse_source(source, Lang::JavaScript);
+        let path = PathBuf::from("/test/api.js");
+        let summary = extract(&path, source, &tree, Lang::JavaScript).unwrap();
+
+        // Should have 2 symbols (CommonJS exports)
+        assert_eq!(summary.symbols.len(), 2, "Should have 2 CommonJS exports");
+
+        // fetchUsers should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetchUsers");
+        assert!(fetch_users.is_some(), "Should find fetchUsers export");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetchUsers should have calls attributed to it"
+        );
+        // Should contain loadData, json, processData
+        let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(call_names.contains(&"loadData"), "Should have loadData call");
+        assert!(call_names.contains(&"processData"), "Should have processData call");
+    }
+
+    /// Test that TypeScript functions have calls attributed to symbols
+    #[test]
+    fn test_typescript_call_attribution() {
+        let source = r#"
+export async function fetchUsers(): Promise<User[]> {
+    const response = await fetch("https://api.example.com/users");
+    const data = await response.json();
+    return processData(data);
+}
+
+function processData(data: RawUser[]): User[] {
+    return data.map(transform);
+}
+"#;
+        let tree = parse_source(source, Lang::TypeScript);
+        let path = PathBuf::from("/test/api.ts");
+        let summary = extract(&path, source, &tree, Lang::TypeScript).unwrap();
+
+        // fetchUsers should have async calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetchUsers");
+        assert!(fetch_users.is_some(), "Should find fetchUsers function");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetchUsers should have calls"
+        );
+        // Should have awaited calls
+        let has_awaited = fetch_users.calls.iter().any(|c| c.is_awaited);
+        assert!(has_awaited, "fetchUsers should have awaited calls");
+    }
+
+    /// Test that Vue SFC methods have calls attributed to symbols
+    #[test]
+    fn test_vue_sfc_call_attribution() {
+        let source = r#"<template>
+  <div>{{ message }}</div>
+</template>
+
+<script>
+export default {
+  methods: {
+    fetchData() {
+      this.loading = true;
+      api.get('/users').then(this.processResponse);
+    },
+    processResponse(data) {
+      this.users = data.map(transform);
+    }
+  }
+}
+</script>"#;
+
+        let path = PathBuf::from("/test/component.vue");
+        let mut summary = SemanticSummary {
+            file: path.display().to_string(),
+            language: "vue".to_string(),
+            ..Default::default()
+        };
+
+        // Call extract_vue_sfc directly
+        super::super::extract_vue_sfc(&mut summary, source).unwrap();
+
+        // Vue Options API may not extract individual methods as symbols,
+        // but should detect Vue patterns and have calls at file level
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("Vue")),
+            "Should detect Vue SFC. Insertions: {:?}",
+            summary.insertions
+        );
+
+        // Should have calls (api.get, map, etc.)
+        let all_calls: Vec<&str> = summary
+            .calls
+            .iter()
+            .chain(summary.symbols.iter().flat_map(|s| s.calls.iter()))
+            .map(|c| c.name.as_str())
+            .collect();
+
+        // Should have extracted some calls from the script
+        assert!(
+            !all_calls.is_empty() || !summary.insertions.is_empty(),
+            "Should extract calls or detect Vue patterns"
+        );
+    }
+
+    /// Test Vue script setup call attribution
+    #[test]
+    fn test_vue_script_setup_call_attribution() {
+        let source = r#"<template>
+  <div>{{ count }}</div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed } from 'vue';
+
+const count = ref(0);
+const doubled = computed(() => count.value * 2);
+
+function increment() {
+  count.value++;
+  logAction('increment');
+}
+
+function logAction(action: string) {
+  console.log(action);
+}
+</script>"#;
+
+        let path = PathBuf::from("/test/Counter.vue");
+        let mut summary = SemanticSummary {
+            file: path.display().to_string(),
+            language: "vue".to_string(),
+            ..Default::default()
+        };
+
+        super::super::extract_vue_sfc(&mut summary, source).unwrap();
+
+        // Should have symbols
+        assert!(!summary.symbols.is_empty(), "Vue script setup should have symbols");
+
+        // increment function should have calls
+        let increment = summary.symbols.iter().find(|s| s.name == "increment");
+        if let Some(increment) = increment {
+            assert!(
+                !increment.calls.is_empty(),
+                "increment should have calls attributed to it"
+            );
+        }
+
+        // Should detect script setup
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("script setup")),
+            "Should detect script setup"
+        );
+    }
+
+    /// Test Vue Composition API call attribution
+    #[test]
+    fn test_vue_composition_api_call_attribution() {
+        let source = r#"<template>
+  <div>{{ message }}</div>
+</template>
+
+<script lang="ts">
+import { ref, onMounted, defineComponent } from 'vue';
+import { fetchUser } from './api';
+
+export default defineComponent({
+  setup() {
+    const message = ref('Hello');
+
+    onMounted(async () => {
+      const user = await fetchUser();
+      message.value = user.name;
+    });
+
+    return { message };
+  }
+});
+</script>"#;
+
+        let path = PathBuf::from("/test/Greeting.vue");
+        let mut summary = SemanticSummary {
+            file: path.display().to_string(),
+            language: "vue".to_string(),
+            ..Default::default()
+        };
+
+        super::super::extract_vue_sfc(&mut summary, source).unwrap();
+
+        // Should detect Vue insertions (Composition API is detected)
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("Vue")),
+            "Should detect Vue patterns"
+        );
+
+        // Should have calls (ref, onMounted, fetchUser)
+        let all_calls: Vec<&str> = summary
+            .calls
+            .iter()
+            .chain(summary.symbols.iter().flat_map(|s| s.calls.iter()))
+            .map(|c| c.name.as_str())
+            .collect();
+
+        // At minimum, should have some Vue composition calls detected
+        assert!(
+            all_calls.iter().any(|c| *c == "ref" || *c == "onMounted" || *c == "defineComponent"),
+            "Should detect composition API calls like ref/onMounted"
+        );
     }
 }

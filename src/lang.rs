@@ -153,7 +153,8 @@ impl Lang {
             Self::Kotlin => LangFamily::Kotlin,
             Self::C | Self::Cpp => LangFamily::CFamily,
             Self::Html | Self::Css | Self::Scss | Self::Markdown => LangFamily::Markup,
-            Self::Json | Self::Yaml | Self::Toml | Self::Xml | Self::Hcl => LangFamily::Config,
+            Self::Json | Self::Yaml | Self::Toml | Self::Xml => LangFamily::Config,
+            Self::Hcl => LangFamily::Hcl,
             Self::Bash => LangFamily::Shell,
             Self::Gradle => LangFamily::Gradle,
         }
@@ -234,8 +235,10 @@ pub enum LangFamily {
     CFamily,
     /// HTML, CSS, SCSS, Markdown
     Markup,
-    /// JSON, YAML, TOML, XML, HCL
+    /// JSON, YAML, TOML, XML
     Config,
+    /// HCL/Terraform
+    Hcl,
     /// Shell/Bash
     Shell,
     /// Gradle (Groovy-based)
@@ -255,6 +258,7 @@ impl LangFamily {
             Self::CFamily => "c_family",
             Self::Markup => "markup",
             Self::Config => "config",
+            Self::Hcl => "hcl",
             Self::Shell => "shell",
             Self::Gradle => "gradle",
         }

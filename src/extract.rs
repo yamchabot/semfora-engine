@@ -77,6 +77,9 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
             crate::lang::LangFamily::Gradle => {
                 crate::detectors::gradle::extract(&mut summary, source, tree)?;
             }
+            crate::lang::LangFamily::Hcl => {
+                crate::detectors::hcl::extract(&mut summary, source, tree)?;
+            }
         }
     }
 

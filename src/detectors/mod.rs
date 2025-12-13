@@ -50,6 +50,7 @@ pub mod generic;
 pub mod go;
 pub mod gradle;
 pub mod grammar;
+pub mod hcl;
 pub mod java;
 // JavaScript is now a directory module with framework support in:
 //   - javascript/core.rs: Generic JS/TS extraction

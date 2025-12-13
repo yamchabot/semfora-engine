@@ -16,7 +16,7 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::detectors::common::{get_node_text, get_node_text_normalized};
+use crate::detectors::common::{find_containing_symbol_by_line, get_node_text, get_node_text_normalized};
 use crate::detectors::grammar::LangGrammar;
 use crate::error::Result;
 use crate::schema::{
@@ -493,22 +493,59 @@ fn map_control_flow_kind(node_kind: &str, grammar: &LangGrammar) -> ControlFlowK
 // =============================================================================
 
 fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str, grammar: &LangGrammar) {
-    let mut seen_calls: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Collect all calls first with their line numbers
+    let mut all_calls: Vec<(Call, usize)> = Vec::new();
 
     visit_all(root, |node| {
         let kind = node.kind();
 
         if grammar.call_nodes.contains(&kind) {
             if let Some(call) = extract_call(node, source, grammar) {
-                // Deduplicate calls
-                let key = format!("{}:{}", call.name, call.is_awaited);
-                if !seen_calls.contains(&key) {
-                    seen_calls.insert(key);
-                    summary.calls.push(call);
-                }
+                let line = node.start_position().row + 1;
+                all_calls.push((call, line));
             }
         }
     });
+
+    // Attribute calls to symbols based on line ranges
+    let mut calls_by_symbol: std::collections::HashMap<usize, Vec<Call>> =
+        std::collections::HashMap::new();
+    let mut file_level_calls: Vec<Call> = Vec::new();
+
+    for (call, line) in all_calls {
+        if let Some(symbol_idx) = find_containing_symbol_by_line(line, &summary.symbols) {
+            calls_by_symbol.entry(symbol_idx).or_default().push(call);
+        } else {
+            // Call is at file level (not inside any symbol)
+            file_level_calls.push(call);
+        }
+    }
+
+    // Assign calls to their respective symbols (deduplicated per symbol)
+    for (symbol_idx, calls) in calls_by_symbol {
+        if symbol_idx < summary.symbols.len() {
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut deduped_calls: Vec<Call> = Vec::new();
+            for call in calls {
+                let key = format!("{}:{}", call.name, call.is_awaited);
+                if !seen.contains(&key) {
+                    seen.insert(key);
+                    deduped_calls.push(call);
+                }
+            }
+            summary.symbols[symbol_idx].calls = deduped_calls;
+        }
+    }
+
+    // Keep file-level calls in summary.calls for backward compatibility (deduplicated)
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for call in file_level_calls {
+        let key = format!("{}:{}", call.name, call.is_awaited);
+        if !seen.contains(&key) {
+            seen.insert(key);
+            summary.calls.push(call);
+        }
+    }
 }
 
 fn extract_call(node: &Node, source: &str, grammar: &LangGrammar) -> Option<Call> {
@@ -652,6 +689,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detectors::common::find_containing_symbol_by_line;
+    use crate::extract::extract;
+    use crate::lang::Lang;
+    use std::path::PathBuf;
+    use tree_sitter::{Parser, Tree};
+
+    /// Helper to parse source code into a tree-sitter Tree
+    fn parse_source(source: &str, lang: Lang) -> Tree {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&lang.tree_sitter_language())
+            .expect("Failed to set language");
+        parser.parse(source, None).expect("Failed to parse")
+    }
 
     #[test]
     fn test_extract_filename_stem() {
@@ -669,4 +720,453 @@ mod tests {
             "this is a very long initializer that should be truncated ..."
         );
     }
+
+    // =============================================================================
+    // Call Graph Tests - Symbol-Level Call Attribution
+    // =============================================================================
+
+    /// Test that Python functions have calls attributed to symbols, not just file-level
+    #[test]
+    fn test_python_call_attribution() {
+        let source = r#"
+def fetch_users():
+    response = requests.get("https://api.example.com/users")
+    data = response.json()
+    return process_data(data)
+
+def process_data(data):
+    return [transform(item) for item in data]
+"#;
+        let tree = parse_source(source, Lang::Python);
+        let path = PathBuf::from("/test/api.py");
+        let summary = extract(&path, source, &tree, Lang::Python).unwrap();
+
+        // Should have 2 symbols
+        assert_eq!(summary.symbols.len(), 2, "Should have 2 Python functions");
+
+        // fetch_users should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetch_users");
+        assert!(fetch_users.is_some(), "Should find fetch_users symbol");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetch_users should have calls attributed to it, got: {:?}",
+            fetch_users.calls
+        );
+        // Should contain requests.get, response.json, process_data
+        let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(call_names.contains(&"get"), "Should have requests.get call");
+        assert!(call_names.contains(&"process_data"), "Should have process_data call");
+
+        // process_data should have transform call
+        let process_data = summary.symbols.iter().find(|s| s.name == "process_data");
+        assert!(process_data.is_some(), "Should find process_data symbol");
+        let process_data = process_data.unwrap();
+        assert!(
+            !process_data.calls.is_empty(),
+            "process_data should have transform call"
+        );
+    }
+
+    /// Test that Go functions have calls attributed to symbols
+    #[test]
+    fn test_go_call_attribution() {
+        let source = r#"
+package main
+
+import "fmt"
+
+func FetchUsers() []User {
+    resp, err := http.Get("https://api.example.com/users")
+    if err != nil {
+        log.Fatal(err)
+    }
+    return processResponse(resp)
 }
+
+func processResponse(resp *http.Response) []User {
+    defer resp.Body.Close()
+    return parseJSON(resp.Body)
+}
+"#;
+        let tree = parse_source(source, Lang::Go);
+        let path = PathBuf::from("/test/api.go");
+        let summary = extract(&path, source, &tree, Lang::Go).unwrap();
+
+        // Should have 2 symbols
+        assert_eq!(summary.symbols.len(), 2, "Should have 2 Go functions");
+
+        // FetchUsers should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "FetchUsers");
+        assert!(fetch_users.is_some(), "Should find FetchUsers symbol");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "FetchUsers should have calls attributed to it, got: {:?}",
+            fetch_users.calls
+        );
+        // Should contain http.Get, log.Fatal, processResponse
+        let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(call_names.contains(&"Get"), "Should have http.Get call");
+        assert!(call_names.contains(&"processResponse"), "Should have processResponse call");
+
+        // processResponse should have calls
+        let process_response = summary.symbols.iter().find(|s| s.name == "processResponse");
+        assert!(process_response.is_some(), "Should find processResponse symbol");
+        let process_response = process_response.unwrap();
+        assert!(
+            !process_response.calls.is_empty(),
+            "processResponse should have calls"
+        );
+    }
+
+    /// Test that Rust functions have calls attributed to symbols
+    #[test]
+    fn test_rust_call_attribution() {
+        let source = r#"
+pub fn fetch_users() -> Vec<User> {
+    let response = reqwest::get("url").await?;
+    let data = response.json().await?;
+    process_data(data)
+}
+
+fn process_data(data: Vec<RawUser>) -> Vec<User> {
+    data.into_iter().map(transform).collect()
+}
+"#;
+        let tree = parse_source(source, Lang::Rust);
+        let path = PathBuf::from("/test/api.rs");
+        let summary = extract(&path, source, &tree, Lang::Rust).unwrap();
+
+        // Should have 2 symbols
+        assert_eq!(summary.symbols.len(), 2, "Should have 2 Rust functions");
+
+        // fetch_users should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetch_users");
+        assert!(fetch_users.is_some(), "Should find fetch_users symbol");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetch_users should have calls attributed to it, got: {:?}",
+            fetch_users.calls
+        );
+        // Should contain process_data
+        let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(call_names.contains(&"process_data"), "Should have process_data call");
+
+        // process_data should have calls (collect, map, into_iter)
+        let process_data = summary.symbols.iter().find(|s| s.name == "process_data");
+        assert!(process_data.is_some(), "Should find process_data symbol");
+        let process_data = process_data.unwrap();
+        assert!(
+            !process_data.calls.is_empty(),
+            "process_data should have calls"
+        );
+    }
+
+    /// Test that Java methods have calls attributed to symbols
+    #[test]
+    fn test_java_call_attribution() {
+        let source = r#"
+public class UserService {
+    public List<User> fetchUsers() {
+        Response response = httpClient.get("url");
+        return processResponse(response);
+    }
+
+    private List<User> processResponse(Response response) {
+        return response.body().parseJson();
+    }
+}
+"#;
+        let tree = parse_source(source, Lang::Java);
+        let path = PathBuf::from("/test/UserService.java");
+        let summary = extract(&path, source, &tree, Lang::Java).unwrap();
+
+        // Should have symbols (class + methods)
+        assert!(!summary.symbols.is_empty(), "Should have Java symbols");
+
+        // fetchUsers should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetchUsers");
+        assert!(fetch_users.is_some(), "Should find fetchUsers method");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetchUsers should have calls attributed to it"
+        );
+    }
+
+    /// Test that file-level calls (not inside any function) go to summary.calls
+    #[test]
+    fn test_file_level_calls() {
+        let source = r#"
+import requests
+
+# File-level call (not in a function)
+config = load_config()
+
+def fetch_data():
+    return requests.get(config.url)
+"#;
+        let tree = parse_source(source, Lang::Python);
+        let path = PathBuf::from("/test/script.py");
+        let summary = extract(&path, source, &tree, Lang::Python).unwrap();
+
+        // Should have 1 symbol (fetch_data)
+        let fetch_data = summary.symbols.iter().find(|s| s.name == "fetch_data");
+        assert!(fetch_data.is_some(), "Should find fetch_data function");
+
+        // File-level call (load_config) should be in summary.calls, not in any symbol
+        let file_level_call_names: Vec<_> = summary.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            file_level_call_names.contains(&"load_config"),
+            "File-level load_config should be in summary.calls"
+        );
+    }
+
+    /// Test that find_containing_symbol_by_line works correctly
+    #[test]
+    fn test_find_containing_symbol_by_line() {
+        let symbols = vec![
+            SymbolInfo {
+                name: "func1".to_string(),
+                kind: SymbolKind::Function,
+                start_line: 1,
+                end_line: 5,
+                ..Default::default()
+            },
+            SymbolInfo {
+                name: "func2".to_string(),
+                kind: SymbolKind::Function,
+                start_line: 7,
+                end_line: 15,
+                ..Default::default()
+            },
+        ];
+
+        // Line 3 is inside func1
+        assert_eq!(find_containing_symbol_by_line(3, &symbols), Some(0));
+        // Line 10 is inside func2
+        assert_eq!(find_containing_symbol_by_line(10, &symbols), Some(1));
+        // Line 6 is not inside any symbol
+        assert_eq!(find_containing_symbol_by_line(6, &symbols), None);
+        // Line 20 is not inside any symbol
+        assert_eq!(find_containing_symbol_by_line(20, &symbols), None);
+    }
+
+    /// Test that nested symbols prefer the most specific (smallest) match
+    #[test]
+    fn test_find_containing_symbol_nested() {
+        let symbols = vec![
+            SymbolInfo {
+                name: "MyClass".to_string(),
+                kind: SymbolKind::Class,
+                start_line: 1,
+                end_line: 20, // Class spans lines 1-20
+                ..Default::default()
+            },
+            SymbolInfo {
+                name: "method1".to_string(),
+                kind: SymbolKind::Function,
+                start_line: 3,
+                end_line: 8, // Method within class
+                ..Default::default()
+            },
+            SymbolInfo {
+                name: "method2".to_string(),
+                kind: SymbolKind::Function,
+                start_line: 10,
+                end_line: 15, // Another method within class
+                ..Default::default()
+            },
+        ];
+
+        // Line 5 is inside both MyClass and method1 - should prefer method1 (smaller range)
+        assert_eq!(find_containing_symbol_by_line(5, &symbols), Some(1));
+        // Line 12 is inside both MyClass and method2 - should prefer method2
+        assert_eq!(find_containing_symbol_by_line(12, &symbols), Some(2));
+        // Line 18 is only inside MyClass (after all methods)
+        assert_eq!(find_containing_symbol_by_line(18, &symbols), Some(0));
+    }
+
+    /// Test that C functions have calls attributed to symbols
+    #[test]
+    fn test_c_call_attribution() {
+        let source = r#"
+#include <stdio.h>
+
+void process_data(int* data, int len) {
+    for (int i = 0; i < len; i++) {
+        printf("%d\n", data[i]);
+    }
+}
+
+int fetch_users(void) {
+    int data[10];
+    load_from_db(data, 10);
+    process_data(data, 10);
+    return 0;
+}
+"#;
+        let tree = parse_source(source, Lang::C);
+        let path = PathBuf::from("/test/api.c");
+        let summary = extract(&path, source, &tree, Lang::C).unwrap();
+
+        // Should have 2 symbols
+        assert!(summary.symbols.len() >= 2, "Should have at least 2 C functions");
+
+        // Find function with printf call
+        let has_calls = summary.symbols.iter().any(|s| !s.calls.is_empty());
+        assert!(has_calls, "At least one C function should have calls attributed");
+    }
+
+    /// Test that C++ methods have calls attributed to symbols
+    #[test]
+    fn test_cpp_call_attribution() {
+        let source = r#"
+#include <vector>
+
+class UserService {
+public:
+    std::vector<User> fetchUsers() {
+        auto response = httpClient.get("url");
+        return processResponse(response);
+    }
+
+private:
+    std::vector<User> processResponse(Response& response) {
+        return response.parse();
+    }
+};
+"#;
+        let tree = parse_source(source, Lang::Cpp);
+        let path = PathBuf::from("/test/UserService.cpp");
+        let summary = extract(&path, source, &tree, Lang::Cpp).unwrap();
+
+        // Should have symbols (class + methods)
+        assert!(!summary.symbols.is_empty(), "Should have C++ symbols");
+
+        // fetchUsers should have calls (not the class)
+        let fetch_users = summary.symbols.iter().find(|s| s.name.contains("fetchUsers"));
+        assert!(fetch_users.is_some(), "Should find fetchUsers method");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetchUsers should have calls attributed to it"
+        );
+    }
+
+    /// Test that Kotlin functions have calls attributed to symbols
+    #[test]
+    fn test_kotlin_call_attribution() {
+        let source = r#"
+class UserService {
+    fun fetchUsers(): List<User> {
+        val response = httpClient.get("url")
+        return processResponse(response)
+    }
+
+    private fun processResponse(response: Response): List<User> {
+        return response.body().parseJson()
+    }
+}
+"#;
+        let tree = parse_source(source, Lang::Kotlin);
+        let path = PathBuf::from("/test/UserService.kt");
+        let summary = extract(&path, source, &tree, Lang::Kotlin).unwrap();
+
+        // Should have symbols
+        assert!(!summary.symbols.is_empty(), "Should have Kotlin symbols");
+
+        // fetchUsers should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetchUsers");
+        assert!(fetch_users.is_some(), "Should find fetchUsers function");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetchUsers should have calls attributed to it"
+        );
+    }
+
+    /// Test that Shell functions have calls attributed to symbols
+    #[test]
+    fn test_shell_call_attribution() {
+        let source = r#"
+#!/bin/bash
+
+process_data() {
+    echo "Processing: $1"
+    grep -r "$1" /var/log
+}
+
+fetch_users() {
+    local data=$(curl -s "https://api.example.com/users")
+    process_data "$data"
+    echo "Done"
+}
+"#;
+        let tree = parse_source(source, Lang::Bash);
+        let path = PathBuf::from("/test/script.sh");
+        let summary = extract(&path, source, &tree, Lang::Bash).unwrap();
+
+        // Should have 2 shell functions
+        assert_eq!(summary.symbols.len(), 2, "Should have 2 shell functions");
+
+        // fetch_users should have calls
+        let fetch_users = summary.symbols.iter().find(|s| s.name == "fetch_users");
+        assert!(fetch_users.is_some(), "Should find fetch_users function");
+        let fetch_users = fetch_users.unwrap();
+        assert!(
+            !fetch_users.calls.is_empty(),
+            "fetch_users should have calls attributed to it"
+        );
+    }
+
+    /// Test that Gradle/Groovy functions have calls attributed to symbols
+    #[test]
+    fn test_gradle_call_attribution() {
+        let source = r#"
+def compileJava() {
+    println "Compiling Java"
+    javac("src/main/java")
+}
+
+def processResources() {
+    copy("resources", "build/resources")
+    validate()
+}
+
+def buildApp() {
+    compileJava()
+    processResources()
+    println "Build complete"
+}
+"#;
+        let tree = parse_source(source, Lang::Gradle);
+        let path = PathBuf::from("/test/build.gradle");
+        let summary = extract(&path, source, &tree, Lang::Gradle).unwrap();
+
+        // Should have 3 Gradle functions
+        assert_eq!(summary.symbols.len(), 3, "Should have 3 Gradle functions");
+
+        // buildApp should have calls to compileJava and processResources
+        let build_app = summary.symbols.iter().find(|s| s.name == "buildApp");
+        assert!(build_app.is_some(), "Should find buildApp function");
+        let build_app = build_app.unwrap();
+        assert!(
+            !build_app.calls.is_empty(),
+            "buildApp should have calls attributed to it"
+        );
+
+        let call_names: Vec<&str> = build_app.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            call_names.contains(&"compileJava"),
+            "buildApp should call compileJava"
+        );
+        assert!(
+            call_names.contains(&"processResources"),
+            "buildApp should call processResources"
+        );
+    }
+}
+
