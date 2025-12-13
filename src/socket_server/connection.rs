@@ -245,7 +245,7 @@ impl ConnectionState {
                         Ok(serde_json::json!({ "raw": content, "scope": scope.unwrap_or("base_branch") }))
                     }
                 } else {
-                    Err(anyhow::anyhow!("No index found for scope '{}'. Run semfora-mcp --shard first.", scope.unwrap_or("base_branch")))
+                    Err(anyhow::anyhow!("No index found for scope '{}'. Run semfora-engine --shard first.", scope.unwrap_or("base_branch")))
                 }
             }
 

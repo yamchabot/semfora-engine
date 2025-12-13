@@ -1,7 +1,7 @@
-//! MCP Server for semfora-mcp
+//! MCP Server for semfora-engine
 //!
 //! This module provides an MCP (Model Context Protocol) server that exposes
-//! the semantic code analysis capabilities of semfora-mcp as tools that can be
+//! the semantic code analysis capabilities of semfora-engine as tools that can be
 //! called by AI assistants like Claude.
 
 mod helpers;
@@ -247,7 +247,7 @@ impl McpDiffServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "List all programming languages supported by semfora-mcp for semantic analysis")]
+    #[tool(description = "List all programming languages supported by semfora-engine for semantic analysis")]
     fn list_languages(
         &self,
         Parameters(_request): Parameters<ListLanguagesRequest>,
@@ -280,7 +280,7 @@ impl McpDiffServer {
         let overview_path = cache.repo_overview_path();
         if !overview_path.exists() {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No sharded index found for {}. Run `semfora-mcp --shard {}` to generate one, or use generate_index tool.",
+                "No sharded index found for {}. Run `semfora-engine --shard {}` to generate one, or use generate_index tool.",
                 repo_path.display(), repo_path.display()
             ))]));
         }
@@ -1112,9 +1112,9 @@ impl ServerHandler for McpDiffServer {
             protocol_version: ProtocolVersion::V_2024_11_05,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
-                name: "semfora-mcp".to_string(),
+                name: "semfora-engine".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
-                title: Some("MCP Semantic Diff".to_string()),
+                title: Some("Semfora Engine".to_string()),
                 website_url: None,
                 icons: None,
             },
@@ -1685,6 +1685,6 @@ mod tests {
     fn test_server_creation() {
         let server = McpDiffServer::new();
         let info = server.get_info();
-        assert_eq!(info.server_info.name, "semfora-mcp");
+        assert_eq!(info.server_info.name, "semfora-engine");
     }
 }

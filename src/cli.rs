@@ -7,7 +7,7 @@ use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyz
 
 /// Semantic code analyzer with TOON output
 #[derive(Parser, Debug)]
-#[command(name = "semfora-mcp")]
+#[command(name = "semfora-engine")]
 #[command(about = "Deterministic semantic code analyzer that outputs TOON-formatted summaries")]
 #[command(version)]
 #[command(author)]

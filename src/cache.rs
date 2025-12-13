@@ -3027,12 +3027,12 @@ mod tests {
         use clap::Parser;
 
         // Test that --allow-tests flag is recognized
-        let args = vec!["semfora-mcp", "--allow-tests", "test.rs"];
+        let args = vec!["semfora-engine", "--allow-tests", "test.rs"];
         let cli = Cli::try_parse_from(args).expect("Should parse with --allow-tests");
         assert!(cli.allow_tests, "--allow-tests should be true");
 
         // Without the flag, default is false
-        let args = vec!["semfora-mcp", "test.rs"];
+        let args = vec!["semfora-engine", "test.rs"];
         let cli = Cli::try_parse_from(args).expect("Should parse without --allow-tests");
         assert!(!cli.allow_tests, "Default should be false");
     }

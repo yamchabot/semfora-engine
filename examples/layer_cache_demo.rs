@@ -3,12 +3,12 @@
 //! Run with: cargo run --example layer_cache_demo
 
 use std::path::PathBuf;
-use semfora_mcp::{
+use semfora_engine::{
     CacheDir, LayerKind, LayeredIndex, SymbolState,
     schema::{SymbolInfo, SymbolKind, RiskLevel},
 };
 
-fn main() -> semfora_mcp::Result<()> {
+fn main() -> semfora_engine::Result<()> {
     println!("=== SEM-45: Layer Cache Integration Demo ===\n");
 
     // Use a temp directory for the demo

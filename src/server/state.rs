@@ -134,7 +134,7 @@ impl ServerStatus {
 /// # Example
 ///
 /// ```ignore
-/// use semfora_mcp::server::ServerState;
+/// use semfora_engine::server::ServerState;
 /// use std::path::PathBuf;
 ///
 /// let state = ServerState::new(PathBuf::from("/path/to/repo"));

@@ -17,8 +17,8 @@ use clap::Parser;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
-use semfora_mcp::server::events::register_broadcast_listener;
-use semfora_mcp::socket_server::{handle_connection, RepoRegistry};
+use semfora_engine::server::events::register_broadcast_listener;
+use semfora_engine::socket_server::{handle_connection, RepoRegistry};
 
 /// Semfora Socket Server Daemon
 #[derive(Parser, Debug)]
@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("semfora_mcp=info".parse().unwrap())
+                .add_directive("semfora_engine=info".parse().unwrap())
                 .add_directive("semfora_daemon=info".parse().unwrap()),
         )
         .init();

@@ -1,6 +1,6 @@
 //! MCP Server binary entry point
 //!
-//! This binary runs the semfora-mcp MCP server using stdio transport,
+//! This binary runs the semfora-engine MCP server using stdio transport,
 //! allowing AI assistants to call the semantic analysis tools.
 //!
 //! # Live Index Updates (Default)
@@ -21,8 +21,8 @@ use rmcp::ServiceExt;
 use tracing_subscriber::{self, EnvFilter};
 
 // Import the MCP server and persistent server components
-use semfora_mcp::mcp_server::McpDiffServer;
-use semfora_mcp::server::{
+use semfora_engine::mcp_server::McpDiffServer;
+use semfora_engine::server::{
     ServerState, FileWatcher, GitPoller,
     init_event_emitter, emit_event, ServerStatusEvent,
 };
@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::from_default_env()
-                .add_directive("semfora_mcp=info".parse()?)
+                .add_directive("semfora_engine=info".parse()?)
                 .add_directive("rmcp=info".parse()?),
         )
         .with_writer(std::io::stderr)
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
-    tracing::info!("Starting semfora-mcp MCP server v{}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("Starting semfora-engine MCP server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Repository path: {}", repo_path.display());
 
     // Always enable event emitter for live index updates

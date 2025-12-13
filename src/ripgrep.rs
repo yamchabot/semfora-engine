@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use semfora_mcp::ripgrep::{RipgrepSearcher, SearchOptions};
+//! use semfora_engine::ripgrep::{RipgrepSearcher, SearchOptions};
 //!
 //! let searcher = RipgrepSearcher::new();
 //! let options = SearchOptions::new("fn main")

@@ -1,4 +1,4 @@
-//! Semfora-MCP: Semantic code analyzer with TOON output
+//! Semfora Engine: Semantic code analyzer with TOON output
 //!
 //! This library provides deterministic semantic analysis of source code files
 //! across multiple programming languages. It uses tree-sitter for parsing and
@@ -18,7 +18,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use semfora_mcp::{extract, Lang, encode_toon};
+//! use semfora_engine::{extract, Lang, encode_toon};
 //! use std::path::Path;
 //!
 //! let source = r#"

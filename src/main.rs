@@ -1,4 +1,4 @@
-//! Semfora-MCP CLI entry point
+//! Semfora Engine CLI entry point
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,12 +6,12 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use semfora_mcp::cli::{OperationMode, TokenAnalysisMode};
-use semfora_mcp::git::{
+use semfora_engine::cli::{OperationMode, TokenAnalysisMode};
+use semfora_engine::git::{
     get_changed_files, get_commit_changed_files, get_commits_since, get_file_at_ref,
     get_merge_base, get_repo_root, is_git_repo, ChangedFile, ChangeType,
 };
-use semfora_mcp::{
+use semfora_engine::{
     encode_toon, encode_toon_directory, extract, format_analysis_compact, format_analysis_report,
     generate_repo_overview, Cli, Lang, McpDiffError, OutputFormat, SemanticSummary, TokenAnalyzer,
     CacheDir, ShardWriter, get_cache_base_dir, list_cached_repos, prune_old_caches,
@@ -33,7 +33,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> semfora_mcp::Result<String> {
+fn run() -> semfora_engine::Result<String> {
     let cli = Cli::parse();
 
     // Handle cache commands first (they don't require operation mode)
@@ -117,7 +117,7 @@ fn run() -> semfora_mcp::Result<String> {
 }
 
 /// Run single file analysis (Phase 1 mode)
-fn run_single_file(cli: &Cli, file_path: &Path) -> semfora_mcp::Result<String> {
+fn run_single_file(cli: &Cli, file_path: &Path) -> semfora_engine::Result<String> {
     // 1. Check file exists
     if !file_path.exists() {
         return Err(McpDiffError::FileNotFound {
@@ -179,7 +179,7 @@ fn run_single_file(cli: &Cli, file_path: &Path) -> semfora_mcp::Result<String> {
 }
 
 /// Run directory analysis mode
-fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::Result<String> {
+fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_engine::Result<String> {
     if !dir_path.exists() {
         return Err(McpDiffError::FileNotFound {
             path: dir_path.display().to_string(),
@@ -295,7 +295,7 @@ fn run_directory(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::R
 }
 
 /// Run sharded indexing mode for large repositories
-fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::Result<String> {
+fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_engine::Result<String> {
     if !dir_path.exists() {
         return Err(McpDiffError::FileNotFound {
             path: dir_path.display().to_string(),
@@ -322,7 +322,7 @@ fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::Resul
 
     if cli.incremental && is_git_repo(Some(dir_path)) {
         // Get current HEAD SHA
-        current_sha = semfora_mcp::git::git_command(&["rev-parse", "HEAD"], Some(dir_path)).ok();
+        current_sha = semfora_engine::git::git_command(&["rev-parse", "HEAD"], Some(dir_path)).ok();
 
         if let Some(ref sha) = current_sha {
             let indexed_sha = cache.get_indexed_sha();
@@ -500,7 +500,7 @@ fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_mcp::Resul
 }
 
 /// Show cache information
-fn run_cache_info() -> semfora_mcp::Result<String> {
+fn run_cache_info() -> semfora_engine::Result<String> {
     let base_dir = get_cache_base_dir();
     let cached_repos = list_cached_repos();
 
@@ -530,7 +530,7 @@ fn run_cache_info() -> semfora_mcp::Result<String> {
 }
 
 /// Clear the cache for the current directory
-fn run_cache_clear() -> semfora_mcp::Result<String> {
+fn run_cache_clear() -> semfora_engine::Result<String> {
     let current_dir = std::env::current_dir().map_err(|e| McpDiffError::FileNotFound {
         path: format!("current directory: {}", e),
     })?;
@@ -552,7 +552,7 @@ fn run_cache_clear() -> semfora_mcp::Result<String> {
 }
 
 /// Prune caches older than specified days
-fn run_cache_prune(days: u32) -> semfora_mcp::Result<String> {
+fn run_cache_prune(days: u32) -> semfora_engine::Result<String> {
     let count = prune_old_caches(days)?;
 
     let mut output = String::new();
@@ -562,7 +562,7 @@ fn run_cache_prune(days: u32) -> semfora_mcp::Result<String> {
 }
 
 /// Run token efficiency benchmark
-fn run_benchmark(dir_path: &Path) -> semfora_mcp::Result<String> {
+fn run_benchmark(dir_path: &Path) -> semfora_engine::Result<String> {
     let metrics = analyze_repo_tokens(dir_path)?;
     Ok(metrics.report())
 }
@@ -572,9 +572,9 @@ fn run_benchmark(dir_path: &Path) -> semfora_mcp::Result<String> {
 // ============================================================================
 
 /// Get the repository directory - uses --dir if provided, falls back to CWD.
-/// This is critical for CLI tools that spawn semfora-mcp from a different directory
+/// This is critical for CLI tools that spawn semfora-engine from a different directory
 /// than the target repository (e.g., Tauri apps running from their own cwd).
-fn get_repo_dir(cli: &Cli) -> semfora_mcp::Result<PathBuf> {
+fn get_repo_dir(cli: &Cli) -> semfora_engine::Result<PathBuf> {
     match &cli.dir {
         Some(dir) => Ok(dir.clone()),
         None => std::env::current_dir().map_err(|e| McpDiffError::FileNotFound {
@@ -584,7 +584,7 @@ fn get_repo_dir(cli: &Cli) -> semfora_mcp::Result<PathBuf> {
 }
 
 /// List all modules in the cached index
-fn run_list_modules(cli: &Cli) -> semfora_mcp::Result<String> {
+fn run_list_modules(cli: &Cli) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -618,7 +618,7 @@ fn run_list_modules(cli: &Cli) -> semfora_mcp::Result<String> {
 }
 
 /// Get a specific module's content from the cache
-fn run_get_module(cli: &Cli, module_name: &str) -> semfora_mcp::Result<String> {
+fn run_get_module(cli: &Cli, module_name: &str) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -641,7 +641,7 @@ fn run_get_module(cli: &Cli, module_name: &str) -> semfora_mcp::Result<String> {
 }
 
 /// Search for symbols by name in the cached index (with ripgrep fallback)
-fn run_search_symbols(cli: &Cli, query: &str) -> semfora_mcp::Result<String> {
+fn run_search_symbols(cli: &Cli, query: &str) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -718,7 +718,7 @@ fn run_search_symbols(cli: &Cli, query: &str) -> semfora_mcp::Result<String> {
 }
 
 /// List all symbols in a module from the cached index
-fn run_list_module_symbols(cli: &Cli, module_name: &str) -> semfora_mcp::Result<String> {
+fn run_list_module_symbols(cli: &Cli, module_name: &str) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -762,7 +762,7 @@ fn run_list_module_symbols(cli: &Cli, module_name: &str) -> semfora_mcp::Result<
 }
 
 /// Get a specific symbol's details by hash
-fn run_get_symbol(cli: &Cli, symbol_hash: &str) -> semfora_mcp::Result<String> {
+fn run_get_symbol(cli: &Cli, symbol_hash: &str) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -785,7 +785,7 @@ fn run_get_symbol(cli: &Cli, symbol_hash: &str) -> semfora_mcp::Result<String> {
 }
 
 /// Get the repository overview from the cache
-fn run_get_overview(cli: &Cli) -> semfora_mcp::Result<String> {
+fn run_get_overview(cli: &Cli) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -808,7 +808,7 @@ fn run_get_overview(cli: &Cli) -> semfora_mcp::Result<String> {
 }
 
 /// Get the call graph from the cache
-fn run_get_call_graph(cli: &Cli) -> semfora_mcp::Result<String> {
+fn run_get_call_graph(cli: &Cli) -> semfora_engine::Result<String> {
     let repo_dir = get_repo_dir(cli)?;
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -906,7 +906,7 @@ fn collect_files_recursive(
 }
 
 /// Run diff branch analysis (Phase 2 mode)
-fn run_diff_branch(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
+fn run_diff_branch(cli: &Cli, base_ref: &str) -> semfora_engine::Result<String> {
     // Verify we're in a git repo
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
@@ -985,7 +985,7 @@ fn run_diff_branch(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
 }
 
 /// Run uncommitted changes analysis (working directory vs base_ref)
-fn run_uncommitted(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
+fn run_uncommitted(cli: &Cli, base_ref: &str) -> semfora_engine::Result<String> {
     // Verify we're in a git repo
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
@@ -999,7 +999,7 @@ fn run_uncommitted(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
     }
 
     // Get uncommitted changes (working directory vs base_ref)
-    let changed_files = semfora_mcp::git::get_uncommitted_changes(base_ref, None)?;
+    let changed_files = semfora_engine::git::get_uncommitted_changes(base_ref, None)?;
 
     if changed_files.is_empty() {
         return Ok("No uncommitted changes.\n".to_string());
@@ -1066,22 +1066,22 @@ fn run_uncommitted(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
 fn process_uncommitted_file(
     cli: &Cli,
     repo_root: &Path,
-    changed_file: &semfora_mcp::git::ChangedFile,
+    changed_file: &semfora_engine::git::ChangedFile,
     _base_ref: &str,
-) -> semfora_mcp::Result<Option<(String, DiffStats)>> {
+) -> semfora_engine::Result<Option<(String, DiffStats)>> {
     let file_path = repo_root.join(&changed_file.path);
     let mut stats = DiffStats::default();
 
     // Update stats based on change type
     match changed_file.change_type {
-        semfora_mcp::git::ChangeType::Added => stats.added += 1,
-        semfora_mcp::git::ChangeType::Modified => stats.modified += 1,
-        semfora_mcp::git::ChangeType::Deleted => stats.deleted += 1,
+        semfora_engine::git::ChangeType::Added => stats.added += 1,
+        semfora_engine::git::ChangeType::Modified => stats.modified += 1,
+        semfora_engine::git::ChangeType::Deleted => stats.deleted += 1,
         _ => stats.modified += 1,
     }
 
     // Skip deleted files (can't analyze what doesn't exist)
-    if changed_file.change_type == semfora_mcp::git::ChangeType::Deleted {
+    if changed_file.change_type == semfora_engine::git::ChangeType::Deleted {
         if cli.summary_only {
             return Ok(Some((String::new(), stats)));
         }
@@ -1124,9 +1124,9 @@ fn process_uncommitted_file(
 
     // Format output
     let change_marker = match changed_file.change_type {
-        semfora_mcp::git::ChangeType::Added => "[+]",
-        semfora_mcp::git::ChangeType::Modified => "[M]",
-        semfora_mcp::git::ChangeType::Deleted => "[-]",
+        semfora_engine::git::ChangeType::Added => "[+]",
+        semfora_engine::git::ChangeType::Modified => "[M]",
+        semfora_engine::git::ChangeType::Deleted => "[-]",
         _ => "[?]",
     };
 
@@ -1153,7 +1153,7 @@ fn process_uncommitted_file(
 }
 
 /// Run single commit analysis
-fn run_single_commit(cli: &Cli, sha: &str) -> semfora_mcp::Result<String> {
+fn run_single_commit(cli: &Cli, sha: &str) -> semfora_engine::Result<String> {
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
     }
@@ -1165,7 +1165,7 @@ fn run_single_commit(cli: &Cli, sha: &str) -> semfora_mcp::Result<String> {
         return Ok(format!("No files changed in commit {}.\n", sha));
     }
 
-    let parent = semfora_mcp::git::get_parent_commit(sha, None)?;
+    let parent = semfora_engine::git::get_parent_commit(sha, None)?;
 
     let mut output = String::new();
     output.push_str(&format!(
@@ -1197,7 +1197,7 @@ fn run_single_commit(cli: &Cli, sha: &str) -> semfora_mcp::Result<String> {
 }
 
 /// Run all commits analysis since base
-fn run_all_commits(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
+fn run_all_commits(cli: &Cli, base_ref: &str) -> semfora_engine::Result<String> {
     if !is_git_repo(None) {
         return Err(McpDiffError::NotGitRepo);
     }
@@ -1237,7 +1237,7 @@ fn run_all_commits(cli: &Cli, base_ref: &str) -> semfora_mcp::Result<String> {
 
         // Get files changed in this commit
         let changed_files = get_commit_changed_files(&commit.sha, None)?;
-        let parent = semfora_mcp::git::get_parent_commit(&commit.sha, None)
+        let parent = semfora_engine::git::get_parent_commit(&commit.sha, None)
             .unwrap_or_else(|_| commit.sha.clone());
         let repo_root = get_repo_root(None)?;
 
@@ -1266,7 +1266,7 @@ fn process_changed_file(
     repo_root: &str,
     changed_file: &ChangedFile,
     base_ref: &str,
-) -> semfora_mcp::Result<Option<(String, DiffStats)>> {
+) -> semfora_engine::Result<Option<(String, DiffStats)>> {
     let full_path = PathBuf::from(repo_root).join(&changed_file.path);
     let mut stats = DiffStats::default();
 
@@ -1325,9 +1325,9 @@ fn process_changed_file(
 
     // Update risk stats
     match current_summary.behavioral_risk {
-        semfora_mcp::RiskLevel::High => stats.high_risk += 1,
-        semfora_mcp::RiskLevel::Medium => stats.medium_risk += 1,
-        semfora_mcp::RiskLevel::Low => stats.low_risk += 1,
+        semfora_engine::RiskLevel::High => stats.high_risk += 1,
+        semfora_engine::RiskLevel::Medium => stats.medium_risk += 1,
+        semfora_engine::RiskLevel::Low => stats.low_risk += 1,
     }
 
     // For added files, just show the current state
@@ -1367,7 +1367,7 @@ fn parse_and_extract(
     source: &str,
     lang: Lang,
     cli: &Cli,
-) -> semfora_mcp::Result<SemanticSummary> {
+) -> semfora_engine::Result<SemanticSummary> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&lang.tree_sitter_language())
@@ -1399,7 +1399,7 @@ fn parse_and_extract_string(
     file_path: &Path,
     source: &str,
     lang: Lang,
-) -> semfora_mcp::Result<SemanticSummary> {
+) -> semfora_engine::Result<SemanticSummary> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&lang.tree_sitter_language())
@@ -1562,13 +1562,13 @@ fn print_ast(node: &tree_sitter::Node, source: &str, depth: usize) {
 }
 
 /// Run static code analysis on the cached index
-fn run_static_analysis(cli: &Cli) -> semfora_mcp::Result<String> {
-    use semfora_mcp::analysis::{analyze_module, analyze_repo, format_analysis_report as format_report};
+fn run_static_analysis(cli: &Cli) -> semfora_engine::Result<String> {
+    use semfora_engine::analysis::{analyze_module, analyze_repo, format_analysis_report as format_report};
 
     let cwd = std::env::current_dir()?;
 
     // Check if we have a cached index
-    let cache = semfora_mcp::CacheDir::for_repo(&cwd)?;
+    let cache = semfora_engine::CacheDir::for_repo(&cwd)?;
     if !cache.exists() {
         return Err(McpDiffError::GitError {
             message: "No cached index found. Run with --shard first to generate the index.".to_string(),

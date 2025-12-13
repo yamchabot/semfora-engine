@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// # Example
 ///
 /// ```
-/// use semfora_mcp::SearchHints;
+/// use semfora_engine::SearchHints;
 ///
 /// let hints = SearchHints::new()
 ///     .with_ext("rs")
@@ -207,7 +207,7 @@ pub fn lang_from_extension(path: &str) -> Option<String> {
 /// # Example
 ///
 /// ```
-/// use semfora_mcp::search::is_test_file;
+/// use semfora_engine::search::is_test_file;
 ///
 /// assert!(is_test_file("src/lib_test.rs"));
 /// assert!(is_test_file("tests/integration.rs"));

@@ -240,6 +240,43 @@ pub fn infer_type_from_initializer(init: &str) -> String {
     "unknown".to_string()
 }
 
+// ============================================================================
+// Symbol Line Range Utilities
+// ============================================================================
+
+use crate::schema::SymbolInfo;
+
+/// Find which symbol (by index) contains a given line number.
+/// Uses the symbol's start_line and end_line to determine containment.
+/// When multiple symbols contain the line (e.g., nested class/method), returns
+/// the most specific one (smallest line range) to handle nested symbols correctly.
+///
+/// # Arguments
+/// * `line` - The 1-indexed line number to find
+/// * `symbols` - Slice of symbols to search through
+///
+/// # Returns
+/// * `Some(index)` - Index of the most specific symbol containing the line
+/// * `None` - If no symbol contains the line
+pub fn find_containing_symbol_by_line(line: usize, symbols: &[SymbolInfo]) -> Option<usize> {
+    let mut best_match: Option<(usize, usize)> = None; // (index, range_size)
+
+    for (idx, symbol) in symbols.iter().enumerate() {
+        if line >= symbol.start_line && line <= symbol.end_line {
+            let range_size = symbol.end_line.saturating_sub(symbol.start_line);
+            match best_match {
+                None => best_match = Some((idx, range_size)),
+                Some((_, best_size)) if range_size < best_size => {
+                    best_match = Some((idx, range_size));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    best_match.map(|(idx, _)| idx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

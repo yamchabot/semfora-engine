@@ -1,16 +1,16 @@
 [package]
-name = "semfora-mcp"
+name = "semfora-engine"
 version = "0.1.0"
 edition = "2021"
 description = "Semantic code analyzer with TOON output"
 license = "MIT"
 
 [[bin]]
-name = "semfora-mcp"
+name = "semfora-engine"
 path = "src/main.rs"
 
 [[bin]]
-name = "semfora-mcp-server"
+name = "semfora-engine-server"
 path = "src/mcp_server/bin.rs"
 
 [[bin]]
@@ -93,3 +93,18 @@ cc = "1.0"
 
 [dev-dependencies]
 tempfile = "3.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+memory-stats = "1.1"
+sysinfo = "0.31"
+
+[[bench]]
+name = "indexing"
+harness = false
+
+[[bench]]
+name = "queries"
+harness = false
+
+[[bench]]
+name = "incremental"
+harness = false
