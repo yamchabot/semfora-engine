@@ -353,6 +353,46 @@ pub struct CheckServerModeRequest {
 }
 
 // ============================================================================
+// Duplicate Detection Request Types
+// ============================================================================
+
+/// Request to find all duplicate function clusters in repository
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindDuplicatesRequest {
+    /// Minimum similarity threshold (default: 0.90)
+    #[schemars(description = "Minimum similarity threshold (default: 0.90)")]
+    pub threshold: Option<f64>,
+
+    /// Whether to exclude boilerplate patterns (default: true)
+    #[schemars(description = "Whether to exclude boilerplate patterns (default: true)")]
+    pub exclude_boilerplate: Option<bool>,
+
+    /// Filter to specific module
+    #[schemars(description = "Filter to specific module")]
+    pub module: Option<String>,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Repository path")]
+    pub path: Option<String>,
+}
+
+/// Request to check if a specific function has duplicates
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CheckDuplicatesRequest {
+    /// Symbol hash to check
+    #[schemars(description = "Symbol hash to check")]
+    pub symbol_hash: String,
+
+    /// Minimum similarity threshold (default: 0.90)
+    #[schemars(description = "Minimum similarity threshold (default: 0.90)")]
+    pub threshold: Option<f64>,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Repository path")]
+    pub path: Option<String>,
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

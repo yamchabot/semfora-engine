@@ -41,10 +41,12 @@
 
 pub mod analysis;
 pub mod benchmark;
+pub mod benchmark_builder;
 pub mod cache;
 pub mod cli;
 pub mod detectors;
 pub mod drift;
+pub mod duplicate;
 pub mod error;
 pub mod extract;
 pub mod git;
@@ -135,4 +137,11 @@ pub use analysis::{
 pub use server::{
     FileWatcher, GitPoller, LayerStatus, LayerSynchronizer, LayerUpdateStats,
     ServerState, ServerStatus,
+};
+
+// Re-export duplicate detection types
+pub use duplicate::{
+    boilerplate::{BoilerplateCategory, BoilerplateConfig, CustomBoilerplateRule},
+    Difference, DuplicateCluster, DuplicateDetector, DuplicateKind, DuplicateMatch,
+    FunctionSignature, SymbolRef,
 };

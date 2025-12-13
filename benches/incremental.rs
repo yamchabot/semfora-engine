@@ -375,11 +375,246 @@ fn find_multiple_ts_files(repo_path: &PathBuf, count: usize) -> Vec<PathBuf> {
     files
 }
 
+/// Benchmark tree-sitter incremental parsing vs full parsing
+/// This directly measures the parsing performance gains from AST caching.
+fn bench_incremental_parsing(c: &mut Criterion) {
+    use semfora_engine::lang::Lang;
+    use semfora_engine::server::AstCache;
+
+    let mut group = c.benchmark_group("tree_sitter_parsing");
+    group.sample_size(100);
+    group.measurement_time(Duration::from_secs(10));
+
+    // Sample TypeScript content for parsing benchmarks
+    let source_original = r#"
+import { z } from 'zod';
+
+export interface User {
+    id: string;
+    name: string;
+    email: string;
+}
+
+export const userSchema = z.object({
+    id: z.string().uuid(),
+    name: z.string().min(1),
+    email: z.string().email(),
+});
+
+export function validateUser(data: unknown): User {
+    return userSchema.parse(data);
+}
+
+export class UserService {
+    private cache: Map<string, User> = new Map();
+
+    async getUser(id: string): Promise<User | null> {
+        const cached = this.cache.get(id);
+        if (cached) return cached;
+        return null;
+    }
+
+    setUser(id: string, user: User): void {
+        this.cache.set(id, user);
+    }
+}
+"#;
+
+    // Simulate an edit: adding a new function
+    let source_edited = r#"
+import { z } from 'zod';
+
+export interface User {
+    id: string;
+    name: string;
+    email: string;
+}
+
+export const userSchema = z.object({
+    id: z.string().uuid(),
+    name: z.string().min(1),
+    email: z.string().email(),
+});
+
+export function validateUser(data: unknown): User {
+    return userSchema.parse(data);
+}
+
+export function formatUserName(user: User): string {
+    return user.name.toUpperCase();
+}
+
+export class UserService {
+    private cache: Map<string, User> = new Map();
+
+    async getUser(id: string): Promise<User | null> {
+        const cached = this.cache.get(id);
+        if (cached) return cached;
+        return null;
+    }
+
+    setUser(id: string, user: User): void {
+        this.cache.set(id, user);
+    }
+}
+"#;
+
+    let path = PathBuf::from("/tmp/benchmark_test.ts");
+
+    // Benchmark: Full parse (no cache)
+    group.bench_function("full_parse", |b| {
+        let cache = AstCache::new();
+        b.iter(|| {
+            // Clear cache to force full parse
+            cache.clear();
+            let _ = cache.parse_file(
+                black_box(&path),
+                black_box(source_original),
+                Lang::TypeScript,
+            );
+        });
+    });
+
+    // Benchmark: Incremental parse (after initial cache)
+    group.bench_function("incremental_parse", |b| {
+        let cache = AstCache::new();
+        // Initial full parse to populate cache
+        let _ = cache.parse_file(&path, source_original, Lang::TypeScript);
+
+        b.iter(|| {
+            // Edit and incremental parse
+            let _ = cache.parse_file(
+                black_box(&path),
+                black_box(source_edited),
+                Lang::TypeScript,
+            );
+            // Reset for next iteration
+            let _ = cache.parse_file(
+                black_box(&path),
+                black_box(source_original),
+                Lang::TypeScript,
+            );
+        });
+    });
+
+    // Benchmark: Cache hit (unchanged file)
+    group.bench_function("cache_hit", |b| {
+        let cache = AstCache::new();
+        // Initial full parse
+        let _ = cache.parse_file(&path, source_original, Lang::TypeScript);
+
+        b.iter(|| {
+            // Same content - should be cache hit
+            let _ = cache.parse_file(
+                black_box(&path),
+                black_box(source_original),
+                Lang::TypeScript,
+            );
+        });
+    });
+
+    group.finish();
+}
+
+/// Benchmark AST cache with larger TypeScript files
+fn bench_incremental_parsing_large(c: &mut Criterion) {
+    use semfora_engine::lang::Lang;
+    use semfora_engine::server::AstCache;
+
+    let mut group = c.benchmark_group("tree_sitter_parsing_large");
+    group.sample_size(50);
+    group.measurement_time(Duration::from_secs(15));
+
+    // Find a real TypeScript file from test repos if available
+    let repos_dir = std::env::var("SEMFORA_TEST_REPOS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/home/kadajett/Dev/semfora-test-repos/repos"));
+
+    let large_file = find_large_ts_file(&repos_dir);
+
+    if let Some((file_path, content)) = large_file {
+        let file_size = content.len();
+        eprintln!("Using large file: {:?} ({} bytes)", file_path, file_size);
+
+        // Create edited version (add a comment at the end)
+        let edited_content = format!("{}\n// Benchmark edit: {}", content, chrono::Utc::now());
+        let path = PathBuf::from("/tmp/benchmark_large.ts");
+
+        group.bench_function(format!("full_parse_{}_bytes", file_size), |b| {
+            let cache = AstCache::new();
+            b.iter(|| {
+                cache.clear();
+                let _ = cache.parse_file(
+                    black_box(&path),
+                    black_box(&content),
+                    Lang::TypeScript,
+                );
+            });
+        });
+
+        group.bench_function(format!("incremental_parse_{}_bytes", file_size), |b| {
+            let cache = AstCache::new();
+            let _ = cache.parse_file(&path, &content, Lang::TypeScript);
+
+            b.iter(|| {
+                let _ = cache.parse_file(
+                    black_box(&path),
+                    black_box(&edited_content),
+                    Lang::TypeScript,
+                );
+                let _ = cache.parse_file(
+                    black_box(&path),
+                    black_box(&content),
+                    Lang::TypeScript,
+                );
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Find a large TypeScript file for benchmarking
+fn find_large_ts_file(repos_dir: &PathBuf) -> Option<(PathBuf, String)> {
+    if !repos_dir.exists() {
+        return None;
+    }
+
+    let walker = ignore::WalkBuilder::new(repos_dir)
+        .max_depth(Some(5))
+        .build();
+
+    let mut best: Option<(PathBuf, String)> = None;
+    let mut best_size = 0;
+
+    for entry in walker.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext == "ts" || ext == "tsx" {
+                    if let Ok(content) = fs::read_to_string(path) {
+                        let size = content.len();
+                        // Look for files between 5KB and 50KB (good benchmark size)
+                        if size > 5000 && size < 50000 && size > best_size {
+                            best_size = size;
+                            best = Some((path.to_path_buf(), content));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    best
+}
+
 criterion_group!(
     benches,
     bench_full_reindex,
     bench_single_file_add,
     bench_file_modification,
     bench_multi_file_change,
+    bench_incremental_parsing,
+    bench_incremental_parsing_large,
 );
 criterion_main!(benches);

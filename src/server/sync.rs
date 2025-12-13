@@ -14,19 +14,37 @@
 //!
 //! # Performance Targets
 //!
-//! - Single file change: < 500ms
+//! - Single file change: < 500ms (typically <50ms with incremental parsing)
 //! - Incremental update (< 10 files): 10x faster than full rebuild
+//!
+//! # Incremental Parsing (tree-sitter)
+//!
+//! When a file changes, we use tree-sitter's incremental parsing:
+//! 1. Retrieve old source and AST from cache
+//! 2. Compute InputEdit for what changed
+//! 3. Call tree.edit(&edit) to adjust node ranges
+//! 4. Parse with parser.parse(new_source, Some(&old_tree))
+//! 5. Use changed_ranges() for selective re-extraction
+//!
+//! Performance: <1ms for small edits vs 5-50ms for full parse
 
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::drift::UpdateStrategy;
+use crate::duplicate::{DuplicateDetector, DuplicateKind, FunctionSignature};
 use crate::error::Result;
 use crate::extract::extract;
 use crate::lang::Lang;
 use crate::overlay::{LayerKind, SymbolState};
+use crate::schema::SymbolInfo;
 
+use super::ast_cache::AstCache;
+use super::events::{
+    emit_event, DuplicateDetectedEvent, DuplicateFunctionInfo, DuplicateSimilarInfo,
+};
 use super::state::ServerState;
 
 /// Statistics from a layer update operation
@@ -44,6 +62,14 @@ pub struct LayerUpdateStats {
     pub duration_ms: u64,
     /// Update strategy used
     pub strategy: String,
+    /// Number of files parsed incrementally (vs full reparse)
+    pub incremental_parses: usize,
+    /// Number of files where cached AST was reused (no changes)
+    pub cached_parses: usize,
+    /// Number of files that required full parsing
+    pub full_parses: usize,
+    /// Total parse time in microseconds
+    pub parse_time_us: u64,
 }
 
 impl LayerUpdateStats {
@@ -71,22 +97,49 @@ pub struct RebaseResult {
 ///
 /// Handles incremental updates, rebases, and full rebuilds based on
 /// the update strategy from drift detection.
+///
+/// Includes an AST cache for tree-sitter incremental parsing, which
+/// dramatically speeds up re-parsing when files have small changes.
 pub struct LayerSynchronizer {
     /// Repository root path
     repo_root: PathBuf,
     /// Optional cache directory for persisting changes to disk
     cache_dir: Option<crate::cache::CacheDir>,
+    /// AST cache for incremental parsing
+    ast_cache: Arc<AstCache>,
 }
 
 impl LayerSynchronizer {
     /// Create a new synchronizer for a repository
     pub fn new(repo_root: PathBuf) -> Self {
-        Self { repo_root, cache_dir: None }
+        Self {
+            repo_root,
+            cache_dir: None,
+            ast_cache: Arc::new(AstCache::new()),
+        }
     }
 
     /// Create a new synchronizer with disk cache enabled
     pub fn with_cache(repo_root: PathBuf, cache_dir: crate::cache::CacheDir) -> Self {
-        Self { repo_root, cache_dir: Some(cache_dir) }
+        Self {
+            repo_root,
+            cache_dir: Some(cache_dir),
+            ast_cache: Arc::new(AstCache::new()),
+        }
+    }
+
+    /// Create a new synchronizer with a shared AST cache
+    pub fn with_ast_cache(repo_root: PathBuf, ast_cache: Arc<AstCache>) -> Self {
+        Self {
+            repo_root,
+            cache_dir: None,
+            ast_cache,
+        }
+    }
+
+    /// Get AST cache statistics
+    pub fn ast_cache_stats(&self) -> super::ast_cache::AstCacheStats {
+        self.ast_cache.stats()
     }
 
     /// Update a layer using the specified strategy
@@ -150,6 +203,10 @@ impl LayerSynchronizer {
             stats.symbols_added += file_stats.symbols_added;
             stats.symbols_removed += file_stats.symbols_removed;
             stats.symbols_modified += file_stats.symbols_modified;
+            stats.incremental_parses += file_stats.incremental_parses;
+            stats.cached_parses += file_stats.cached_parses;
+            stats.full_parses += file_stats.full_parses;
+            stats.parse_time_us += file_stats.parse_time_us;
         }
 
         // After updating all files, regenerate graphs from the updated symbol index
@@ -180,7 +237,7 @@ impl LayerSynchronizer {
     ///
     /// This is the core incremental update operation:
     /// 1. Read file contents
-    /// 2. Parse with tree-sitter
+    /// 2. Parse with tree-sitter (using incremental parsing if cached)
     /// 3. Extract symbols
     /// 4. Compare with existing symbols
     /// 5. Update overlay
@@ -197,6 +254,8 @@ impl LayerSynchronizer {
         // Check if file exists
         if !full_path.exists() {
             // File was deleted - mark all its symbols as deleted
+            // Also remove from AST cache
+            self.ast_cache.remove(&full_path);
             return self.mark_file_deleted(state, layer, file_path);
         }
 
@@ -206,16 +265,43 @@ impl LayerSynchronizer {
             Err(_) => return Ok(stats), // Skip unsupported files
         };
 
-        // Read and parse file
+        // Read file contents
         let source = std::fs::read_to_string(&full_path)?;
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang.tree_sitter_language())
-            .map_err(|e| crate::error::McpDiffError::ParseFailure { message: e.to_string() })?;
 
-        let tree = parser
-            .parse(&source, None)
-            .ok_or_else(|| crate::error::McpDiffError::ParseFailure { message: "Parse failed".into() })?;
+        // Parse with AST cache (incremental if cached)
+        let parse_start = Instant::now();
+        let (tree, parse_result) = self.ast_cache.parse_file(&full_path, &source, lang)
+            .map_err(|e| crate::error::McpDiffError::ParseFailure { message: e })?;
+        let parse_duration = parse_start.elapsed();
+        stats.parse_time_us = parse_duration.as_micros() as u64;
+
+        // Track parse type for statistics
+        match &parse_result {
+            super::ast_cache::ParseResult::Full => {
+                stats.full_parses = 1;
+                tracing::debug!(
+                    "[SYNC] Full parse for {:?} in {:?}",
+                    file_path,
+                    parse_duration
+                );
+            }
+            super::ast_cache::ParseResult::Cached => {
+                stats.cached_parses = 1;
+                tracing::debug!(
+                    "[SYNC] Cache hit for {:?} (no changes)",
+                    file_path
+                );
+            }
+            super::ast_cache::ParseResult::Incremental { changed_ranges, .. } => {
+                stats.incremental_parses = 1;
+                tracing::info!(
+                    "[SYNC] Incremental parse for {:?} in {:?} ({} changed ranges)",
+                    file_path,
+                    parse_duration,
+                    changed_ranges.len()
+                );
+            }
+        }
 
         // Extract symbols
         let summary = extract(&full_path, &source, &tree, lang)?;
@@ -265,6 +351,13 @@ impl LayerSynchronizer {
             (symbol, hash, entry)
         }).collect();
 
+        // Collect new symbols for duplicate checking (before consuming them)
+        let new_symbols_for_check: Vec<(SymbolInfo, String)> = symbols_with_hashes
+            .iter()
+            .filter(|(_, hash, _)| !existing_hashes.contains(hash))
+            .map(|(symbol, hash, _)| (symbol.clone(), hash.clone()))
+            .collect();
+
         // Update overlay with new symbols
         state.write(|index| {
             let overlay = index.layer_mut(layer);
@@ -291,6 +384,11 @@ impl LayerSynchronizer {
                 stats.symbols_removed += 1;
             }
         });
+
+        // Check for duplicates in newly added symbols (non-blocking)
+        if !new_symbols_for_check.is_empty() {
+            self.check_and_emit_duplicates(&new_symbols_for_check, &full_path.to_string_lossy());
+        }
 
         // Update disk cache if available
         if let Some(ref cache_dir) = self.cache_dir {
@@ -456,6 +554,102 @@ impl LayerSynchronizer {
         };
 
         Ok(stats)
+    }
+
+    /// Check for duplicates of newly added/modified symbols and emit events
+    ///
+    /// This is called after symbols are upserted during incremental updates.
+    /// It checks each new symbol against the signature index and emits
+    /// DuplicateDetectedEvent for any matches found.
+    fn check_and_emit_duplicates(
+        &self,
+        new_symbols: &[(SymbolInfo, String)], // (symbol, hash)
+        file_path: &str,
+    ) {
+        // Only check if we have a cache directory with signature index
+        let cache_dir = match &self.cache_dir {
+            Some(c) => c,
+            None => return,
+        };
+
+        // Load existing signatures
+        let sig_path = cache_dir.signature_index_path();
+        if !sig_path.exists() {
+            return;
+        }
+
+        let signatures: Vec<FunctionSignature> = match std::fs::File::open(&sig_path) {
+            Ok(file) => {
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(file);
+                reader
+                    .lines()
+                    .flatten()
+                    .filter_map(|line| serde_json::from_str(&line).ok())
+                    .collect()
+            }
+            Err(_) => return,
+        };
+
+        if signatures.is_empty() {
+            return;
+        }
+
+        // Create detector with default threshold
+        let detector = DuplicateDetector::new(0.90);
+
+        // Check each new symbol for duplicates
+        for (symbol, hash) in new_symbols {
+            // Generate signature for this symbol
+            let sig = FunctionSignature::from_symbol_info(symbol, hash, file_path, None);
+
+            // Skip if no business logic (utility functions, etc.)
+            if !sig.has_business_logic {
+                continue;
+            }
+
+            // Find duplicates
+            let matches = detector.find_duplicates(&sig, &signatures);
+
+            if !matches.is_empty() {
+                // Build event
+                let new_func = DuplicateFunctionInfo {
+                    name: symbol.name.clone(),
+                    file: file_path.to_string(),
+                    lines: format!("{}-{}", symbol.start_line, symbol.end_line),
+                    hash: hash.clone(),
+                };
+
+                let similar: Vec<DuplicateSimilarInfo> = matches
+                    .iter()
+                    .map(|m| {
+                        let kind_str = match m.kind {
+                            DuplicateKind::Exact => "exact",
+                            DuplicateKind::Near => "near",
+                            DuplicateKind::Divergent => "divergent",
+                        };
+                        DuplicateSimilarInfo {
+                            name: m.symbol.name.clone(),
+                            file: m.symbol.file.clone(),
+                            lines: format!("{}-{}", m.symbol.start_line, m.symbol.end_line),
+                            hash: m.symbol.hash.clone(),
+                            similarity: (m.similarity * 100.0) as u8,
+                            kind: kind_str.to_string(),
+                            differences: m.differences.iter().map(|d| d.to_string()).collect(),
+                        }
+                    })
+                    .collect();
+
+                let event = DuplicateDetectedEvent::new(new_func, similar);
+                emit_event(&event);
+
+                tracing::info!(
+                    "[SYNC] Duplicate detected: {} has {} similar functions",
+                    symbol.name,
+                    matches.len()
+                );
+            }
+        }
     }
 }
 

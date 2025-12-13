@@ -13,6 +13,7 @@ use std::path::Path;
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
+use crate::duplicate::FunctionSignature;
 use crate::error::Result;
 use crate::schema::{RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind, SCHEMA_VERSION};
 use crate::toon::{encode_toon, generate_repo_overview, is_meaningful_call};
@@ -96,6 +97,9 @@ impl ShardWriter {
 
         // Write symbol index (query-driven API v1)
         self.write_symbol_index(&mut stats)?;
+
+        // Write function signature index (duplicate detection)
+        self.write_signature_index(&mut stats)?;
 
         Ok(stats)
     }
@@ -299,6 +303,89 @@ impl ShardWriter {
         Ok(())
     }
 
+    /// Write the function signature index for duplicate detection
+    ///
+    /// Generates FunctionSignature entries for each symbol to enable
+    /// fast duplicate detection via two-phase matching.
+    fn write_signature_index(&self, stats: &mut ShardStats) -> Result<()> {
+        let path = self.cache.signature_index_path();
+        let mut file = fs::File::create(&path)?;
+
+        for summary in &self.all_summaries {
+            let namespace = SymbolId::namespace_from_path(&summary.file);
+
+            // If we have symbols in the new multi-symbol format, use those
+            if !summary.symbols.is_empty() {
+                for symbol_info in &summary.symbols {
+                    // Skip non-function symbols (classes, interfaces, etc. don't get signatures)
+                    if !matches!(
+                        symbol_info.kind,
+                        SymbolKind::Function | SymbolKind::Method | SymbolKind::Component
+                    ) {
+                        continue;
+                    }
+
+                    let symbol_id = symbol_info.to_symbol_id(&namespace);
+                    let signature = FunctionSignature::from_symbol_info(
+                        symbol_info,
+                        &symbol_id.hash,
+                        &summary.file,
+                        None, // Use default boilerplate config
+                    );
+
+                    // Write as JSONL (one JSON object per line)
+                    let json = serde_json::to_string(&signature)
+                        .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                            message: format!("Failed to serialize signature: {}", e),
+                        })?;
+                    writeln!(file, "{}", json)?;
+
+                    stats.signature_entries += 1;
+                }
+            } else if let Some(ref symbol_id) = summary.symbol_id {
+                // Fallback to old single-symbol format
+                // Create a minimal SymbolInfo from the summary
+                if let Some(ref name) = summary.symbol {
+                    let symbol_info = SymbolInfo {
+                        name: name.clone(),
+                        kind: summary.symbol_kind.unwrap_or_default(),
+                        start_line: summary.start_line.unwrap_or(1),
+                        end_line: summary.end_line.unwrap_or(1),
+                        is_exported: true,
+                        is_default_export: false,
+                        hash: Some(symbol_id.hash.clone()),
+                        arguments: summary.arguments.clone(),
+                        props: summary.props.clone(),
+                        return_type: summary.return_type.clone(),
+                        calls: summary.calls.clone(),
+                        control_flow: summary.control_flow_changes.clone(),
+                        state_changes: summary.state_changes.clone(),
+                        behavioral_risk: summary.behavioral_risk,
+                    };
+
+                    let signature = FunctionSignature::from_symbol_info(
+                        &symbol_info,
+                        &symbol_id.hash,
+                        &summary.file,
+                        None,
+                    );
+
+                    let json = serde_json::to_string(&signature)
+                        .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                            message: format!("Failed to serialize signature: {}", e),
+                        })?;
+                    writeln!(file, "{}", json)?;
+
+                    stats.signature_entries += 1;
+                }
+            }
+        }
+
+        stats.signature_bytes = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+        stats.files_written += 1;
+        Ok(())
+    }
+
     /// Get the cache directory path
     pub fn cache_path(&self) -> &Path {
         &self.cache.root
@@ -339,12 +426,18 @@ pub struct ShardStats {
 
     /// Bytes written for symbol index
     pub index_bytes: usize,
+
+    /// Number of entries in signature index (duplicate detection)
+    pub signature_entries: usize,
+
+    /// Bytes written for signature index
+    pub signature_bytes: usize,
 }
 
 impl ShardStats {
     /// Total bytes written
     pub fn total_bytes(&self) -> usize {
-        self.overview_bytes + self.module_bytes + self.symbol_bytes + self.graph_bytes + self.index_bytes
+        self.overview_bytes + self.module_bytes + self.symbol_bytes + self.graph_bytes + self.index_bytes + self.signature_bytes
     }
 }
 

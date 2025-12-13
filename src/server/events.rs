@@ -203,6 +203,70 @@ impl EngineEvent for IndexingProgressEvent {
     }
 }
 
+/// Event emitted when potential duplicate functions are detected
+#[derive(Debug, Clone, Serialize)]
+pub struct DuplicateDetectedEvent {
+    /// The new/modified function that triggered detection
+    pub new_function: DuplicateFunctionInfo,
+    /// Similar functions found in the codebase
+    pub similar_to: Vec<DuplicateSimilarInfo>,
+    /// Timestamp
+    pub timestamp: String,
+}
+
+/// Information about a function in a duplicate detection event
+#[derive(Debug, Clone, Serialize)]
+pub struct DuplicateFunctionInfo {
+    /// Function name
+    pub name: String,
+    /// File path
+    pub file: String,
+    /// Line range (e.g., "10-25")
+    pub lines: String,
+    /// Symbol hash for lookup
+    pub hash: String,
+}
+
+/// Information about a similar function
+#[derive(Debug, Clone, Serialize)]
+pub struct DuplicateSimilarInfo {
+    /// Function name
+    pub name: String,
+    /// File path
+    pub file: String,
+    /// Line range
+    pub lines: String,
+    /// Symbol hash
+    pub hash: String,
+    /// Similarity percentage (0-100)
+    pub similarity: u8,
+    /// Kind: "exact", "near", or "divergent"
+    pub kind: String,
+    /// Brief differences description
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub differences: Vec<String>,
+}
+
+impl EngineEvent for DuplicateDetectedEvent {
+    fn event_type() -> &'static str {
+        "duplicate_detected"
+    }
+}
+
+impl DuplicateDetectedEvent {
+    /// Create a new duplicate detected event
+    pub fn new(
+        new_function: DuplicateFunctionInfo,
+        similar_to: Vec<DuplicateSimilarInfo>,
+    ) -> Self {
+        Self {
+            new_function,
+            similar_to,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+}
+
 // ============================================================================
 // Global Event Emitter
 // ============================================================================

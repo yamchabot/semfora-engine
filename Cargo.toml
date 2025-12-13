@@ -17,6 +17,10 @@ path = "src/mcp_server/bin.rs"
 name = "semfora-daemon"
 path = "src/socket_server/bin.rs"
 
+[[bin]]
+name = "semfora-benchmark-builder"
+path = "src/benchmark_builder/bin.rs"
+
 [dependencies]
 # Core parsing
 tree-sitter = "0.25"
@@ -69,6 +73,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4"
 dirs = "5.0"
 
+# Regex for pattern matching (duplicate detection)
+regex = "1.10"
+
 # Ripgrep integration (SEM-46)
 grep-regex = "0.1"
 grep-searcher = "0.1"
@@ -97,6 +104,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 memory-stats = "1.1"
 sysinfo = "0.31"
 
+# LSP comparison benchmarks
+lsp-types = "0.97"
+async-lsp = "0.2"
+
 [[bench]]
 name = "indexing"
 harness = false
@@ -107,4 +118,8 @@ harness = false
 
 [[bench]]
 name = "incremental"
+harness = false
+
+[[bench]]
+name = "lsp_comparison"
 harness = false

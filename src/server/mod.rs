@@ -42,12 +42,14 @@
 //! - `git_poller` - Git state polling (SEM-102)
 //! - `sync` - Layer synchronization (SEM-104)
 
+pub mod ast_cache;
 pub mod state;
 pub mod sync;
 pub mod watcher;
 pub mod git_poller;
 pub mod events;
 
+pub use ast_cache::{AstCache, AstCacheStats, ParseResult};
 pub use state::{ServerState, ServerStatus, LayerStatus};
 pub use sync::{LayerSynchronizer, LayerUpdateStats};
 pub use watcher::FileWatcher;

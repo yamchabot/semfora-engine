@@ -1,2 +1,13 @@
 /target
 /dist
+
+# Test and benchmark output
+*.txt
+!README.txt
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

@@ -23,6 +23,7 @@ use crate::{
     SemanticSummary, CacheDir, RipgrepSearchResult, ShardWriter, SymbolIndexEntry,
     test_runner::{self, TestFramework, TestRunOptions},
     server::ServerState,
+    duplicate::{DuplicateDetector, FunctionSignature},
 };
 
 // Re-export types for external use
@@ -1048,6 +1049,108 @@ impl McpDiffServer {
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
+
+    // ========================================================================
+    // Duplicate Detection Tools
+    // ========================================================================
+
+    #[tool(description = "Find all duplicate function clusters in repository. Returns groups of similar functions that may be candidates for consolidation. Uses semantic fingerprinting for efficient O(n) coarse filtering followed by Jaccard similarity for accurate matching.")]
+    async fn find_duplicates(
+        &self,
+        Parameters(request): Parameters<FindDuplicatesRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        // Load signatures from index
+        let signatures = match load_signatures(&cache) {
+            Ok(sigs) => sigs,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to load signature index: {}. Run generate_index first.", e
+            ))])),
+        };
+
+        if signatures.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "_type: duplicate_results\nclusters: 0\nmessage: No function signatures found in index.\n"
+            )]));
+        }
+
+        // Configure detector
+        let threshold = request.threshold.unwrap_or(0.90);
+        let exclude_boilerplate = request.exclude_boilerplate.unwrap_or(true);
+
+        let detector = DuplicateDetector::new(threshold)
+            .with_boilerplate_exclusion(exclude_boilerplate);
+
+        // Filter by module if specified
+        let filtered_sigs: Vec<_> = match &request.module {
+            Some(module) => signatures.iter()
+                .filter(|s| s.file.contains(module))
+                .cloned()
+                .collect(),
+            None => signatures,
+        };
+
+        // Find all clusters
+        let clusters = detector.find_all_clusters(&filtered_sigs);
+
+        let output = format_duplicate_clusters(&clusters, threshold);
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Check if a specific function has duplicates. Returns similar functions to the specified symbol hash. Use this before writing new code to avoid duplication.")]
+    async fn check_duplicates(
+        &self,
+        Parameters(request): Parameters<CheckDuplicatesRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        // Load signatures from index
+        let signatures = match load_signatures(&cache) {
+            Ok(sigs) => sigs,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to load signature index: {}. Run generate_index first.", e
+            ))])),
+        };
+
+        // Find the target signature
+        let target = match signatures.iter().find(|s| s.symbol_hash == request.symbol_hash) {
+            Some(sig) => sig,
+            None => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Symbol {} not found in signature index.", request.symbol_hash
+            ))])),
+        };
+
+        // Configure detector
+        let threshold = request.threshold.unwrap_or(0.90);
+        let detector = DuplicateDetector::new(threshold);
+
+        // Find duplicates for this symbol
+        let matches = detector.find_duplicates(target, &signatures);
+
+        let output = format_duplicate_matches(&target.name, &target.file, &matches, threshold);
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
 }
 
 /// Format test results as compact TOON output
@@ -1532,6 +1635,140 @@ fn format_module_symbols(module: &str, results: &[SymbolIndexEntry], cache: &Cac
                 "  {},{},{},{},{},{}\n",
                 entry.symbol, entry.hash, entry.kind, entry.file, entry.lines, entry.risk
             ));
+        }
+    }
+
+    output
+}
+
+// ============================================================================
+// Duplicate Detection Helpers
+// ============================================================================
+
+use crate::duplicate::{DuplicateCluster, DuplicateMatch};
+use std::io::{BufRead, BufReader};
+
+/// Load function signatures from the signature index
+fn load_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>, String> {
+    let sig_path = cache.signature_index_path();
+    if !sig_path.exists() {
+        return Err("Signature index not found".to_string());
+    }
+
+    let file = fs::File::open(&sig_path)
+        .map_err(|e| format!("Failed to open signature index: {}", e))?;
+    let reader = BufReader::new(file);
+
+    let mut signatures = Vec::new();
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<FunctionSignature>(&line) {
+            Ok(sig) => signatures.push(sig),
+            Err(e) => {
+                // Skip malformed lines but log for debugging
+                tracing::warn!("Skipping malformed signature: {}", e);
+            }
+        }
+    }
+
+    Ok(signatures)
+}
+
+/// Format duplicate clusters as compact TOON output
+fn format_duplicate_clusters(clusters: &[DuplicateCluster], threshold: f64) -> String {
+    let mut output = String::new();
+    output.push_str("_type: duplicate_results\n");
+    output.push_str(&format!("threshold: {:.2}\n", threshold));
+    output.push_str(&format!("clusters: {}\n", clusters.len()));
+
+    if clusters.is_empty() {
+        output.push_str("message: No duplicate clusters found above threshold.\n");
+        return output;
+    }
+
+    // Count total duplicates
+    let total_duplicates: usize = clusters.iter()
+        .map(|c| c.duplicates.len())
+        .sum();
+    output.push_str(&format!("total_duplicates: {}\n\n", total_duplicates));
+
+    for (i, cluster) in clusters.iter().enumerate() {
+        output.push_str(&format!("cluster[{}]:\n", i + 1));
+        output.push_str(&format!("  primary: {} ({})\n", cluster.primary.name, cluster.primary.file));
+        output.push_str(&format!("  hash: {}\n", cluster.primary.hash));
+        if cluster.primary.start_line > 0 {
+            output.push_str(&format!("  lines: {}-{}\n", cluster.primary.start_line, cluster.primary.end_line));
+        }
+        output.push_str(&format!("  duplicates[{}]:\n", cluster.duplicates.len()));
+
+        for dup in &cluster.duplicates {
+            let kind_str = match dup.kind {
+                crate::duplicate::DuplicateKind::Exact => "exact",
+                crate::duplicate::DuplicateKind::Near => "near",
+                crate::duplicate::DuplicateKind::Divergent => "divergent",
+            };
+            output.push_str(&format!(
+                "    - {} ({}) [{} {:.0}%]\n",
+                dup.symbol.name, dup.symbol.file, kind_str, dup.similarity * 100.0
+            ));
+
+            // Show differences for near/divergent matches
+            if !dup.differences.is_empty() && dup.differences.len() <= 3 {
+                for diff in &dup.differences {
+                    output.push_str(&format!("      {}\n", diff));
+                }
+            }
+        }
+        output.push_str("\n");
+    }
+
+    output
+}
+
+/// Format duplicate matches for a single symbol as compact TOON output
+fn format_duplicate_matches(
+    symbol_name: &str,
+    symbol_file: &str,
+    matches: &[DuplicateMatch],
+    threshold: f64,
+) -> String {
+    let mut output = String::new();
+    output.push_str("_type: duplicate_check\n");
+    output.push_str(&format!("symbol: {}\n", symbol_name));
+    output.push_str(&format!("file: {}\n", symbol_file));
+    output.push_str(&format!("threshold: {:.2}\n", threshold));
+    output.push_str(&format!("matches: {}\n", matches.len()));
+
+    if matches.is_empty() {
+        output.push_str("message: No duplicates found for this symbol.\n");
+        return output;
+    }
+
+    output.push_str("\nsimilar_functions:\n");
+    for m in matches {
+        let kind_str = match m.kind {
+            crate::duplicate::DuplicateKind::Exact => "EXACT",
+            crate::duplicate::DuplicateKind::Near => "NEAR",
+            crate::duplicate::DuplicateKind::Divergent => "DIVERGENT",
+        };
+        output.push_str(&format!(
+            "  - {} ({})\n    similarity: {:.0}% [{}]\n",
+            m.symbol.name, m.symbol.file, m.similarity * 100.0, kind_str
+        ));
+        if m.symbol.start_line > 0 {
+            output.push_str(&format!("    lines: {}-{}\n", m.symbol.start_line, m.symbol.end_line));
+        }
+        output.push_str(&format!("    hash: {}\n", m.symbol.hash));
+
+        // Show differences
+        if !m.differences.is_empty() {
+            output.push_str("    differences:\n");
+            for diff in &m.differences {
+                output.push_str(&format!("      - {}\n", diff));
+            }
         }
     }
 

@@ -579,6 +579,17 @@ impl CacheDir {
         self.symbol_index_path().exists()
     }
 
+    /// Path to the function signature index file (JSONL format)
+    /// Used for duplicate function detection
+    pub fn signature_index_path(&self) -> PathBuf {
+        self.root.join("signature_index.jsonl")
+    }
+
+    /// Check if signature index exists
+    pub fn has_signature_index(&self) -> bool {
+        self.signature_index_path().exists()
+    }
+
     /// Update symbol index for a single file (incremental update)
     ///
     /// This removes all existing entries for the file and adds new ones.

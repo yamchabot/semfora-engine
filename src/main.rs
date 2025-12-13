@@ -93,6 +93,15 @@ fn run() -> semfora_engine::Result<String> {
         return run_static_analysis(&cli);
     }
 
+    // Handle duplicate detection
+    if cli.find_duplicates {
+        return run_find_duplicates(&cli);
+    }
+
+    if cli.check_duplicates.is_some() {
+        return run_check_duplicates(&cli);
+    }
+
     let mode = cli.operation_mode()?;
 
     // Handle sharded output mode
@@ -1599,4 +1608,194 @@ fn run_static_analysis(cli: &Cli) -> semfora_engine::Result<String> {
     let report = format_report(&analysis);
 
     Ok(report)
+}
+
+/// Run duplicate detection on the cached index
+fn run_find_duplicates(cli: &Cli) -> semfora_engine::Result<String> {
+    use semfora_engine::{CacheDir, DuplicateDetector, FunctionSignature};
+    use std::io::{BufRead, BufReader};
+
+    let cwd = std::env::current_dir()?;
+    let cache = CacheDir::for_repo(&cwd)?;
+
+    if !cache.exists() {
+        return Err(McpDiffError::GitError {
+            message: "No cached index found. Run with --shard first to generate the index.".to_string(),
+        });
+    }
+
+    // Load signatures from signature index
+    let sig_path = cache.signature_index_path();
+    if !sig_path.exists() {
+        return Err(McpDiffError::GitError {
+            message: "Signature index not found. Regenerate index with --shard.".to_string(),
+        });
+    }
+
+    eprintln!("Loading function signatures...");
+    let file = std::fs::File::open(&sig_path)?;
+    let reader = BufReader::new(file);
+
+    let mut signatures: Vec<FunctionSignature> = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(sig) = serde_json::from_str::<FunctionSignature>(&line) {
+            signatures.push(sig);
+        }
+    }
+
+    if signatures.is_empty() {
+        return Ok("No function signatures found in index.".to_string());
+    }
+
+    eprintln!("Analyzing {} signatures for duplicates...", signatures.len());
+
+    // Configure detector
+    let exclude_boilerplate = !cli.include_boilerplate;
+    let detector = DuplicateDetector::new(cli.duplicate_threshold)
+        .with_boilerplate_exclusion(exclude_boilerplate);
+
+    // Find all clusters
+    let clusters = detector.find_all_clusters(&signatures);
+
+    // Format output
+    let mut output = String::new();
+    output.push_str(&format!("Duplicate Detection Results\n"));
+    output.push_str(&format!("===========================\n\n"));
+    output.push_str(&format!("Threshold: {:.0}%\n", cli.duplicate_threshold * 100.0));
+    output.push_str(&format!("Boilerplate excluded: {}\n", exclude_boilerplate));
+    output.push_str(&format!("Total signatures analyzed: {}\n", signatures.len()));
+    output.push_str(&format!("Duplicate clusters found: {}\n\n", clusters.len()));
+
+    if clusters.is_empty() {
+        output.push_str("No duplicate clusters found above threshold.\n");
+        return Ok(output);
+    }
+
+    // Count total duplicates
+    let total_duplicates: usize = clusters.iter().map(|c| c.duplicates.len()).sum();
+    output.push_str(&format!("Total duplicate functions: {}\n\n", total_duplicates));
+
+    for (i, cluster) in clusters.iter().enumerate() {
+        output.push_str(&format!("--- Cluster {} ---\n", i + 1));
+        output.push_str(&format!("Primary: {} ({})\n", cluster.primary.name, cluster.primary.file));
+        output.push_str(&format!("  Hash: {}\n", cluster.primary.hash));
+        if cluster.primary.start_line > 0 {
+            output.push_str(&format!("  Lines: {}-{}\n", cluster.primary.start_line, cluster.primary.end_line));
+        }
+        output.push_str(&format!("Duplicates ({}):\n", cluster.duplicates.len()));
+
+        for dup in &cluster.duplicates {
+            let kind_str = match dup.kind {
+                semfora_engine::DuplicateKind::Exact => "EXACT",
+                semfora_engine::DuplicateKind::Near => "NEAR",
+                semfora_engine::DuplicateKind::Divergent => "DIVERGENT",
+            };
+            output.push_str(&format!(
+                "  - {} ({}) [{} {:.0}%]\n",
+                dup.symbol.name, dup.symbol.file, kind_str, dup.similarity * 100.0
+            ));
+            if dup.symbol.start_line > 0 {
+                output.push_str(&format!("    Lines: {}-{}\n", dup.symbol.start_line, dup.symbol.end_line));
+            }
+
+            // Show differences for near/divergent matches
+            if !dup.differences.is_empty() && dup.differences.len() <= 5 {
+                for diff in &dup.differences {
+                    output.push_str(&format!("    {}\n", diff));
+                }
+            }
+        }
+        output.push_str("\n");
+    }
+
+    Ok(output)
+}
+
+/// Check duplicates for a specific symbol
+fn run_check_duplicates(cli: &Cli) -> semfora_engine::Result<String> {
+    use semfora_engine::{CacheDir, DuplicateDetector, FunctionSignature};
+    use std::io::{BufRead, BufReader};
+
+    let symbol_hash = cli.check_duplicates.as_ref().unwrap();
+    let cwd = std::env::current_dir()?;
+    let cache = CacheDir::for_repo(&cwd)?;
+
+    if !cache.exists() {
+        return Err(McpDiffError::GitError {
+            message: "No cached index found. Run with --shard first to generate the index.".to_string(),
+        });
+    }
+
+    // Load signatures
+    let sig_path = cache.signature_index_path();
+    if !sig_path.exists() {
+        return Err(McpDiffError::GitError {
+            message: "Signature index not found. Regenerate index with --shard.".to_string(),
+        });
+    }
+
+    let file = std::fs::File::open(&sig_path)?;
+    let reader = BufReader::new(file);
+
+    let mut signatures: Vec<FunctionSignature> = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(sig) = serde_json::from_str::<FunctionSignature>(&line) {
+            signatures.push(sig);
+        }
+    }
+
+    // Find target signature
+    let target = signatures.iter()
+        .find(|s| s.symbol_hash == *symbol_hash)
+        .ok_or_else(|| McpDiffError::GitError {
+            message: format!("Symbol {} not found in signature index.", symbol_hash),
+        })?;
+
+    // Configure detector
+    let detector = DuplicateDetector::new(cli.duplicate_threshold);
+
+    // Find duplicates
+    let matches = detector.find_duplicates(target, &signatures);
+
+    // Format output
+    let mut output = String::new();
+    output.push_str(&format!("Duplicate Check for: {}\n", target.name));
+    output.push_str(&format!("File: {}\n", target.file));
+    output.push_str(&format!("Threshold: {:.0}%\n", cli.duplicate_threshold * 100.0));
+    output.push_str(&format!("Matches found: {}\n\n", matches.len()));
+
+    if matches.is_empty() {
+        output.push_str("No duplicates found for this symbol.\n");
+        return Ok(output);
+    }
+
+    for m in &matches {
+        let kind_str = match m.kind {
+            semfora_engine::DuplicateKind::Exact => "EXACT",
+            semfora_engine::DuplicateKind::Near => "NEAR",
+            semfora_engine::DuplicateKind::Divergent => "DIVERGENT",
+        };
+        output.push_str(&format!("- {} ({})\n", m.symbol.name, m.symbol.file));
+        output.push_str(&format!("  Similarity: {:.0}% [{}]\n", m.similarity * 100.0, kind_str));
+        if m.symbol.start_line > 0 {
+            output.push_str(&format!("  Lines: {}-{}\n", m.symbol.start_line, m.symbol.end_line));
+        }
+        output.push_str(&format!("  Hash: {}\n", m.symbol.hash));
+        if !m.differences.is_empty() {
+            for diff in &m.differences {
+                output.push_str(&format!("  {}\n", diff));
+            }
+        }
+        output.push_str("\n");
+    }
+
+    Ok(output)
 }
