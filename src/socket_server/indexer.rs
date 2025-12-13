@@ -230,7 +230,8 @@ mod tests {
     #[test]
     fn test_collect_files_basic() {
         let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test.ts");
+        // Note: Don't use "test.ts" - it matches test file patterns and gets filtered
+        let file_path = dir.path().join("index.ts");
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "export function foo() {{ return 1; }}").unwrap();
 
