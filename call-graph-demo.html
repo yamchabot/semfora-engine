@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TerribleInventoryManager - Call Graph Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #e4e4e7;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            color: #ff6b6b;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+        .warning-banner {
+            background: linear-gradient(90deg, #ff6b6b22, #ff000022);
+            border: 2px solid #ff6b6b;
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .warning-banner .icon {
+            font-size: 2rem;
+        }
+        .warning-banner .text {
+            flex: 1;
+        }
+        .warning-banner h3 {
+            color: #ff6b6b;
+            margin-bottom: 0.25rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        .stat-card.critical {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+        }
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        .stat-label {
+            color: #a1a1aa;
+            font-size: 0.875rem;
+        }
+        .graph-container {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+        #graph {
+            width: 100%;
+            height: 600px;
+        }
+        .node {
+            cursor: pointer;
+        }
+        .node circle {
+            stroke-width: 3px;
+            transition: all 0.3s ease;
+        }
+        .node:hover circle {
+            stroke-width: 5px;
+            filter: brightness(1.2);
+        }
+        .node text {
+            font-size: 12px;
+            font-weight: 600;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+        }
+        .link {
+            stroke-opacity: 0.6;
+            transition: all 0.3s ease;
+        }
+        .link:hover {
+            stroke-opacity: 1;
+            stroke-width: 4px;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+        }
+        .issues-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1rem;
+        }
+        .issue-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border-left: 4px solid;
+        }
+        .issue-card.security {
+            border-color: #ff6b6b;
+        }
+        .issue-card.performance {
+            border-color: #feca57;
+        }
+        .issue-card.reliability {
+            border-color: #48dbfb;
+        }
+        .issue-card.maintainability {
+            border-color: #ff9ff3;
+        }
+        .issue-card h4 {
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .issue-card ul {
+            list-style: none;
+            font-size: 0.875rem;
+            color: #a1a1aa;
+        }
+        .issue-card li {
+            padding: 0.25rem 0;
+            padding-left: 1rem;
+            position: relative;
+        }
+        .issue-card li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: inherit;
+        }
+        .tooltip {
+            position: absolute;
+            background: #1a1a2e;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 1rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            max-width: 350px;
+            z-index: 1000;
+        }
+        .tooltip.visible {
+            opacity: 1;
+        }
+        .tooltip h5 {
+            margin-bottom: 0.5rem;
+            color: #48dbfb;
+        }
+        .tooltip code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            display: block;
+            margin-top: 0.5rem;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TerribleInventoryManager</h1>
+            <p class="subtitle">Call Graph Analysis - Daggerfall Unity</p>
+        </header>
+
+        <div class="warning-banner">
+            <span class="icon">⚠️</span>
+            <div class="text">
+                <h3>INTENTIONALLY TERRIBLE CODE</h3>
+                <p>This file was created to demonstrate code anti-patterns. It contains SQL injection, memory leaks, infinite recursion, and more.</p>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card critical">
+                <div class="stat-value" style="color: #ff6b6b">9</div>
+                <div class="stat-label">Security Vulnerabilities</div>
+            </div>
+            <div class="stat-card critical">
+                <div class="stat-value" style="color: #feca57">∞</div>
+                <div class="stat-label">Recursion Depth</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #48dbfb">8</div>
+                <div class="stat-label">Functions Analyzed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="color: #ff9ff3">21</div>
+                <div class="stat-label">Call Relationships</div>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff6b6b"></div>
+                <span>Security Risk</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #feca57"></div>
+                <span>Performance Issue</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #48dbfb"></div>
+                <span>Entry Point</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff9ff3"></div>
+                <span>God Method</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #1dd1a1"></div>
+                <span>Recursive Call</span>
+            </div>
+        </div>
+
+        <div class="graph-container">
+            <svg id="graph"></svg>
+            <div class="tooltip" id="tooltip"></div>
+        </div>
+
+        <div class="issues-section">
+            <div class="issue-card security">
+                <h4>🔴 Security Issues</h4>
+                <ul>
+                    <li>SQL Injection in SavePlayerInventory</li>
+                    <li>Hardcoded credentials (DB_PASSWORD, API_KEY)</li>
+                    <li>Path traversal in UnsafeFileOperation</li>
+                    <li>Command injection via Process.Start</li>
+                    <li>Reading /etc/passwd</li>
+                </ul>
+            </div>
+            <div class="issue-card performance">
+                <h4>🟡 Performance Issues</h4>
+                <ul>
+                    <li>Infinite recursion in DangerousRecursion</li>
+                    <li>Memory leak - 10GB allocated per call</li>
+                    <li>Infinite while loop (0.1% break chance)</li>
+                    <li>Global mutable state (race conditions)</li>
+                </ul>
+            </div>
+            <div class="issue-card reliability">
+                <h4>🔵 Reliability Issues</h4>
+                <ul>
+                    <li>Division by zero (globalItemCount)</li>
+                    <li>Unclosed SQL connection (resource leak)</li>
+                    <li>Silent exception swallowing</li>
+                    <li>Thread-unsafe operations</li>
+                </ul>
+            </div>
+            <div class="issue-card maintainability">
+                <h4>🟣 Maintainability Issues</h4>
+                <ul>
+                    <li>8 levels of nested conditionals</li>
+                    <li>God method (DoEverythingBadly)</li>
+                    <li>Pokemon exception handling (CatchEmAll)</li>
+                    <li>Magic numbers (42069, 3.14159)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Call graph data extracted from semfora-engine analysis
+        const callGraphData = {
+            nodes: [
+                { id: "CatchEmAll", group: "entry", risk: "medium", hash: "cc49acb1611aa574",
+                  description: "Entry point - Pokemon exception handling", calls: ["DoEverythingBadly"] },
+                { id: "DoEverythingBadly", group: "god", risk: "critical", hash: "7fc5ed2a54fa4884",
+                  description: "God method - calls EVERYTHING, 8 levels of nesting",
+                  calls: ["SavePlayerInventory", "DangerousRecursion", "LeakMemoryOnPurpose", "UnsafeFileOperation", "UnsafeMultithreading", "DoEverythingBadly"] },
+                { id: "SavePlayerInventory", group: "security", risk: "critical", hash: "4099ba077c1cdcb0",
+                  description: "SQL Injection, hardcoded credentials, resource leak",
+                  calls: ["DangerousRecursion", "conn.Open", "cmd.ExecuteNonQuery"] },
+                { id: "DangerousRecursion", group: "recursive", risk: "critical", hash: "8a45a3632f9bde64",
+                  description: "Infinite recursion - no base case, calls itself TWICE",
+                  calls: ["LeakMemoryOnPurpose", "UnsafeFileOperation", "DangerousRecursion"] },
+                { id: "LeakMemoryOnPurpose", group: "performance", risk: "critical", hash: "04ccc142bb3c5ccf",
+                  description: "Memory leak - allocates 10GB+, infinite loop",
+                  calls: ["globalCache.Add"] },
+                { id: "UnsafeFileOperation", group: "security", risk: "critical", hash: "9c029e25e241b5cb",
+                  description: "Path traversal, reads /etc/passwd, command injection",
+                  calls: ["File.WriteAllText", "File.ReadAllText", "Process.Start"] },
+                { id: "UnsafeMultithreading", group: "performance", risk: "high", hash: "7c428cca3ec9249b",
+                  description: "Race conditions, thread-unsafe global state access",
+                  calls: ["ThreadPool.QueueUserWorkItem", "globalCache.Add", "SavePlayerInventory"] },
+                { id: "GetInternalCacheUnsafe", group: "security", risk: "medium", hash: "339a8e3d7a394c09",
+                  description: "Exposes mutable internal state",
+                  calls: [] }
+            ],
+            links: [
+                { source: "CatchEmAll", target: "DoEverythingBadly", type: "normal" },
+                { source: "DoEverythingBadly", target: "SavePlayerInventory", type: "normal" },
+                { source: "DoEverythingBadly", target: "DangerousRecursion", type: "normal" },
+                { source: "DoEverythingBadly", target: "LeakMemoryOnPurpose", type: "normal" },
+                { source: "DoEverythingBadly", target: "UnsafeFileOperation", type: "normal" },
+                { source: "DoEverythingBadly", target: "UnsafeMultithreading", type: "normal" },
+                { source: "DoEverythingBadly", target: "DoEverythingBadly", type: "recursive" },
+                { source: "SavePlayerInventory", target: "DangerousRecursion", type: "normal" },
+                { source: "DangerousRecursion", target: "LeakMemoryOnPurpose", type: "normal" },
+                { source: "DangerousRecursion", target: "UnsafeFileOperation", type: "normal" },
+                { source: "DangerousRecursion", target: "DangerousRecursion", type: "recursive" },
+                { source: "UnsafeMultithreading", target: "SavePlayerInventory", type: "async" }
+            ]
+        };
+
+        const colorMap = {
+            entry: "#48dbfb",
+            god: "#ff9ff3",
+            security: "#ff6b6b",
+            performance: "#feca57",
+            recursive: "#1dd1a1"
+        };
+
+        const linkColorMap = {
+            normal: "#6b7280",
+            recursive: "#1dd1a1",
+            async: "#feca57"
+        };
+
+        const svg = d3.select("#graph");
+        const container = document.querySelector(".graph-container");
+        const width = container.clientWidth - 32;
+        const height = 600;
+
+        svg.attr("width", width).attr("height", height);
+
+        // Create arrow markers
+        svg.append("defs").selectAll("marker")
+            .data(["normal", "recursive", "async"])
+            .enter().append("marker")
+            .attr("id", d => `arrow-${d}`)
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 25)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("fill", d => linkColorMap[d])
+            .attr("d", "M0,-5L10,0L0,5");
+
+        const simulation = d3.forceSimulation(callGraphData.nodes)
+            .force("link", d3.forceLink(callGraphData.links).id(d => d.id).distance(150))
+            .force("charge", d3.forceManyBody().strength(-800))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(50));
+
+        const link = svg.append("g")
+            .selectAll("path")
+            .data(callGraphData.links)
+            .enter().append("path")
+            .attr("class", "link")
+            .attr("stroke", d => linkColorMap[d.type])
+            .attr("stroke-width", d => d.type === "recursive" ? 3 : 2)
+            .attr("fill", "none")
+            .attr("marker-end", d => `url(#arrow-${d.type})`)
+            .attr("stroke-dasharray", d => d.type === "async" ? "5,5" : null);
+
+        const node = svg.append("g")
+            .selectAll("g")
+            .data(callGraphData.nodes)
+            .enter().append("g")
+            .attr("class", "node")
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended));
+
+        node.append("circle")
+            .attr("r", d => d.group === "god" ? 35 : 25)
+            .attr("fill", d => colorMap[d.group])
+            .attr("stroke", d => d.risk === "critical" ? "#ff0000" : colorMap[d.group])
+            .style("filter", "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.4))");
+
+        node.append("text")
+            .attr("dy", 4)
+            .attr("text-anchor", "middle")
+            .attr("fill", "#fff")
+            .text(d => d.id.length > 12 ? d.id.substring(0, 10) + "..." : d.id);
+
+        const tooltip = document.getElementById("tooltip");
+
+        node.on("mouseover", function(event, d) {
+            tooltip.innerHTML = `
+                <h5>${d.id}</h5>
+                <p>${d.description}</p>
+                <code>hash: ${d.hash}\ncalls: ${d.calls.join(", ") || "none"}</code>
+            `;
+            tooltip.classList.add("visible");
+            tooltip.style.left = (event.pageX + 10) + "px";
+            tooltip.style.top = (event.pageY - 10) + "px";
+        })
+        .on("mouseout", function() {
+            tooltip.classList.remove("visible");
+        });
+
+        simulation.on("tick", () => {
+            link.attr("d", d => {
+                if (d.source === d.target) {
+                    // Self-loop for recursive calls
+                    const x = d.source.x;
+                    const y = d.source.y;
+                    return `M${x},${y} C${x+80},${y-80} ${x+80},${y+80} ${x},${y}`;
+                }
+                return `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`;
+            });
+
+            node.attr("transform", d => `translate(${d.x},${d.y})`);
+        });
+
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+    </script>
+</body>
+</html>
