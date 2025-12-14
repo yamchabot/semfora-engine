@@ -431,6 +431,96 @@ pub struct CheckDuplicatesRequest {
 }
 
 // ============================================================================
+// AI-Optimized Query Types (Combined Operations)
+// ============================================================================
+
+/// Combined search + fetch: search symbols AND return full details with source in one call.
+/// Eliminates the search_symbols -> get_symbol -> get_symbol_source round-trip.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchAndGetSymbolsRequest {
+    /// Search query - supports partial match, wildcards (* for any chars, ? for single char)
+    #[schemars(description = "Search query - matches symbol names (case-insensitive, partial match)")]
+    pub query: String,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Optional: filter by module name
+    #[schemars(description = "Filter results to a specific module")]
+    pub module: Option<String>,
+
+    /// Optional: filter by symbol kind (fn, struct, component, enum, trait, etc.)
+    #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
+    pub kind: Option<String>,
+
+    /// Optional: filter by risk level (high, medium, low)
+    #[schemars(description = "Filter by risk level (high, medium, low)")]
+    pub risk: Option<String>,
+
+    /// Maximum results to return (default: 10, max: 20)
+    #[schemars(description = "Maximum results to return (default: 10, max: 20 for token efficiency)")]
+    pub limit: Option<usize>,
+
+    /// Include source code for each symbol (default: true)
+    #[schemars(description = "Include source code snippets (default: true)")]
+    pub include_source: Option<bool>,
+
+    /// Context lines around source (default: 3)
+    #[schemars(description = "Lines of context around symbol source (default: 3)")]
+    pub context: Option<usize>,
+}
+
+/// Get all symbols in a specific file - file-centric view without needing to know the module.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetFileSymbolsRequest {
+    /// Path to the source file (absolute or relative to repo root)
+    #[schemars(description = "Path to the source file to analyze")]
+    pub file_path: String,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Optional: filter by symbol kind
+    #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
+    pub kind: Option<String>,
+
+    /// Include source code for each symbol (default: false for overview)
+    #[schemars(description = "Include source code snippets (default: false)")]
+    pub include_source: Option<bool>,
+
+    /// Context lines around source (default: 2)
+    #[schemars(description = "Lines of context around symbol source (default: 2)")]
+    pub context: Option<usize>,
+}
+
+/// Get callers of a symbol - reverse call graph lookup.
+/// Answers "what functions call this symbol?"
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetCallersRequest {
+    /// Symbol hash to find callers for
+    #[schemars(description = "Symbol hash to find callers for (from search_symbols or get_file_symbols)")]
+    pub symbol_hash: String,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Maximum depth to traverse (default: 1, max: 3)
+    #[schemars(description = "How many levels of callers to find (default: 1 = direct callers only, max: 3)")]
+    pub depth: Option<usize>,
+
+    /// Maximum callers to return (default: 20, max: 50)
+    #[schemars(description = "Maximum callers to return (default: 20, max: 50)")]
+    pub limit: Option<usize>,
+
+    /// Include source snippets for callers (default: false)
+    #[schemars(description = "Include source code snippets for each caller (default: false)")]
+    pub include_source: Option<bool>,
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

@@ -1327,6 +1327,364 @@ impl McpDiffServer {
         let output = format_duplicate_matches(&target.name, &target.file, &matches, threshold);
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
+
+    // ========================================================================
+    // AI-Optimized Combined Query Tools
+    // ========================================================================
+
+    #[tool(description = "Combined search + fetch: search symbols AND return full semantic details with source code in ONE call. Eliminates the search_symbols -> get_symbol -> get_symbol_source round-trip. Returns up to 20 symbols with their full TOON summaries and source snippets.")]
+    async fn search_and_get_symbols(
+        &self,
+        Parameters(request): Parameters<SearchAndGetSymbolsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+            ))]));
+        }
+
+        // Limit to 20 for token efficiency
+        let limit = request.limit.unwrap_or(10).min(20);
+        let include_source = request.include_source.unwrap_or(true);
+        let context = request.context.unwrap_or(3);
+
+        // Step 1: Search for matching symbols
+        let search_result = match cache.search_symbols_with_fallback(
+            &request.query,
+            request.module.as_deref(),
+            request.kind.as_deref(),
+            request.risk.as_deref(),
+            limit,
+        ) {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Search failed: {}", e
+            ))])),
+        };
+
+        // If fallback was used, we don't have hashes - return ripgrep results
+        if search_result.fallback_used {
+            let output = format_ripgrep_results(&request.query, search_result.ripgrep_results.as_deref().unwrap_or(&[]));
+            return Ok(CallToolResult::success(vec![Content::text(output)]));
+        }
+
+        let entries = search_result.indexed_results.unwrap_or_default();
+        if entries.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "_type: search_and_get_results\nquery: \"{}\"\nshowing: 0\nresults: (none)\n",
+                request.query
+            ))]));
+        }
+
+        // Step 2: Fetch full details for each symbol
+        let mut output = String::new();
+        output.push_str("_type: search_and_get_results\n");
+        output.push_str(&format!("query: \"{}\"\n", request.query));
+        output.push_str(&format!("showing: {}\n", entries.len()));
+        output.push_str(&format!("include_source: {}\n", include_source));
+
+        for entry in &entries {
+            output.push_str(&format!("\n=== {} ({}) ===\n", entry.symbol, entry.hash));
+            output.push_str(&format!("file: {}\n", entry.file));
+            output.push_str(&format!("lines: {}\n", entry.lines));
+            output.push_str(&format!("kind: {}\n", entry.kind));
+            output.push_str(&format!("risk: {}\n", entry.risk));
+
+            // Load full symbol shard if available
+            let symbol_path = cache.symbol_path(&entry.hash);
+            if symbol_path.exists() {
+                if let Ok(content) = fs::read_to_string(&symbol_path) {
+                    // Extract key semantic info from shard
+                    output.push_str("\n__semantic__:\n");
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        // Include meaningful semantic lines
+                        if trimmed.starts_with("calls") ||
+                           trimmed.starts_with("state_changes") ||
+                           trimmed.starts_with("control_flow") ||
+                           trimmed.starts_with("added_dependencies") ||
+                           trimmed.starts_with("insertions") ||
+                           trimmed.starts_with("  ") {
+                            output.push_str(line);
+                            output.push('\n');
+                        }
+                    }
+                }
+            }
+
+            // Include source if requested
+            if include_source {
+                if let Some(source) = get_symbol_source_snippet(&cache, &entry.file, &entry.lines, context) {
+                    output.push_str("\n__source__:\n");
+                    output.push_str(&source);
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Get all symbols in a specific file without needing to know the module. File-centric view for when you know the file path but not how it maps to modules. Returns symbols with optional source snippets.")]
+    async fn get_file_symbols(
+        &self,
+        Parameters(request): Parameters<GetFileSymbolsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+            ))]));
+        }
+
+        let include_source = request.include_source.unwrap_or(false);
+        let context = request.context.unwrap_or(2);
+
+        // Normalize the file path for matching
+        let target_file = request.file_path.trim_start_matches("./");
+
+        // Search the symbol index for symbols in this file
+        let symbols: Vec<_> = match cache.load_all_symbol_entries() {
+            Ok(all) => {
+                all.into_iter()
+                    .filter(|e| {
+                        let entry_file = e.file.trim_start_matches("./");
+                        entry_file == target_file ||
+                        entry_file.ends_with(target_file) ||
+                        target_file.ends_with(entry_file)
+                    })
+                    .filter(|e| {
+                        request.kind.as_ref().map_or(true, |k| e.kind == *k)
+                    })
+                    .collect()
+            }
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to load symbol index: {}", e
+            ))])),
+        };
+
+        if symbols.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "_type: file_symbols\nfile: \"{}\"\nshowing: 0\nsymbols: (none)\nhint: File may not be indexed or path doesn't match.\n",
+                request.file_path
+            ))]));
+        }
+
+        let mut output = String::new();
+        output.push_str("_type: file_symbols\n");
+        output.push_str(&format!("file: \"{}\"\n", request.file_path));
+        output.push_str(&format!("showing: {}\n", symbols.len()));
+        output.push_str(&format!("symbols[{}]{{name,hash,kind,lines,risk}}:\n", symbols.len()));
+
+        for entry in &symbols {
+            output.push_str(&format!(
+                "  {},{},{},{},{}\n",
+                entry.symbol, entry.hash, entry.kind, entry.lines, entry.risk
+            ));
+        }
+
+        // Include source for each symbol if requested
+        if include_source && !symbols.is_empty() {
+            output.push_str("\n__sources__:\n");
+            for entry in &symbols {
+                if let Some(source) = get_symbol_source_snippet(&cache, &entry.file, &entry.lines, context) {
+                    output.push_str(&format!("\n--- {} ({}) ---\n", entry.symbol, entry.lines));
+                    output.push_str(&source);
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Get callers of a symbol - reverse call graph lookup. Answers 'what functions call this symbol?' Essential for understanding impact radius before making changes. Returns direct callers and optionally their callers (up to depth 3).")]
+    async fn get_callers(
+        &self,
+        Parameters(request): Parameters<GetCallersRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+            ))]));
+        }
+
+        let depth = request.depth.unwrap_or(1).min(3);
+        let limit = request.limit.unwrap_or(20).min(50);
+        let include_source = request.include_source.unwrap_or(false);
+
+        // Load call graph
+        let call_graph_path = cache.call_graph_path();
+        if !call_graph_path.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Call graph not found. Run generate_index to create it."
+            )]));
+        }
+
+        let content = match fs::read_to_string(&call_graph_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to read call graph: {}", e
+            ))])),
+        };
+
+        // Build reverse call graph (callee -> callers)
+        let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut symbol_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        for line in content.lines() {
+            if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+                continue;
+            }
+            if let Some(colon_pos) = line.find(':') {
+                let caller = line[..colon_pos].trim().to_string();
+                let rest = line[colon_pos + 1..].trim();
+                if rest.starts_with('[') && rest.ends_with(']') {
+                    let inner = &rest[1..rest.len()-1];
+                    for callee in inner.split(',').filter(|s| !s.is_empty()) {
+                        let callee = callee.trim().trim_matches('"').to_string();
+                        // Skip external calls
+                        if !callee.starts_with("ext:") {
+                            reverse_graph.entry(callee.clone()).or_default().push(caller.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load symbol index for name resolution
+        if let Ok(entries) = cache.load_all_symbol_entries() {
+            for entry in entries {
+                symbol_names.insert(entry.hash.clone(), entry.symbol.clone());
+            }
+        }
+
+        // Find callers at each depth level
+        let target_hash = &request.symbol_hash;
+        let target_name = symbol_names.get(target_hash).cloned().unwrap_or_else(|| target_hash.clone());
+
+        let mut all_callers: Vec<(String, String, usize)> = Vec::new(); // (hash, name, depth)
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut current_level: Vec<String> = vec![target_hash.clone()];
+
+        for current_depth in 1..=depth {
+            let mut next_level: Vec<String> = Vec::new();
+
+            for hash in &current_level {
+                if let Some(callers) = reverse_graph.get(hash) {
+                    for caller_hash in callers {
+                        if !visited.contains(caller_hash) && all_callers.len() < limit {
+                            visited.insert(caller_hash.clone());
+                            let caller_name = symbol_names.get(caller_hash)
+                                .cloned()
+                                .unwrap_or_else(|| caller_hash.clone());
+                            all_callers.push((caller_hash.clone(), caller_name, current_depth));
+                            next_level.push(caller_hash.clone());
+                        }
+                    }
+                }
+            }
+
+            current_level = next_level;
+            if current_level.is_empty() {
+                break;
+            }
+        }
+
+        // Format output
+        let mut output = String::new();
+        output.push_str("_type: callers\n");
+        output.push_str(&format!("target: {} ({})\n", target_name, target_hash));
+        output.push_str(&format!("depth: {}\n", depth));
+        output.push_str(&format!("total_callers: {}\n", all_callers.len()));
+
+        if all_callers.is_empty() {
+            output.push_str("callers: (none - this may be an entry point or unused)\n");
+        } else {
+            output.push_str(&format!("callers[{}]{{name,hash,depth}}:\n", all_callers.len()));
+            for (hash, name, d) in &all_callers {
+                output.push_str(&format!("  {},{},{}\n", name, hash, d));
+            }
+
+            // Include source snippets if requested
+            if include_source {
+                output.push_str("\n__caller_sources__:\n");
+                for (hash, name, _) in all_callers.iter().take(5) {
+                    // Get symbol info to find file/lines
+                    let symbol_path = cache.symbol_path(hash);
+                    if symbol_path.exists() {
+                        if let Ok(content) = fs::read_to_string(&symbol_path) {
+                            let mut file: Option<String> = None;
+                            let mut lines: Option<String> = None;
+                            for line in content.lines() {
+                                let trimmed = line.trim();
+                                if trimmed.starts_with("file:") {
+                                    file = Some(trimmed.trim_start_matches("file:").trim().trim_matches('"').to_string());
+                                } else if trimmed.starts_with("lines:") {
+                                    lines = Some(trimmed.trim_start_matches("lines:").trim().trim_matches('"').to_string());
+                                }
+                            }
+                            if let (Some(f), Some(l)) = (file, lines) {
+                                if let Some(source) = get_symbol_source_snippet(&cache, &f, &l, 2) {
+                                    output.push_str(&format!("\n--- {} ({}) ---\n", name, l));
+                                    output.push_str(&source);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+}
+
+/// Get source snippet for a symbol given file and line range
+fn get_symbol_source_snippet(cache: &CacheDir, file: &str, lines: &str, context: usize) -> Option<String> {
+    let (start_line, end_line) = if let Some((s, e)) = lines.split_once('-') {
+        (s.parse::<usize>().ok()?, e.parse::<usize>().ok()?)
+    } else {
+        return None;
+    };
+
+    let full_path = cache.repo_root.join(file);
+    let source = fs::read_to_string(&full_path).ok()?;
+
+    Some(format_source_snippet(&full_path, &source, start_line, end_line, context))
 }
 
 /// Format test results as compact TOON output
