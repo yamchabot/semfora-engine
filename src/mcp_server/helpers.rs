@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::{extract, Lang, McpDiffError, SemanticSummary, CacheDir};
+use crate::{extract, Lang, McpDiffError, SemanticSummary, CacheDir, ShardWriter};
 
 // ============================================================================
 // Staleness Info Struct
@@ -23,6 +23,25 @@ pub struct StalenessInfo {
     pub modified_files: Vec<String>,
     /// Total number of files checked
     pub files_checked: usize,
+}
+
+// ============================================================================
+// Index Generation Result
+// ============================================================================
+
+/// Result of index auto-generation
+#[derive(Debug, Clone)]
+pub struct IndexGenerationResult {
+    /// Time taken to generate the index in milliseconds
+    pub duration_ms: u64,
+    /// Number of files analyzed
+    pub files_analyzed: usize,
+    /// Number of modules written
+    pub modules_written: usize,
+    /// Number of symbols written
+    pub symbols_written: usize,
+    /// Compression percentage achieved
+    pub compression_pct: f64,
 }
 
 // ============================================================================
@@ -291,4 +310,89 @@ pub fn parse_and_extract(
         })?;
 
     extract(file_path, source, &tree, lang)
+}
+
+// ============================================================================
+// Index Generation
+// ============================================================================
+
+/// Analyze a collection of files and return their semantic summaries with total bytes
+pub fn analyze_files_with_stats(files: &[PathBuf]) -> (Vec<SemanticSummary>, usize) {
+    let mut summaries = Vec::new();
+    let mut total_bytes = 0usize;
+
+    for file_path in files {
+        let lang = match Lang::from_path(file_path) {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        let source = match fs::read_to_string(file_path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        total_bytes += source.len();
+
+        if let Ok(summary) = parse_and_extract(file_path, &source, lang) {
+            summaries.push(summary);
+        }
+    }
+
+    (summaries, total_bytes)
+}
+
+/// Generate a sharded index for a directory.
+///
+/// This is the core indexing logic used by both `generate_index` (explicit)
+/// and `ensure_index` (auto-generation). Returns statistics about what was generated.
+pub fn generate_index_internal(
+    dir_path: &Path,
+    max_depth: usize,
+    extensions: &[String],
+) -> Result<IndexGenerationResult, String> {
+    let start = std::time::Instant::now();
+
+    // Create shard writer
+    let mut shard_writer = ShardWriter::new(dir_path)
+        .map_err(|e| format!("Failed to initialize shard writer: {}", e))?;
+
+    // Collect files
+    let files = collect_files(dir_path, max_depth, extensions);
+
+    if files.is_empty() {
+        return Ok(IndexGenerationResult {
+            duration_ms: start.elapsed().as_millis() as u64,
+            files_analyzed: 0,
+            modules_written: 0,
+            symbols_written: 0,
+            compression_pct: 0.0,
+        });
+    }
+
+    // Analyze files
+    let (summaries, total_bytes) = analyze_files_with_stats(&files);
+
+    // Add summaries to shard writer
+    shard_writer.add_summaries(summaries.clone());
+
+    // Write all shards
+    let dir_str = dir_path.display().to_string();
+    let stats = shard_writer.write_all(&dir_str)
+        .map_err(|e| format!("Failed to write shards: {}", e))?;
+
+    // Calculate compression
+    let compression = if total_bytes > 0 {
+        ((total_bytes as f64 - stats.total_bytes() as f64) / total_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(IndexGenerationResult {
+        duration_ms: start.elapsed().as_millis() as u64,
+        files_analyzed: summaries.len(),
+        modules_written: stats.modules_written,
+        symbols_written: stats.symbols_written,
+        compression_pct: compression,
+    })
 }

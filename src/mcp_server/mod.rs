@@ -28,7 +28,10 @@ use crate::{
 
 // Re-export types for external use
 pub use types::*;
-use helpers::{check_cache_staleness, check_cache_staleness_detailed, collect_files, parse_and_extract};
+use helpers::{
+    check_cache_staleness, check_cache_staleness_detailed, collect_files, parse_and_extract,
+    generate_index_internal, IndexGenerationResult, analyze_files_with_stats,
+};
 
 // ============================================================================
 // MCP Server Implementation
@@ -107,6 +110,28 @@ impl McpDiffServer {
     /// Get the current working directory
     async fn get_working_dir(&self) -> PathBuf {
         self.working_dir.lock().await.clone()
+    }
+
+    /// Ensure a sharded index exists for the repository, auto-generating if missing.
+    ///
+    /// Returns the CacheDir and optionally the IndexGenerationResult if the index
+    /// was auto-generated.
+    async fn ensure_index(&self, repo_path: &Path) -> Result<(CacheDir, Option<IndexGenerationResult>), String> {
+        let cache = CacheDir::for_repo(repo_path)
+            .map_err(|e| format!("Failed to access cache: {}", e))?;
+
+        if cache.exists() {
+            return Ok((cache, None));
+        }
+
+        // Auto-generate with defaults (max_depth=10, all extensions)
+        let result = generate_index_internal(repo_path, 10, &[])?;
+
+        // Re-create cache reference after generation
+        let cache = CacheDir::for_repo(repo_path)
+            .map_err(|e| format!("Failed to access cache after generation: {}", e))?;
+
+        Ok((cache, Some(result)))
     }
 
     // ========================================================================
@@ -271,28 +296,39 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Auto-generate index if missing
+        let (cache, gen_result) = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
 
         let overview_path = cache.repo_overview_path();
-        if !overview_path.exists() {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No sharded index found for {}. Run `semfora-engine --shard {}` to generate one, or use generate_index tool.",
-                repo_path.display(), repo_path.display()
-            ))]));
-        }
 
         match fs::read_to_string(&overview_path) {
             Ok(content) => {
-                let staleness_warning = check_cache_staleness(&cache);
-                let output = match staleness_warning {
-                    Some(warning) => format!("{}\n\n{}", warning, content),
-                    None => content,
-                };
+                // Build output with optional auto-generation notice
+                let mut output = String::new();
+
+                if let Some(ref result) = gen_result {
+                    output.push_str(&format!(
+                        "📦 Index auto-generated ({} files, {} modules, {} symbols, {:.1}% compression, {}ms)\n\n",
+                        result.files_analyzed,
+                        result.modules_written,
+                        result.symbols_written,
+                        result.compression_pct,
+                        result.duration_ms
+                    ));
+                }
+
+                // Check for staleness (only if we didn't just generate)
+                if gen_result.is_none() {
+                    if let Some(warning) = check_cache_staleness(&cache) {
+                        output.push_str(&warning);
+                        output.push_str("\n\n");
+                    }
+                }
+
+                output.push_str(&content);
                 Ok(CallToolResult::success(vec![Content::text(output)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -311,25 +347,34 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Auto-generate index if missing
+        let (cache, gen_result) = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
 
-        if !cache.exists() {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No sharded index found for {}", repo_path.display()
-            ))]));
-        }
-
         let modules = cache.list_modules();
-        if modules.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text("No modules found in index.")]));
+
+        let mut output = String::new();
+
+        // Add auto-generation notice if applicable
+        if let Some(result) = gen_result {
+            output.push_str(&format!(
+                "📦 Index auto-generated ({} files, {} modules, {} symbols, {:.1}% compression, {}ms)\n\n",
+                result.files_analyzed,
+                result.modules_written,
+                result.symbols_written,
+                result.compression_pct,
+                result.duration_ms
+            ));
         }
 
-        let mut output = format!("Available modules ({}):\n", modules.len());
+        if modules.is_empty() {
+            output.push_str("No modules found in index.");
+            return Ok(CallToolResult::success(vec![Content::text(output)]));
+        }
+
+        output.push_str(&format!("Available modules ({}):\n", modules.len()));
         for module in &modules {
             output.push_str(&format!("  - {}\n", module));
         }
@@ -425,38 +470,24 @@ impl McpDiffServer {
         let max_depth = request.max_depth.unwrap_or(10);
         let extensions = request.extensions.unwrap_or_default();
 
-        let mut shard_writer = match ShardWriter::new(&dir_path) {
-            Ok(w) => w,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to initialize shard writer: {}", e
-            ))])),
+        // Use the shared internal function
+        let result = match generate_index_internal(&dir_path, max_depth, &extensions) {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
 
-        let files = collect_files(&dir_path, max_depth, &extensions);
-
-        if files.is_empty() {
+        if result.files_analyzed == 0 {
             return Ok(CallToolResult::success(vec![Content::text(format!(
                 "No supported files found in {}", dir_path.display()
             ))]));
         }
 
-        let (summaries, total_bytes) = analyze_files_with_stats(&files);
-
-        shard_writer.add_summaries(summaries.clone());
-
-        let dir_str = dir_path.display().to_string();
-        let stats = match shard_writer.write_all(&dir_str) {
-            Ok(s) => s,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to write shards: {}", e
-            ))])),
-        };
-
-        let compression = if total_bytes > 0 {
-            ((total_bytes as f64 - stats.total_bytes() as f64) / total_bytes as f64) * 100.0
-        } else {
-            0.0
-        };
+        // Get cache path for display
+        let cache = CacheDir::for_repo(&dir_path).ok();
+        let cache_display = cache
+            .as_ref()
+            .map(|c| c.root.display().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
 
         let output = format!(
             "Sharded index created for: {}\n\
@@ -464,14 +495,16 @@ impl McpDiffServer {
              Files analyzed: {}\n\
              Modules: {}\n\
              Symbols: {}\n\
-             Compression: {:.1}%\n\n\
+             Compression: {:.1}%\n\
+             Duration: {}ms\n\n\
              Use get_repo_overview to see the high-level architecture.",
             dir_path.display(),
-            shard_writer.cache_path().display(),
-            summaries.len(),
-            stats.modules_written,
-            stats.symbols_written,
-            compression
+            cache_display,
+            result.files_analyzed,
+            result.modules_written,
+            result.symbols_written,
+            result.compression_pct,
+            result.duration_ms
         );
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
@@ -1392,32 +1425,6 @@ fn analyze_files(files: &[PathBuf]) -> Vec<SemanticSummary> {
         }
     }
     summaries
-}
-
-/// Analyze files and return summaries plus total bytes read
-fn analyze_files_with_stats(files: &[PathBuf]) -> (Vec<SemanticSummary>, usize) {
-    let mut summaries = Vec::new();
-    let mut total_bytes = 0usize;
-
-    for file_path in files {
-        let lang = match Lang::from_path(file_path) {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-
-        let source = match fs::read_to_string(file_path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        total_bytes += source.len();
-
-        if let Ok(summary) = parse_and_extract(file_path, &source, lang) {
-            summaries.push(summary);
-        }
-    }
-
-    (summaries, total_bytes)
 }
 
 /// Format the diff output for changed files
