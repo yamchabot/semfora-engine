@@ -116,43 +116,64 @@ fn collect_symbols_recursive(
     filename_stem: &str,
     candidates: &mut Vec<SymbolCandidate>,
 ) {
-    let kind_str = node.kind();
-
-    // Check if this node is a symbol
-    let symbol_kind = if grammar.function_nodes.contains(&kind_str) {
-        Some(SymbolKind::Function)
-    } else if grammar.class_nodes.contains(&kind_str) {
-        Some(SymbolKind::Class)
-    } else if grammar.interface_nodes.contains(&kind_str) {
-        Some(SymbolKind::Trait)
-    } else if grammar.enum_nodes.contains(&kind_str) {
-        Some(SymbolKind::Enum)
-    } else {
-        None
-    };
-
-    if let Some(kind) = symbol_kind {
-        if let Some(name) = extract_symbol_name(node, source, grammar) {
-            let is_exported = (grammar.is_exported)(node, source);
-            let score = calculate_symbol_score(&name, &kind, is_exported, filename_stem, grammar);
-            let decorators = extract_decorators(node, source, grammar);
-
-            candidates.push(SymbolCandidate {
-                name,
-                kind,
-                is_exported,
-                start_line: node.start_position().row + 1,
-                end_line: node.end_position().row + 1,
-                score,
-                decorators,
-            });
-        }
-    }
-
-    // Recurse into children
+    // Iterative traversal using tree-sitter cursor to avoid stack overflow
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_symbols_recursive(&child, source, grammar, filename_stem, candidates);
+    let mut did_visit_children = false;
+    
+    loop {
+        if !did_visit_children {
+            let current_node = cursor.node();
+            let kind_str = current_node.kind();
+            
+            // Check if this node is a symbol
+            let symbol_kind = if grammar.function_nodes.contains(&kind_str) {
+                Some(SymbolKind::Function)
+            } else if grammar.class_nodes.contains(&kind_str) {
+                Some(SymbolKind::Class)
+            } else if grammar.interface_nodes.contains(&kind_str) {
+                Some(SymbolKind::Trait)
+            } else if grammar.enum_nodes.contains(&kind_str) {
+                Some(SymbolKind::Enum)
+            } else {
+                None
+            };
+
+            if let Some(kind) = symbol_kind {
+                if let Some(name) = extract_symbol_name(&current_node, source, grammar) {
+                    let is_exported = (grammar.is_exported)(&current_node, source);
+                    let score = calculate_symbol_score(&name, &kind, is_exported, filename_stem, grammar);
+                    let decorators = extract_decorators(&current_node, source, grammar);
+
+                    candidates.push(SymbolCandidate {
+                        name,
+                        kind,
+                        is_exported,
+                        start_line: current_node.start_position().row + 1,
+                        end_line: current_node.end_position().row + 1,
+                        score,
+                        decorators,
+                    });
+                }
+            }
+            
+            // Try to go to first child
+            if cursor.goto_first_child() {
+                did_visit_children = false;
+                continue;
+            }
+        }
+        
+        // Try to go to next sibling
+        if cursor.goto_next_sibling() {
+            did_visit_children = false;
+            continue;
+        }
+        
+        // Go back to parent
+        if !cursor.goto_parent() {
+            break; // Reached the root, we're done
+        }
+        did_visit_children = true;
     }
 }
 
@@ -532,34 +553,60 @@ fn extract_control_flow(
 
 fn collect_control_flow_recursive(
     node: &Node,
-    depth: usize,
+    _depth: usize,  // Ignored - we track depth with our own stack
     grammar: &LangGrammar,
     results: &mut Vec<ControlFlowChange>,
 ) {
-    let kind = node.kind();
-
-    if grammar.control_flow_nodes.contains(&kind) || grammar.try_nodes.contains(&kind) {
-        let cf_kind = map_control_flow_kind(kind, grammar);
-
-        let location = Location::new(
-            node.start_position().row + 1,
-            node.start_position().column,
-        );
-
-        results.push(ControlFlowChange {
-            kind: cf_kind,
-            location,
-            nesting_depth: depth,
-        });
-    }
-
-    let is_control_flow =
-        grammar.control_flow_nodes.contains(&kind) || grammar.try_nodes.contains(&kind);
-    let new_depth = if is_control_flow { depth + 1 } else { depth };
-
+    // Iterative traversal using tree-sitter cursor to avoid stack overflow
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_control_flow_recursive(&child, new_depth, grammar, results);
+    let mut depth_stack: Vec<usize> = vec![0];
+    let mut did_visit_children = false;
+    
+    loop {
+        if !did_visit_children {
+            let current_node = cursor.node();
+            let kind = current_node.kind();
+            let current_depth = *depth_stack.last().unwrap_or(&0);
+            
+            if grammar.control_flow_nodes.contains(&kind) || grammar.try_nodes.contains(&kind) {
+                let cf_kind = map_control_flow_kind(kind, grammar);
+
+                let location = Location::new(
+                    current_node.start_position().row + 1,
+                    current_node.start_position().column,
+                );
+
+                results.push(ControlFlowChange {
+                    kind: cf_kind,
+                    location,
+                    nesting_depth: current_depth,
+                });
+            }
+
+            let is_control_flow =
+                grammar.control_flow_nodes.contains(&kind) || grammar.try_nodes.contains(&kind);
+            let child_depth = if is_control_flow { current_depth + 1 } else { current_depth };
+            
+            // Try to go to first child
+            if cursor.goto_first_child() {
+                depth_stack.push(child_depth);
+                did_visit_children = false;
+                continue;
+            }
+        }
+        
+        // Try to go to next sibling
+        if cursor.goto_next_sibling() {
+            did_visit_children = false;
+            continue;
+        }
+        
+        // Go back to parent
+        if !cursor.goto_parent() {
+            break; // Reached the root, we're done
+        }
+        depth_stack.pop();
+        did_visit_children = true;
     }
 }
 
@@ -772,17 +819,32 @@ fn visit_all<F>(node: &Node, mut callback: F)
 where
     F: FnMut(&Node),
 {
-    visit_all_recursive(node, &mut callback);
-}
-
-fn visit_all_recursive<F>(node: &Node, callback: &mut F)
-where
-    F: FnMut(&Node),
-{
-    callback(node);
+    // Iterative traversal using tree-sitter cursor to avoid stack overflow
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        visit_all_recursive(&child, callback);
+    let mut did_visit_children = false;
+    
+    loop {
+        if !did_visit_children {
+            callback(&cursor.node());
+            
+            // Try to go to first child
+            if cursor.goto_first_child() {
+                did_visit_children = false;
+                continue;
+            }
+        }
+        
+        // Try to go to next sibling
+        if cursor.goto_next_sibling() {
+            did_visit_children = false;
+            continue;
+        }
+        
+        // Go back to parent
+        if !cursor.goto_parent() {
+            break; // Reached the root, we're done
+        }
+        did_visit_children = true;
     }
 }
 

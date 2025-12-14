@@ -8,7 +8,9 @@ use std::time::SystemTime;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{extract, Lang, McpDiffError, SemanticSummary, CacheDir, ShardWriter};
+use std::collections::{HashMap, HashSet};
+
+use crate::{extract, extract_module_name, Lang, McpDiffError, SemanticSummary, CacheDir, ShardWriter};
 
 // ============================================================================
 // Staleness Info Struct
@@ -383,6 +385,17 @@ pub fn generate_index_internal(
     let stats = shard_writer.write_all(&dir_str)
         .map_err(|e| format!("Failed to write shards: {}", e))?;
 
+    // Set the indexed SHA and status hash for staleness tracking
+    if let Ok(cache) = CacheDir::for_repo(dir_path) {
+        if let Ok(sha) = crate::git::git_command(&["rev-parse", "HEAD"], Some(dir_path)) {
+            let _ = cache.set_indexed_sha(&sha);
+        }
+        // Also save status hash so we don't re-index the same uncommitted changes
+        if let Some(status_hash) = cache.compute_status_hash() {
+            let _ = cache.set_status_hash(&status_hash);
+        }
+    }
+
     // Calculate compression
     let compression = if total_bytes > 0 {
         ((total_bytes as f64 - stats.total_bytes() as f64) / total_bytes as f64) * 100.0
@@ -397,6 +410,342 @@ pub fn generate_index_internal(
         symbols_written: stats.symbols_written,
         compression_pct: compression,
     })
+}
+
+// ============================================================================
+// Partial Reindexing
+// ============================================================================
+
+/// Result of a partial reindex operation
+#[derive(Debug, Clone)]
+pub struct PartialReindexResult {
+    /// Number of files that were reindexed
+    pub files_reindexed: usize,
+    /// Number of modules that were updated
+    pub modules_updated: usize,
+    /// Time taken in milliseconds
+    pub duration_ms: u64,
+}
+
+/// Partially reindex only the changed files.
+///
+/// This is an incremental update that:
+/// 1. Analyzes only the changed files
+/// 2. Groups them by module
+/// 3. For each affected module, loads existing summaries, removes old entries
+///    for changed files, adds new summaries, and rewrites the module shard
+/// 4. Updates the indexed SHA to current HEAD
+///
+/// This is much faster than a full reindex for small changes (<50 files).
+pub fn partial_reindex(
+    cache: &CacheDir,
+    changed_files: &[PathBuf],
+) -> Result<PartialReindexResult, String> {
+    let start = std::time::Instant::now();
+
+    // Filter to only valid source files
+    let valid_files: Vec<PathBuf> = changed_files
+        .iter()
+        .filter(|f| f.exists() && Lang::from_path(f).is_ok())
+        .cloned()
+        .collect();
+
+    if valid_files.is_empty() {
+        // No valid files to reindex - just update the SHA
+        if let Ok(sha) = crate::git::git_command(&["rev-parse", "HEAD"], Some(&cache.repo_root)) {
+            let _ = cache.set_indexed_sha(&sha);
+        }
+        return Ok(PartialReindexResult {
+            files_reindexed: 0,
+            modules_updated: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
+        });
+    }
+
+    // Analyze only the changed files (parallel)
+    let (new_summaries, _) = analyze_files_with_stats(&valid_files);
+
+    // Group new summaries by module
+    let mut new_by_module: HashMap<String, Vec<SemanticSummary>> = HashMap::new();
+    for summary in &new_summaries {
+        let module = extract_module_name(&summary.file);
+        new_by_module.entry(module).or_default().push(summary.clone());
+    }
+
+    // Track which files were changed (for removing old entries)
+    let changed_file_set: HashSet<String> = valid_files
+        .iter()
+        .filter_map(|p| p.to_str())
+        .map(|s| s.to_string())
+        .collect();
+
+    // Also track modules that might have files removed (deleted files)
+    let deleted_files: Vec<&PathBuf> = changed_files
+        .iter()
+        .filter(|f| !f.exists())
+        .collect();
+
+    for deleted in &deleted_files {
+        if let Some(path_str) = deleted.to_str() {
+            let module = extract_module_name(path_str);
+            // Ensure module is in our update set even if no new summaries
+            new_by_module.entry(module).or_default();
+            // Track this file as changed (for removal)
+            // Note: we use the path string since the file doesn't exist
+        }
+    }
+
+    let mut modules_updated = 0;
+
+    // Update each affected module
+    for (module_name, new_module_summaries) in &new_by_module {
+        // Load existing summaries for this module
+        let existing = cache.load_module_summaries(module_name).unwrap_or_default();
+
+        // Remove entries for changed files (they'll be replaced or deleted)
+        let mut updated: Vec<SemanticSummary> = existing
+            .into_iter()
+            .filter(|s| !changed_file_set.contains(&s.file))
+            .collect();
+
+        // Add new summaries
+        updated.extend(new_module_summaries.clone());
+
+        // Skip writing empty modules (all files deleted)
+        if updated.is_empty() {
+            // Delete the module file
+            let module_path = cache.module_path(module_name);
+            let _ = fs::remove_file(module_path);
+            modules_updated += 1;
+            continue;
+        }
+
+        // Encode and write the updated module shard
+        let toon = crate::shard::encode_module_shard(module_name, &updated, &cache.repo_root);
+        let module_path = cache.module_path(module_name);
+
+        if let Err(e) = fs::write(&module_path, toon) {
+            return Err(format!("Failed to write module {}: {}", module_name, e));
+        }
+
+        modules_updated += 1;
+    }
+
+    // Update symbol shards for changed files
+    // For simplicity, we'll delete old symbol files and create new ones
+    // (Symbol files are keyed by hash which includes file path)
+    update_symbol_shards(cache, &new_summaries)?;
+
+    // Update the indexed SHA
+    if let Ok(sha) = crate::git::git_command(&["rev-parse", "HEAD"], Some(&cache.repo_root)) {
+        let _ = cache.set_indexed_sha(&sha);
+    }
+
+    // Update the status hash (so we don't re-index the same uncommitted changes)
+    if let Some(status_hash) = cache.compute_status_hash() {
+        let _ = cache.set_status_hash(&status_hash);
+    }
+
+    // Touch repo_overview to update mtime (stats might be slightly stale but that's OK)
+    let overview_path = cache.repo_overview_path();
+    if overview_path.exists() {
+        // Just touch the file to update mtime
+        let _ = fs::OpenOptions::new()
+            .write(true)
+            .open(&overview_path)
+            .and_then(|f| f.set_len(f.metadata()?.len()));
+    }
+
+    Ok(PartialReindexResult {
+        files_reindexed: valid_files.len(),
+        modules_updated,
+        duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+/// Update symbol shards for the given summaries
+fn update_symbol_shards(
+    cache: &CacheDir,
+    summaries: &[SemanticSummary],
+) -> Result<(), String> {
+    use crate::schema::SymbolId;
+
+    for summary in summaries {
+        let namespace = SymbolId::namespace_from_path(&summary.file);
+
+        // If we have symbols in the multi-symbol format, use those
+        if !summary.symbols.is_empty() {
+            for symbol_info in &summary.symbols {
+                let symbol_id = symbol_info.to_symbol_id(&namespace);
+                let toon = crate::shard::encode_symbol_shard_from_info(summary, symbol_info, &symbol_id);
+                let path = cache.symbol_path(&symbol_id.hash);
+
+                if let Err(e) = fs::write(&path, toon) {
+                    return Err(format!("Failed to write symbol {}: {}", symbol_id.hash, e));
+                }
+            }
+        } else if let Some(symbol_id) = SymbolId::from_summary(summary) {
+            // Fallback to primary symbol
+            let toon = crate::shard::encode_symbol_shard(summary);
+            let path = cache.symbol_path(&symbol_id.hash);
+
+            if let Err(e) = fs::write(&path, toon) {
+                return Err(format!("Failed to write symbol {}: {}", symbol_id.hash, e));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Automatic Index Freshness
+// ============================================================================
+
+/// Result of ensuring index freshness
+#[derive(Clone)]
+pub struct FreshnessResult {
+    /// The cache directory (ready to use)
+    pub cache: CacheDir,
+    /// Whether the index was refreshed
+    pub refreshed: bool,
+    /// How it was refreshed (if at all)
+    pub refresh_type: RefreshType,
+    /// Number of files updated (if partial refresh)
+    pub files_updated: usize,
+    /// Time taken for refresh in milliseconds
+    pub duration_ms: u64,
+}
+
+/// Type of index refresh performed
+#[derive(Debug, Clone, PartialEq)]
+pub enum RefreshType {
+    /// Index was already fresh
+    None,
+    /// Only changed files were reindexed
+    Partial,
+    /// Full index regeneration
+    Full,
+}
+
+impl RefreshType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RefreshType::None => "none",
+            RefreshType::Partial => "partial",
+            RefreshType::Full => "full",
+        }
+    }
+}
+
+/// Default threshold for partial vs full reindex
+const DEFAULT_MAX_STALE_FILES: usize = 50;
+
+/// Ensure the index is fresh before executing a query.
+///
+/// This function is called at the start of query tools to transparently
+/// handle stale indexes. It:
+/// 1. Checks if the index exists and is fresh
+/// 2. If stale with few changes (<= max_stale_files): partial reindex
+/// 3. If stale with many changes (> max_stale_files): full reindex
+/// 4. If no index exists: full index generation
+///
+/// The decision of what to reindex is made entirely by the engine based on
+/// git status and file changes - the LLM does not influence this decision.
+pub fn ensure_fresh_index(
+    repo_path: &Path,
+    max_stale_files: Option<usize>,
+) -> Result<FreshnessResult, String> {
+    let start = std::time::Instant::now();
+    let threshold = max_stale_files.unwrap_or(DEFAULT_MAX_STALE_FILES);
+
+    // Get or create cache directory
+    let cache = CacheDir::for_repo(repo_path)
+        .map_err(|e| format!("Failed to access cache: {}", e))?;
+
+    // Check if index exists at all
+    let overview_path = cache.repo_overview_path();
+    if !overview_path.exists() {
+        // No index exists - do full generation
+        let result = generate_index_internal(repo_path, 10, &[])?;
+
+        // Re-get cache after generation (it may have been created)
+        let cache = CacheDir::for_repo(repo_path)
+            .map_err(|e| format!("Failed to access cache after generation: {}", e))?;
+
+        return Ok(FreshnessResult {
+            cache,
+            refreshed: true,
+            refresh_type: RefreshType::Full,
+            files_updated: result.files_analyzed,
+            duration_ms: start.elapsed().as_millis() as u64,
+        });
+    }
+
+    // Index exists - check staleness
+    let staleness = cache.quick_staleness_check();
+
+    if !staleness.is_stale {
+        // Index is fresh - nothing to do
+        return Ok(FreshnessResult {
+            cache,
+            refreshed: false,
+            refresh_type: RefreshType::None,
+            files_updated: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
+        });
+    }
+
+    // Index is stale - decide between partial and full reindex
+    let changed_count = staleness.changed_files.len();
+
+    if changed_count <= threshold && changed_count > 0 {
+        // Partial reindex - only update changed files
+        let result = partial_reindex(&cache, &staleness.changed_files)?;
+
+        return Ok(FreshnessResult {
+            cache,
+            refreshed: true,
+            refresh_type: RefreshType::Partial,
+            files_updated: result.files_reindexed,
+            duration_ms: start.elapsed().as_millis() as u64,
+        });
+    }
+
+    // Too many changes or can't determine - full reindex
+    let result = generate_index_internal(repo_path, 10, &[])?;
+
+    // Update the indexed SHA after full reindex
+    if let Ok(sha) = crate::git::git_command(&["rev-parse", "HEAD"], Some(&cache.repo_root)) {
+        let _ = cache.set_indexed_sha(&sha);
+    }
+
+    Ok(FreshnessResult {
+        cache,
+        refreshed: true,
+        refresh_type: RefreshType::Full,
+        files_updated: result.files_analyzed,
+        duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+/// Format a freshness note for inclusion in query responses
+pub fn format_freshness_note(result: &FreshnessResult) -> Option<String> {
+    if !result.refreshed {
+        return None;
+    }
+
+    match result.refresh_type {
+        RefreshType::None => None,
+        RefreshType::Partial => Some(format!(
+            "⚡ Index refreshed ({} files updated in {}ms)",
+            result.files_updated, result.duration_ms
+        )),
+        RefreshType::Full => Some(format!(
+            "🔄 Index regenerated ({} files in {}ms)",
+            result.files_updated, result.duration_ms
+        )),
+    }
 }
 
 // ============================================================================

@@ -7,6 +7,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use rayon::prelude::*;
 
 use serde::{Deserialize, Serialize};
 
@@ -208,6 +211,21 @@ impl CacheMeta {
     }
 }
 
+/// Result of a quick staleness check for auto-refresh
+#[derive(Debug, Clone)]
+pub struct QuickStalenessResult {
+    /// Whether the index is stale
+    pub is_stale: bool,
+    /// The SHA that was indexed (from head_sha file)
+    pub indexed_sha: Option<String>,
+    /// Current HEAD SHA from git
+    pub current_sha: Option<String>,
+    /// List of changed files (from git status + git diff)
+    pub changed_files: Vec<PathBuf>,
+    /// Reason for staleness (for logging/debugging)
+    pub reason: Option<String>,
+}
+
 /// Cache directory structure manager
 #[derive(Clone)]
 pub struct CacheDir {
@@ -383,6 +401,133 @@ impl CacheDir {
         let path = self.head_sha_path();
         fs::write(&path, sha)?;
         Ok(())
+    }
+
+    /// Path to status_hash file (hash of git status when last indexed)
+    pub fn status_hash_path(&self) -> PathBuf {
+        self.root.join("status_hash")
+    }
+
+    /// Get the indexed status hash (hash of git status output when last indexed)
+    pub fn get_status_hash(&self) -> Option<String> {
+        let path = self.status_hash_path();
+        fs::read_to_string(path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Set the status hash (save after indexing uncommitted changes)
+    pub fn set_status_hash(&self, hash: &str) -> Result<()> {
+        let path = self.status_hash_path();
+        fs::write(&path, hash)?;
+        Ok(())
+    }
+
+    /// Compute hash of current git status output
+    pub fn compute_status_hash(&self) -> Option<String> {
+        git::git_command_optional(&["status", "--porcelain"], Some(&self.repo_root))
+            .map(|output| {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                output.hash(&mut hasher);
+                format!("{:016x}", hasher.finish())
+            })
+    }
+
+    /// Quick staleness check (~5ms) using git SHA comparison
+    ///
+    /// This is a fast check that compares the indexed SHA against current HEAD
+    /// and detects uncommitted changes. Use this before query tools to determine
+    /// if auto-refresh is needed.
+    ///
+    /// Returns detailed staleness info including changed files list.
+    pub fn quick_staleness_check(&self) -> QuickStalenessResult {
+        // 1. Get indexed SHA from our cache
+        let indexed_sha = self.get_indexed_sha();
+
+        // 2. Get current HEAD SHA via git
+        let current_sha = git::git_command_optional(&["rev-parse", "HEAD"], Some(&self.repo_root));
+
+        // 3. Check if SHAs differ (indicates new commits)
+        let sha_mismatch = match (&indexed_sha, &current_sha) {
+            (Some(indexed), Some(current)) => indexed != current,
+            (None, _) => true, // No index exists
+            (_, None) => false, // Not a git repo, can't do SHA check
+        };
+
+        // 4. Collect changed files
+        let mut changed_files = Vec::new();
+
+        // 4a. Files changed between indexed SHA and current HEAD
+        if sha_mismatch {
+            if let (Some(indexed), Some(_)) = (&indexed_sha, &current_sha) {
+                if let Ok(diff_output) = git::git_command(
+                    &["diff", "--name-only", indexed],
+                    Some(&self.repo_root),
+                ) {
+                    for line in diff_output.lines() {
+                        if !line.is_empty() {
+                            changed_files.push(self.repo_root.join(line));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4b. Uncommitted changes (staged + unstaged)
+        // But skip if we already indexed these exact uncommitted changes (status hash matches)
+        let current_status_hash = self.compute_status_hash();
+        let indexed_status_hash = self.get_status_hash();
+        let status_hash_matches = match (&current_status_hash, &indexed_status_hash) {
+            (Some(current), Some(indexed)) => current == indexed,
+            _ => false,
+        };
+
+        if !status_hash_matches {
+            if let Ok(status_output) = git::git_command(
+                &["status", "--porcelain"],
+                Some(&self.repo_root),
+            ) {
+                for line in status_output.lines() {
+                    if line.len() > 3 {
+                        let file_path = line[3..].trim();
+                        if !file_path.is_empty() {
+                            let full_path = self.repo_root.join(file_path);
+                            if !changed_files.contains(&full_path) {
+                                changed_files.push(full_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Determine staleness and reason
+        let is_stale = sha_mismatch || !changed_files.is_empty() || indexed_sha.is_none();
+
+        let reason = if indexed_sha.is_none() {
+            Some("No index exists".to_string())
+        } else if sha_mismatch {
+            Some(format!(
+                "HEAD changed: {} -> {}",
+                indexed_sha.as_deref().unwrap_or("none"),
+                current_sha.as_deref().unwrap_or("none")
+            ))
+        } else if !changed_files.is_empty() {
+            Some(format!("{} uncommitted file(s)", changed_files.len()))
+        } else {
+            None
+        };
+
+        QuickStalenessResult {
+            is_stale,
+            indexed_sha,
+            current_sha,
+            changed_files,
+            reason,
+        }
     }
 
     /// Check if cached layers exist
@@ -1680,8 +1825,7 @@ impl CacheDir {
     }
 
     /// Build call graph from summaries (caller hash -> callee hashes)
-    /// Uses summary.symbols and compute_symbol_hash to match symbol index hashes
-    /// Callee values are now symbol hashes (or "ext:name" for external calls)
+    /// Parallelized with Rayon for better performance on large codebases
     fn build_call_graph_from_summaries(
         &self,
         summaries: &[crate::schema::SemanticSummary],
@@ -1689,151 +1833,151 @@ impl CacheDir {
         use crate::overlay::compute_symbol_hash;
         use std::collections::HashMap;
 
-        // Build symbol lookup for resolving call names to hashes
+        let total = summaries.len();
+        if total > 100 {
+            eprintln!("Building call graph from {} files...", total);
+        }
+
+        // Build symbol lookup for resolving call names to hashes (before parallel phase)
         let symbol_lookup = Self::build_symbol_lookup_from_summaries(summaries);
 
+        // Progress and stats tracking
+        let processed = AtomicUsize::new(0);
+        let total_symbols_from_vec = AtomicUsize::new(0);
+        let total_calls_from_symbols = AtomicUsize::new(0);
+
+        // Process summaries in parallel
+        let results: Vec<Vec<(String, Vec<String>)>> = summaries
+            .par_iter()
+            .map(|summary| {
+                let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
+                if total > 100 && (current % 500 == 0 || current == total) {
+                    eprintln!("  Call graph progress: {}/{} ({:.1}%)", current, total, (current as f64 / total as f64) * 100.0);
+                }
+
+                let mut entries: Vec<(String, Vec<String>)> = Vec::new();
+
+                // Process each symbol in the file
+                for symbol in &summary.symbols {
+                    total_symbols_from_vec.fetch_add(1, Ordering::Relaxed);
+                    let hash = compute_symbol_hash(symbol, &summary.file);
+                    let mut calls: Vec<String> = Vec::new();
+
+                    // Extract from the symbol's own calls array
+                    for c in &symbol.calls {
+                        let call_name = if let Some(ref obj) = c.object {
+                            format!("{}.{}", obj, c.name)
+                        } else {
+                            c.name.clone()
+                        };
+                        let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                        if !calls.contains(&resolved) {
+                            calls.push(resolved);
+                        }
+                    }
+
+                    // Extract function calls from state_changes initializers
+                    for state in &symbol.state_changes {
+                        if !state.initializer.is_empty() {
+                            if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
+                                let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                                if !calls.contains(&resolved) {
+                                    calls.push(resolved);
+                                }
+                            }
+                        }
+                    }
+
+                    if !calls.is_empty() {
+                        total_calls_from_symbols.fetch_add(calls.len(), Ordering::Relaxed);
+                        entries.push((hash, calls));
+                    }
+                }
+
+                // Also process file-level calls
+                if let Some(ref symbol_id) = summary.symbol_id {
+                    let mut calls: Vec<String> = Vec::new();
+
+                    for c in &summary.calls {
+                        let call_name = if let Some(ref obj) = c.object {
+                            format!("{}.{}", obj, c.name)
+                        } else {
+                            c.name.clone()
+                        };
+                        let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                        if !calls.contains(&resolved) {
+                            calls.push(resolved);
+                        }
+                    }
+
+                    for state in &summary.state_changes {
+                        if !state.initializer.is_empty() {
+                            if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
+                                let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                                if !calls.contains(&resolved) {
+                                    calls.push(resolved);
+                                }
+                            }
+                        }
+                    }
+
+                    for dep in &summary.added_dependencies {
+                        if !dep.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                            && !dep.contains("::")
+                        {
+                            if dep.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                                let resolved = Self::resolve_call_to_hash(dep, &symbol_lookup);
+                                if !calls.contains(&resolved) {
+                                    calls.push(resolved);
+                                }
+                            }
+                        }
+                    }
+
+                    if !calls.is_empty() {
+                        let matching_symbol = if let Some(ref primary_name) = summary.symbol {
+                            summary.symbols.iter().find(|s| &s.name == primary_name)
+                        } else {
+                            None
+                        };
+
+                        let hash = if let Some(symbol) = matching_symbol {
+                            compute_symbol_hash(symbol, &summary.file)
+                        } else if let Some(first_symbol) = summary.symbols.first() {
+                            compute_symbol_hash(first_symbol, &summary.file)
+                        } else {
+                            symbol_id.hash.clone()
+                        };
+
+                        entries.push((hash, calls));
+                    }
+                }
+
+                entries
+            })
+            .collect();
+
+        // Merge results into final graph
         let mut graph: HashMap<String, Vec<String>> = HashMap::new();
-        let mut total_symbols_from_vec = 0;
-        let mut total_calls_from_symbols = 0;
-
-        for summary in summaries {
-            // Log summary state for debugging
-            tracing::debug!(
-                "[CALL_GRAPH] File: {}, symbols.len={}, calls.len={}, has_symbol_id={}",
-                summary.file,
-                summary.symbols.len(),
-                summary.calls.len(),
-                summary.symbol_id.is_some()
-            );
-
-            // Iterate through all symbols in this file (not just the primary)
-            for symbol in &summary.symbols {
-                total_symbols_from_vec += 1;
-                // Compute hash using absolute path (summary.file) - canonical rule everywhere
-                let hash = compute_symbol_hash(symbol, &summary.file);
-
-                let mut calls: Vec<String> = Vec::new();
-
-                // Extract from the symbol's own calls array (SymbolInfo.calls)
-                for c in &symbol.calls {
-                    let call_name = if let Some(ref obj) = c.object {
-                        format!("{}.{}", obj, c.name)
-                    } else {
-                        c.name.clone()
-                    };
-                    let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
-                    if !calls.contains(&resolved) {
-                        calls.push(resolved);
-                    }
-                }
-
-                // Extract function calls from state_changes initializers
-                for state in &symbol.state_changes {
-                    if !state.initializer.is_empty() {
-                        if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
-                            let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
-                            if !calls.contains(&resolved) {
-                                calls.push(resolved);
-                            }
-                        }
-                    }
-                }
-
-                if !calls.is_empty() {
-                    total_calls_from_symbols += calls.len();
-                    tracing::debug!(
-                        "[CALL_GRAPH] Symbol {} (hash={}) has {} calls: {:?}",
-                        symbol.name,
-                        hash,
-                        calls.len(),
-                        calls
-                    );
-                    graph.insert(hash, calls);
-                }
-            }
-
-            // Also extract from file-level calls/state_changes/added_dependencies
-            // These may not belong to a specific symbol but are still in the file
-            if let Some(ref symbol_id) = summary.symbol_id {
-                let mut calls: Vec<String> = Vec::new();
-
-                // Extract from file-level calls array
-                for c in &summary.calls {
-                    let call_name = if let Some(ref obj) = c.object {
-                        format!("{}.{}", obj, c.name)
-                    } else {
-                        c.name.clone()
-                    };
-                    let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
-                    if !calls.contains(&resolved) {
-                        calls.push(resolved);
-                    }
-                }
-
-                // Extract function calls from file-level state_changes initializers
-                for state in &summary.state_changes {
-                    if !state.initializer.is_empty() {
-                        if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
-                            let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
-                            if !calls.contains(&resolved) {
-                                calls.push(resolved);
-                            }
-                        }
-                    }
-                }
-
-                // Extract from added_dependencies that look like function calls
-                for dep in &summary.added_dependencies {
-                    if !dep.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
-                        && !dep.contains("::")
-                    {
-                        if dep.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
-                            let resolved = Self::resolve_call_to_hash(dep, &symbol_lookup);
-                            if !calls.contains(&resolved) {
-                                calls.push(resolved);
-                            }
-                        }
-                    }
-                }
-
-                // For file-level calls, find the primary symbol (matching summary.symbol name)
-                // and use its hash. This ensures file-level calls get the correct symbol hash.
-                if !calls.is_empty() {
-                    // Find the symbol that matches the summary's primary symbol name
-                    let matching_symbol = if let Some(ref primary_name) = summary.symbol {
-                        summary.symbols.iter().find(|s| &s.name == primary_name)
-                    } else {
-                        None
-                    };
-
-                    // Use matching symbol's hash, or first symbol's hash, or symbol_id.hash as fallback
-                    // NOTE: Use summary.file (absolute path) - canonical rule everywhere
-                    let hash = if let Some(symbol) = matching_symbol {
-                        compute_symbol_hash(symbol, &summary.file)
-                    } else if let Some(first_symbol) = summary.symbols.first() {
-                        compute_symbol_hash(first_symbol, &summary.file)
-                    } else {
-                        symbol_id.hash.clone()
-                    };
-
-                    tracing::debug!(
-                        "[CALL_GRAPH] File {} assigning {} file-level calls to hash {}",
-                        summary.file,
-                        calls.len(),
-                        hash
-                    );
-                    // Merge with existing calls for this hash
-                    graph.entry(hash).or_default().extend(calls);
-                }
+        for entries in results {
+            for (hash, calls) in entries {
+                graph.entry(hash).or_default().extend(calls);
             }
         }
 
+        let symbols_count = total_symbols_from_vec.load(Ordering::Relaxed);
+        let calls_count = total_calls_from_symbols.load(Ordering::Relaxed);
+        
         tracing::info!(
             "[CALL_GRAPH] Summary: {} symbols from Vec<SymbolInfo>, {} calls from symbols, {} graph entries",
-            total_symbols_from_vec,
-            total_calls_from_symbols,
+            symbols_count,
+            calls_count,
             graph.len()
         );
+
+        if total > 100 {
+            eprintln!("  Call graph complete: {} entries", graph.len());
+        }
 
         graph
     }

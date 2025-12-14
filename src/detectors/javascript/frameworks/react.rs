@@ -9,7 +9,7 @@
 use tree_sitter::Node;
 
 use crate::detectors::common::{get_node_text, push_unique_insertion, visit_all};
-use crate::schema::{SemanticSummary, StateChange};
+use crate::schema::{Call, SemanticSummary, StateChange};
 
 /// Enhance semantic summary with React-specific information
 ///
@@ -150,6 +150,24 @@ pub fn extract_jsx_insertions(summary: &mut SemanticSummary, root: &Node, source
             }
         }
     });
+
+    // Add PascalCase components to calls (for call graph)
+    // This captures component usage like <Button />, <Header>, <Icons.Home />
+    for tag_name in &jsx_tags {
+        // Only capture PascalCase names (React components, not HTML elements)
+        if tag_name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            // Only add if not already present
+            if !summary.calls.iter().any(|c| c.name == *tag_name) {
+                summary.calls.push(Call {
+                    name: tag_name.clone(),
+                    object: None,
+                    is_awaited: false,
+                    in_try: false,
+                    ..Default::default()
+                });
+            }
+        }
+    }
 
     // Header detection
     detect_header_pattern(&jsx_tags, summary);

@@ -32,6 +32,7 @@ pub use types::*;
 use helpers::{
     check_cache_staleness, check_cache_staleness_detailed, collect_files, parse_and_extract,
     generate_index_internal, IndexGenerationResult, analyze_files_with_stats, filter_repo_overview,
+    ensure_fresh_index, FreshnessResult, RefreshType, format_freshness_note,
 };
 
 // ============================================================================
@@ -113,26 +114,16 @@ impl McpDiffServer {
         self.working_dir.lock().await.clone()
     }
 
-    /// Ensure a sharded index exists for the repository, auto-generating if missing.
+    /// Ensure a sharded index exists and is fresh for the repository.
     ///
-    /// Returns the CacheDir and optionally the IndexGenerationResult if the index
-    /// was auto-generated.
-    async fn ensure_index(&self, repo_path: &Path) -> Result<(CacheDir, Option<IndexGenerationResult>), String> {
-        let cache = CacheDir::for_repo(repo_path)
-            .map_err(|e| format!("Failed to access cache: {}", e))?;
-
-        if cache.exists() {
-            return Ok((cache, None));
-        }
-
-        // Auto-generate with defaults (max_depth=10, all extensions)
-        let result = generate_index_internal(repo_path, 10, &[])?;
-
-        // Re-create cache reference after generation
-        let cache = CacheDir::for_repo(repo_path)
-            .map_err(|e| format!("Failed to access cache after generation: {}", e))?;
-
-        Ok((cache, Some(result)))
+    /// This transparently handles:
+    /// - Missing index: generates a new one
+    /// - Stale index with few changes: partial reindex
+    /// - Stale index with many changes: full regeneration
+    ///
+    /// Returns FreshnessResult containing the cache and refresh status.
+    async fn ensure_index(&self, repo_path: &Path) -> Result<FreshnessResult, String> {
+        ensure_fresh_index(repo_path, None)
     }
 
     // ========================================================================
@@ -424,36 +415,24 @@ impl McpDiffServer {
         let exclude_test_dirs = request.exclude_test_dirs.unwrap_or(true);
         let include_git_context = request.include_git_context.unwrap_or(true);
 
-        // Auto-generate index if missing
-        let (cache, gen_result) = match self.ensure_index(&repo_path).await {
+        // Ensure index exists and is fresh (auto-generates or refreshes if needed)
+        let freshness = match self.ensure_index(&repo_path).await {
             Ok(r) => r,
             Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
+        let cache = freshness.cache.clone();
 
         let overview_path = cache.repo_overview_path();
 
         match fs::read_to_string(&overview_path) {
             Ok(content) => {
-                // Build output with optional auto-generation notice
+                // Build output with optional freshness notice
                 let mut output = String::new();
 
-                if let Some(ref result) = gen_result {
-                    output.push_str(&format!(
-                        "📦 Index auto-generated ({} files, {} modules, {} symbols, {:.1}% compression, {}ms)\n\n",
-                        result.files_analyzed,
-                        result.modules_written,
-                        result.symbols_written,
-                        result.compression_pct,
-                        result.duration_ms
-                    ));
-                }
-
-                // Check for staleness (only if we didn't just generate)
-                if gen_result.is_none() {
-                    if let Some(warning) = check_cache_staleness(&cache) {
-                        output.push_str(&warning);
-                        output.push_str("\n\n");
-                    }
+                // Add freshness note if index was refreshed
+                if let Some(note) = format_freshness_note(&freshness) {
+                    output.push_str(&note);
+                    output.push_str("\n\n");
                 }
 
                 // Add git context if requested
@@ -518,26 +497,21 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        // Auto-generate index if missing
-        let (cache, gen_result) = match self.ensure_index(&repo_path).await {
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
             Ok(r) => r,
             Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
+        let cache = freshness.cache.clone();
 
         let modules = cache.list_modules();
 
         let mut output = String::new();
 
-        // Add auto-generation notice if applicable
-        if let Some(result) = gen_result {
-            output.push_str(&format!(
-                "📦 Index auto-generated ({} files, {} modules, {} symbols, {:.1}% compression, {}ms)\n\n",
-                result.files_analyzed,
-                result.modules_written,
-                result.symbols_written,
-                result.compression_pct,
-                result.duration_ms
-            ));
+        // Add freshness note if index was refreshed
+        if let Some(note) = format_freshness_note(&freshness) {
+            output.push_str(&note);
+            output.push_str("\n\n");
         }
 
         if modules.is_empty() {
@@ -563,12 +537,12 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
+        let cache = freshness.cache;
 
         let module_path = cache.module_path(&request.module_name);
         if !module_path.exists() {
@@ -597,12 +571,12 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
+        let cache = freshness.cache;
 
         let symbol_path = cache.symbol_path(&request.symbol_hash);
         if !symbol_path.exists() {
@@ -687,24 +661,18 @@ impl McpDiffServer {
         Parameters(request): Parameters<GetCallGraphRequest>,
     ) -> Result<CallToolResult, McpError> {
         use std::io::{BufRead, BufReader};
-        
+
         let repo_path = match &request.path {
             Some(p) => self.resolve_path(p).await,
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
-
-        if !cache.exists() {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No sharded index found for {}. Run generate_index first.", repo_path.display()
-            ))]));
-        }
+        let cache = freshness.cache;
 
         let call_graph_path = cache.call_graph_path();
         if !call_graph_path.exists() {
@@ -917,12 +885,13 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
+        let freshness_note = format_freshness_note(&freshness);
+        let cache = freshness.cache;
 
         let limit = request.limit.unwrap_or(20).min(100);
 
@@ -977,11 +946,20 @@ impl McpDiffServer {
             ))])),
         };
 
-        let output = if result.fallback_used {
+        let mut output = String::new();
+
+        // Add freshness note if index was refreshed
+        if let Some(note) = freshness_note {
+            output.push_str(&note);
+            output.push_str("\n\n");
+        }
+
+        let results_str = if result.fallback_used {
             format_ripgrep_results(&request.query, result.ripgrep_results.as_deref().unwrap_or(&[]))
         } else {
             format_search_results(&request.query, result.indexed_results.as_deref().unwrap_or(&[]))
         };
+        output.push_str(&results_str);
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
@@ -1059,19 +1037,12 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let cache = match CacheDir::for_repo(&repo_path) {
-            Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
         };
-
-        if !cache.has_symbol_index() {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No symbol index found for {}. Run generate_index first.",
-                repo_path.display()
-            ))]));
-        }
+        let cache = freshness.cache;
 
         let limit = request.limit.unwrap_or(50).min(200);
 

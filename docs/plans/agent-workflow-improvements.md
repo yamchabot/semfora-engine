@@ -238,36 +238,176 @@ suggestions:
 
 **Purpose**: Eliminate stale index issues without manual `check_index` calls.
 
-**Approach**:
+### Decision: Smart Staleness Detection (No Daemon Required)
+
+**Competitor Research Summary** (Dec 2024):
+- **Cursor**: Merkle trees + 10-minute sync intervals, integrated in IDE
+- **Sourcegraph**: LSIF pre-computed indexes, WebSocket connections
+- **rust-analyzer**: Persistent compilation in-process, no daemon
+- **Code-Index-MCP**: File watcher via watchdog library within MCP process
+- **Claude Context MCP**: Merkle trees, user-initiated, stdio transport
+
+**Key Finding**: No major tool requires a separate daemon. File watching is always integrated.
+
+**Rejected Approaches**:
+| Option | Why Rejected |
+|--------|--------------|
+| Daemon proxy | User friction ("start the daemon"), resource overhead |
+| Hybrid daemon/MCP | Over-engineered, two code paths to maintain |
+| HTTP transport mode | Adds complexity, most MCP clients expect stdio |
+
+### Final Architecture
+
 ```
-MCP Request (any query tool)
-    │
-    ▼
-Quick staleness check (~10ms)
-    │
-    ├─ Fresh → Proceed with query
-    │
-    └─ Stale → Partial reindex (changed files only)
-              │
-              ▼
-           Proceed with query
+┌─────────────────────────────────────────────────────────────┐
+│                    MCP Tool Request                         │
+│              (search_symbols, get_repo_overview, etc.)      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 Quick Staleness Check (~5ms)                │
+│   1. Compare indexed_sha vs current git HEAD                │
+│   2. Check for uncommitted changes via git status           │
+│   3. Compare index mtime vs source files (sampling)         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              │                               │
+        [Fresh Index]                  [Stale Index]
+              │                               │
+              ▼                               ▼
+     Execute Query                  ┌─────────────────────────┐
+                                    │  Determine Strategy      │
+                                    │  - <50 files: partial    │
+                                    │  - >50 files: full       │
+                                    └─────────────────────────┘
+                                              │
+                                              ▼
+                                    ┌─────────────────────────┐
+                                    │  Partial Reindex        │
+                                    │  (changed files only)   │
+                                    └─────────────────────────┘
+                                              │
+                                              ▼
+                                       Execute Query
+                                    + Include freshness note
 ```
 
-**Implementation**:
-1. On any query tool (`search_symbols`, `get_repo_overview`, etc.):
-   - Check index mtime vs git status
-   - If stale, identify changed files via `git diff --name-only`
-   - Reindex only those files
-   - Update affected module shards
+### Leveraging Existing Code
 
-2. Add `auto_refresh` behavior as default (already exists in `check_index`)
+| Existing Code | Location | Reuse For |
+|---------------|----------|-----------|
+| `DriftDetector::check_drift()` | `src/drift.rs:197` | Git SHA staleness detection |
+| `LayerSynchronizer::update_layer()` | `src/server/sync.rs:1` | Incremental update logic |
+| `check_cache_staleness_detailed()` | `src/mcp_server/helpers.rs:102` | File mtime comparison |
+| `generate_index_internal()` | `src/mcp_server/helpers.rs:351` | Full index generation |
+| `UpdateStrategy` enum | `src/drift.rs:197` | Fresh/Incremental/Rebase/FullRebuild |
 
-**Files to modify**:
-- `src/cache.rs` - Add `quick_staleness_check()` method
-- `src/shard.rs` - Add `partial_reindex(changed_files)` method
-- `src/mcp_server/mod.rs` - Call staleness check in query tools
+### New Implementation
 
-**Performance target**: <50ms overhead for typical cases (1-10 changed files)
+**1. `ensure_fresh_index()` in `src/mcp_server/helpers.rs`**
+```rust
+pub struct FreshnessResult {
+    pub cache: CacheDir,
+    pub refreshed: bool,
+    pub files_updated: usize,
+    pub duration_ms: u64,
+}
+
+/// Ensures index is fresh before query execution.
+/// Called at the start of all query tools.
+pub fn ensure_fresh_index(
+    repo_path: &Path,
+    max_stale_files: usize,  // Default 50
+) -> Result<FreshnessResult, String> {
+    // 1. Quick staleness check
+    // 2. If stale with <=max_stale_files: partial reindex
+    // 3. If stale with >max_stale_files: full reindex
+    // 4. Return cache + freshness note
+}
+```
+
+**2. `partial_reindex()` in `src/shard.rs`**
+```rust
+/// Incrementally update index for changed files only.
+/// Preserves unchanged symbols, updates affected module shards.
+pub fn partial_reindex(
+    cache: &CacheDir,
+    changed_files: &[PathBuf],
+) -> Result<PartialReindexStats, McpDiffError> {
+    // 1. Parse changed files
+    // 2. Identify affected modules
+    // 3. Load existing module shards
+    // 4. Replace/add symbols from changed files
+    // 5. Write updated module shards
+    // 6. Update repo_overview stats
+}
+```
+
+**3. `quick_staleness_check()` in `src/cache.rs`**
+```rust
+pub struct QuickStalenessResult {
+    pub is_stale: bool,
+    pub indexed_sha: Option<String>,
+    pub current_sha: String,
+    pub changed_files: Vec<PathBuf>,
+}
+
+/// Fast staleness check (~5ms) using git + sampling.
+pub fn quick_staleness_check(&self) -> QuickStalenessResult {
+    // 1. git rev-parse HEAD vs stored indexed_sha
+    // 2. git status --porcelain for uncommitted changes
+    // 3. Sample file mtimes (already in check_cache_staleness_detailed)
+}
+```
+
+### Performance Targets
+
+| Operation | Target | Implementation |
+|-----------|--------|----------------|
+| Staleness check | <5ms | Git SHA comparison + sampled mtimes |
+| Partial reindex (1-10 files) | <100ms | Incremental parsing, shard patching |
+| Partial reindex (10-50 files) | <500ms | Parallel analysis via rayon |
+| Full reindex trigger | Only if >50 files | Fallback to generate_index_internal |
+
+### User Experience
+
+**Before (current):**
+```
+Agent: Let me check the index status first...
+[calls check_index]
+Agent: The index is stale. Let me regenerate it...
+[calls generate_index - takes 5s]
+Agent: Now I can search...
+[calls search_symbols]
+```
+
+**After (proposed):**
+```
+Agent: Let me search for authentication code...
+[calls search_symbols - auto-refreshes if needed]
+Result includes: "⚡ Index refreshed (3 files updated in 45ms)"
+```
+
+### Files to Modify
+
+1. **`src/cache.rs`** - Add `quick_staleness_check()` method
+2. **`src/shard.rs`** - Add `partial_reindex()` function
+3. **`src/mcp_server/helpers.rs`** - Add `ensure_fresh_index()` wrapper
+4. **`src/mcp_server/mod.rs`** - Call `ensure_fresh_index()` in query tools:
+   - `search_symbols`
+   - `get_repo_overview`
+   - `list_symbols`
+   - `get_module`
+   - `get_symbol`
+   - `get_call_graph`
+
+### Open Design Decisions
+
+1. **Opt-out parameter?** Add `auto_refresh: Option<bool>` to disable for performance?
+2. **Threshold tuning**: Is 50 files the right cutoff for partial vs full reindex?
+3. **Response format**: Include freshness note in TOON or as separate field?
 
 ---
 

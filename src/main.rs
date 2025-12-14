@@ -337,12 +337,15 @@ fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_engine::Re
 
     // Check for incremental mode (SEM-47 drift detection)
     let mut update_strategy = UpdateStrategy::FullRebuild;
-    let mut current_sha: Option<String> = None;
 
-    if cli.incremental && is_git_repo(Some(dir_path)) {
-        // Get current HEAD SHA
-        current_sha = semfora_engine::git::git_command(&["rev-parse", "HEAD"], Some(dir_path)).ok();
+    // Always get current SHA for git repos (needed for staleness tracking)
+    let current_sha: Option<String> = if is_git_repo(Some(dir_path)) {
+        semfora_engine::git::git_command(&["rev-parse", "HEAD"], Some(dir_path)).ok()
+    } else {
+        None
+    };
 
+    if cli.incremental {
         if let Some(ref sha) = current_sha {
             let indexed_sha = cache.get_indexed_sha();
 
@@ -471,6 +474,11 @@ fn run_shard(cli: &Cli, dir_path: &Path, max_depth: usize) -> semfora_engine::Re
     if let Some(ref sha) = current_sha {
         cache.set_indexed_sha(sha)?;
         eprintln!("Saved indexed SHA: {}", sha);
+    }
+
+    // Save status hash so we don't re-index the same uncommitted changes
+    if let Some(status_hash) = cache.compute_status_hash() {
+        let _ = cache.set_status_hash(&status_hash);
     }
 
     // Format output

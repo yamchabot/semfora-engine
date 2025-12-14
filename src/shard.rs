@@ -10,6 +10,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use rayon::prelude::*;
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
@@ -181,7 +184,7 @@ impl ShardWriter {
     /// Write graph shards (call graph, import graph, module graph)
     fn write_graph_shards(&self, stats: &mut ShardStats) -> Result<()> {
         // Build and write call graph
-        let call_graph = build_call_graph(&self.all_summaries);
+        let call_graph = build_call_graph(&self.all_summaries, true);
         let call_graph_toon = encode_call_graph(&call_graph);
         fs::write(self.cache.call_graph_path(), &call_graph_toon)?;
         stats.graph_bytes += call_graph_toon.len();
@@ -512,7 +515,7 @@ fn encode_repo_overview_with_meta(overview: &RepoOverview, progress: &IndexingSt
 /// Encode a module shard with all its files
 ///
 /// Now lists ALL symbols from each file's summary.symbols, not just the primary one.
-fn encode_module_shard(module_name: &str, summaries: &[SemanticSummary], repo_root: &Path) -> String {
+pub(crate) fn encode_module_shard(module_name: &str, summaries: &[SemanticSummary], repo_root: &Path) -> String {
     let mut lines = Vec::new();
 
     lines.push(format!("_type: module_shard"));
@@ -602,7 +605,7 @@ fn encode_module_shard(module_name: &str, summaries: &[SemanticSummary], repo_ro
 }
 
 /// Encode a single symbol shard (legacy format)
-fn encode_symbol_shard(summary: &SemanticSummary) -> String {
+pub(crate) fn encode_symbol_shard(summary: &SemanticSummary) -> String {
     let mut lines = Vec::new();
 
     lines.push(format!("_type: symbol_shard"));
@@ -618,7 +621,7 @@ fn encode_symbol_shard(summary: &SemanticSummary) -> String {
 ///
 /// This creates a complete symbol shard from a SymbolInfo struct,
 /// combining file-level metadata from the summary with symbol-specific data.
-fn encode_symbol_shard_from_info(
+pub(crate) fn encode_symbol_shard_from_info(
     summary: &SemanticSummary,
     symbol_info: &SymbolInfo,
     symbol_id: &SymbolId,
@@ -797,100 +800,124 @@ fn resolve_call_to_hash(
 }
 
 /// Build call graph from summaries with resolved symbol hashes
-/// Now uses per-symbol calls (symbol.calls) instead of file-level calls
-fn build_call_graph(summaries: &[SemanticSummary]) -> HashMap<String, Vec<String>> {
+/// Parallelized with Rayon for better performance on large codebases
+fn build_call_graph(summaries: &[SemanticSummary], show_progress: bool) -> HashMap<String, Vec<String>> {
     use crate::overlay::compute_symbol_hash;
 
-    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    let total = summaries.len();
+    if show_progress && total > 100 {
+        eprintln!("Building call graph from {} files...", total);
+    }
 
-    // Build lookup for resolving call names to hashes
+    // Build lookup for resolving call names to hashes (must be done before parallel phase)
     let symbol_lookup = build_symbol_lookup(summaries);
 
-    for summary in summaries {
-        // Process each symbol in the file and use symbol.calls for per-function call tracking
-        for symbol in &summary.symbols {
-            // Compute hash using absolute path (summary.file) - canonical rule everywhere
-            let hash = compute_symbol_hash(symbol, &summary.file);
-            let mut calls: Vec<String> = Vec::new();
+    // Progress tracking
+    let processed = AtomicUsize::new(0);
 
-            // Extract from the symbol's own calls array (SymbolInfo.calls)
-            for c in &symbol.calls {
-                let call_name = if let Some(ref obj) = c.object {
-                    format!("{}.{}", obj, c.name)
-                } else {
-                    c.name.clone()
-                };
-                let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                if !calls.contains(&resolved) {
-                    calls.push(resolved);
-                }
+    // Process summaries in parallel, each producing a vec of (hash, calls) pairs
+    let results: Vec<Vec<(String, Vec<String>)>> = summaries
+        .par_iter()
+        .map(|summary| {
+            let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
+            if show_progress && total > 100 && (current % 500 == 0 || current == total) {
+                eprintln!("  Call graph progress: {}/{} ({:.1}%)", current, total, (current as f64 / total as f64) * 100.0);
             }
 
-            // Extract function calls from symbol's state_changes initializers
-            for state in &symbol.state_changes {
-                if !state.initializer.is_empty() {
-                    if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                        let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                        if !calls.contains(&resolved) {
-                            calls.push(resolved);
+            let mut entries: Vec<(String, Vec<String>)> = Vec::new();
+
+            // Process each symbol in the file
+            for symbol in &summary.symbols {
+                let hash = compute_symbol_hash(symbol, &summary.file);
+                let mut calls: Vec<String> = Vec::new();
+
+                // Extract from the symbol's own calls array
+                for c in &symbol.calls {
+                    let call_name = if let Some(ref obj) = c.object {
+                        format!("{}.{}", obj, c.name)
+                    } else {
+                        c.name.clone()
+                    };
+                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                    if !calls.contains(&resolved) {
+                        calls.push(resolved);
+                    }
+                }
+
+                // Extract function calls from symbol's state_changes initializers
+                for state in &symbol.state_changes {
+                    if !state.initializer.is_empty() {
+                        if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
+                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                            if !calls.contains(&resolved) {
+                                calls.push(resolved);
+                            }
                         }
                     }
                 }
-            }
 
-            if !calls.is_empty() {
-                graph.insert(hash, calls);
-            }
-        }
-
-        // Also process file-level calls (for backward compatibility and module-level code)
-        if let Some(ref symbol_id) = summary.symbol_id {
-            let mut calls: Vec<String> = Vec::new();
-
-            // Extract from file-level calls array (calls not inside any function)
-            for c in &summary.calls {
-                let call_name = if let Some(ref obj) = c.object {
-                    format!("{}.{}", obj, c.name)
-                } else {
-                    c.name.clone()
-                };
-                let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                if !calls.contains(&resolved) {
-                    calls.push(resolved);
+                if !calls.is_empty() {
+                    entries.push((hash, calls));
                 }
             }
 
-            // Extract function calls from file-level state_changes initializers
-            for state in &summary.state_changes {
-                if !state.initializer.is_empty() {
-                    if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                        let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                        if !calls.contains(&resolved) {
-                            calls.push(resolved);
+            // Also process file-level calls
+            if let Some(ref symbol_id) = summary.symbol_id {
+                let mut calls: Vec<String> = Vec::new();
+
+                for c in &summary.calls {
+                    let call_name = if let Some(ref obj) = c.object {
+                        format!("{}.{}", obj, c.name)
+                    } else {
+                        c.name.clone()
+                    };
+                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                    if !calls.contains(&resolved) {
+                        calls.push(resolved);
+                    }
+                }
+
+                for state in &summary.state_changes {
+                    if !state.initializer.is_empty() {
+                        if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
+                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
+                            if !calls.contains(&resolved) {
+                                calls.push(resolved);
+                            }
                         }
                     }
                 }
-            }
 
-            // Extract from added_dependencies that look like function calls
-            for dep in &summary.added_dependencies {
-                if !dep.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
-                    && !dep.contains("::")
-                {
-                    if dep.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                // Include both functions (lowercase) and components (PascalCase) from dependencies
+                // Only exclude Rust-style namespace paths (::)
+                for dep in &summary.added_dependencies {
+                    if !dep.contains("::") {
                         let resolved = resolve_call_to_hash(dep, &symbol_lookup);
                         if !calls.contains(&resolved) {
                             calls.push(resolved);
                         }
                     }
                 }
+
+                if !calls.is_empty() {
+                    entries.push((symbol_id.hash.clone(), calls));
+                }
             }
 
-            if !calls.is_empty() {
-                // Merge with existing entry for this symbol
-                graph.entry(symbol_id.hash.clone()).or_default().extend(calls);
-            }
+            entries
+        })
+        .collect();
+
+    // Merge results into final graph
+    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    for entries in results {
+        for (hash, calls) in entries {
+            graph.entry(hash).or_default().extend(calls);
         }
+    }
+
+    if show_progress && total > 100 {
+        eprintln!("  Call graph complete: {} entries", graph.len());
     }
 
     graph
@@ -1050,7 +1077,7 @@ fn encode_module_graph(graph: &HashMap<String, Vec<String>>) -> String {
 /// Returns the path-based namespace (directory structure after src/).
 /// For languages with real namespaces (Rust, Python, Java, Go), the extractor
 /// should override this with the actual language namespace.
-fn extract_module_name(file_path: &str) -> String {
+pub fn extract_module_name(file_path: &str) -> String {
     // Extract the portion of the path after /src/ (or similar source roots)
     // Order matters: more specific markers first (Assets/Scripts before Assets)
     let source_markers = [

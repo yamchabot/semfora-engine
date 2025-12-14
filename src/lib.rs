@@ -97,7 +97,7 @@ pub use cache::{
 };
 
 // Re-export shard module types
-pub use shard::{ShardStats, ShardWriter};
+pub use shard::{extract_module_name, ShardStats, ShardWriter};
 
 // Re-export benchmark types
 pub use benchmark::{

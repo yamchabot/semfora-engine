@@ -147,6 +147,15 @@ impl RepoContext {
 
         // Create working indexes for each worktree - each gets its OWN cache
         for wt in &worktrees {
+            // Skip if this worktree is the same as the base repo (main worktree)
+            // git worktree list includes the main repo as the first entry
+            if wt.path.canonicalize().unwrap_or_else(|_| wt.path.clone())
+                == base_repo_path.canonicalize().unwrap_or_else(|_| base_repo_path.clone())
+            {
+                tracing::debug!("Skipping main worktree (same as base repo): {:?}", wt.path);
+                continue;
+            }
+
             // Create a separate cache for this worktree using path-based hash
             let wt_cache = CacheDir::for_worktree(&wt.path)?;
 

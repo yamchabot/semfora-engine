@@ -558,6 +558,160 @@ impl ConnectionState {
                 }))
             }
 
+
+            "get_module_call_graph" => {
+                // Get module-level aggregated call graph
+                // Groups symbols by module and shows module-to-module dependencies
+                let cache = ctx.get_cache_for_scope(scope);
+                
+                // Load symbol index to map hashes to modules
+                let symbol_index = cache.load_all_symbol_entries()?;
+                let hash_to_module: std::collections::HashMap<String, String> = symbol_index.iter()
+                    .map(|e| (e.hash.clone(), e.module.clone()))
+                    .collect();
+                
+                // Count symbols per module for sizing
+                let mut module_symbol_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+                for entry in &symbol_index {
+                    *module_symbol_count.entry(entry.module.clone()).or_default() += 1;
+                }
+                
+                // Load call graph and aggregate to module level
+                let graph = cache.load_call_graph()?;
+                let mut module_graph: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+                let mut edge_count: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+                
+                for (caller_hash, callees) in &graph {
+                    let caller_module = hash_to_module.get(caller_hash)
+                        .cloned()
+                        .unwrap_or_else(|| "external".to_string());
+                    
+                    for callee_hash in callees {
+                        let callee_module = if callee_hash.starts_with("ext:") {
+                            "external".to_string()
+                        } else {
+                            hash_to_module.get(callee_hash)
+                                .cloned()
+                                .unwrap_or_else(|| "external".to_string())
+                        };
+                        
+                        // Skip self-references within same module
+                        if caller_module != callee_module {
+                            module_graph.entry(caller_module.clone())
+                                .or_default()
+                                .insert(callee_module.clone());
+                            *edge_count.entry((caller_module.clone(), callee_module.clone())).or_default() += 1;
+                        }
+                    }
+                }
+                
+                // Convert to JSON format with edge weights
+                let nodes: Vec<serde_json::Value> = module_symbol_count.iter()
+                    .map(|(module, count)| {
+                        let outgoing = module_graph.get(module).map(|s| s.len()).unwrap_or(0);
+                        serde_json::json!({
+                            "id": module,
+                            "symbol_count": count,
+                            "outgoing_modules": outgoing
+                        })
+                    })
+                    .collect();
+                
+                let edges: Vec<serde_json::Value> = edge_count.iter()
+                    .map(|((from, to), weight)| {
+                        serde_json::json!({
+                            "from": from,
+                            "to": to,
+                            "weight": weight
+                        })
+                    })
+                    .collect();
+                
+                Ok(serde_json::json!({
+                    "nodes": nodes,
+                    "edges": edges,
+                    "module_count": module_symbol_count.len(),
+                    "total_symbols": symbol_index.len(),
+                    "scope": scope.unwrap_or("base_branch")
+                }))
+            }
+
+            "list_modules" => {
+                // List all modules with symbol counts
+                let cache = ctx.get_cache_for_scope(scope);
+                let symbol_index = cache.load_all_symbol_entries()?;
+                
+                let mut module_stats: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+                for entry in &symbol_index {
+                    let (count, high_risk) = module_stats.entry(entry.module.clone()).or_default();
+                    *count += 1;
+                    if entry.risk == "high" {
+                        *high_risk += 1;
+                    }
+                }
+                
+                let modules: Vec<serde_json::Value> = module_stats.iter()
+                    .map(|(name, (count, high_risk))| {
+                        serde_json::json!({
+                            "name": name,
+                            "symbol_count": count,
+                            "high_risk_count": high_risk
+                        })
+                    })
+                    .collect();
+                
+                Ok(serde_json::json!({
+                    "modules": modules,
+                    "total_modules": modules.len(),
+                    "scope": scope.unwrap_or("base_branch")
+                }))
+            }
+
+            "get_module_symbols" => {
+                // Get symbols for a specific module with pagination
+                let module = params.get("module")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'module' parameter"))?;
+                
+                let limit = params.get("limit")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(100) as usize;
+                
+                let offset = params.get("offset")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+                
+                let cache = ctx.get_cache_for_scope(scope);
+                let symbol_index = cache.load_all_symbol_entries()?;
+                
+                let module_symbols: Vec<&crate::cache::SymbolIndexEntry> = symbol_index.iter()
+                    .filter(|e| e.module == module)
+                    .collect();
+                
+                let total = module_symbols.len();
+                let page: Vec<serde_json::Value> = module_symbols.iter()
+                    .skip(offset)
+                    .take(limit)
+                    .map(|e| serde_json::json!({
+                        "hash": e.hash,
+                        "symbol": e.symbol,
+                        "kind": e.kind,
+                        "file": e.file,
+                        "lines": e.lines,
+                        "risk": e.risk
+                    }))
+                    .collect();
+                
+                Ok(serde_json::json!({
+                    "module": module,
+                    "symbols": page,
+                    "total": total,
+                    "offset": offset,
+                    "limit": limit,
+                    "scope": scope.unwrap_or("base_branch")
+                }))
+            }
+
             _ => Err(anyhow::anyhow!("Unknown method: {}", method)),
         }
     }

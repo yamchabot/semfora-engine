@@ -153,6 +153,54 @@ export default function AppLayout() {
     }
 
     #[test]
+    fn test_jsx_component_calls_in_summary() {
+        let source = r#"
+import { Button } from './ui';
+import Header from './Header';
+import { Icons } from './icons';
+
+export function Page() {
+    return (
+        <div>
+            <Header />
+            <Button>Click</Button>
+            <Button>Another</Button>
+            <Icons.Home />
+        </div>
+    );
+}
+"#;
+
+        let tree = parse_source(source, Lang::Tsx);
+        let path = PathBuf::from("Page.tsx");
+        let summary = extract(&path, source, &tree, Lang::Tsx).unwrap();
+
+        // Verify PascalCase components appear in calls
+        let call_names: Vec<&str> = summary.calls.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            call_names.contains(&"Header"),
+            "Expected Header in calls, got: {:?}",
+            call_names
+        );
+        assert!(
+            call_names.contains(&"Button"),
+            "Expected Button in calls, got: {:?}",
+            call_names
+        );
+        assert!(
+            call_names.contains(&"Icons.Home"),
+            "Expected Icons.Home in calls, got: {:?}",
+            call_names
+        );
+
+        // Verify lowercase HTML elements are NOT in calls
+        assert!(
+            !call_names.contains(&"div"),
+            "div (HTML element) should not be in calls"
+        );
+    }
+
+    #[test]
     fn test_extract_rust_function() {
         let source = r#"
 use std::io::Result;
