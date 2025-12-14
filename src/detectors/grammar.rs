@@ -173,13 +173,40 @@ pub fn python_is_exported(node: &Node, source: &str) -> bool {
     }
 }
 
-/// Java/C#: has `public` modifier
+/// Java: has `public` modifier
 pub fn java_is_exported(node: &Node, _source: &str) -> bool {
     if let Some(modifiers) = node.child_by_field_name("modifiers") {
         let mut cursor = modifiers.walk();
         for child in modifiers.children(&mut cursor) {
             if child.kind() == "public" {
                 return true;
+            }
+        }
+    }
+    false
+}
+
+/// C#: has `public` or `internal` modifier (similar to Java but with different AST)
+pub fn csharp_is_exported(node: &Node, source: &str) -> bool {
+    // Check for modifiers field
+    if let Some(modifiers) = node.child_by_field_name("modifiers") {
+        let mut cursor = modifiers.walk();
+        for child in modifiers.children(&mut cursor) {
+            if let Ok(text) = child.utf8_text(source.as_bytes()) {
+                if text == "public" || text == "internal" {
+                    return true;
+                }
+            }
+        }
+    }
+    // Also check direct children for modifier nodes
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "modifier" {
+            if let Ok(text) = child.utf8_text(source.as_bytes()) {
+                if text == "public" || text == "internal" {
+                    return true;
+                }
             }
         }
     }
@@ -312,6 +339,39 @@ pub static JAVA_GRAMMAR: LangGrammar = LangGrammar {
     uppercase_is_export: false,
     visibility_modifiers: &["public", "protected", "private"],
     decorator_nodes: &["annotation", "marker_annotation"],
+};
+
+pub static CSHARP_GRAMMAR: LangGrammar = LangGrammar {
+    name: "csharp",
+    function_nodes: &["method_declaration", "constructor_declaration", "local_function_statement"],
+    class_nodes: &["class_declaration", "struct_declaration", "record_declaration"],
+    interface_nodes: &["interface_declaration"],
+    enum_nodes: &["enum_declaration"],
+    control_flow_nodes: &[
+        "if_statement",
+        "for_statement",
+        "foreach_statement",
+        "while_statement",
+        "do_statement",
+        "switch_statement",
+        "switch_expression", // C# 8+ pattern matching switch
+    ],
+    try_nodes: &["try_statement"],
+    var_declaration_nodes: &["local_declaration_statement", "field_declaration", "property_declaration"],
+    assignment_nodes: &["assignment_expression"],
+    call_nodes: &["invocation_expression"],
+    await_nodes: &["await_expression"],
+    import_nodes: &["using_directive"],
+    name_field: "name",
+    value_field: "value",
+    type_field: "type",
+    body_field: "body",
+    params_field: "parameters",
+    condition_field: "condition",
+    is_exported: csharp_is_exported,
+    uppercase_is_export: false,
+    visibility_modifiers: &["public", "protected", "private", "internal"],
+    decorator_nodes: &["attribute_list", "attribute"],
 };
 
 pub static PYTHON_GRAMMAR: LangGrammar = LangGrammar {
@@ -651,6 +711,7 @@ pub fn get_grammar(lang_name: &str) -> Option<&'static LangGrammar> {
         "rust" | "rs" => Some(&RUST_GRAMMAR),
         "go" => Some(&GO_GRAMMAR),
         "java" => Some(&JAVA_GRAMMAR),
+        "csharp" | "c#" | "cs" => Some(&CSHARP_GRAMMAR),
         "python" | "py" => Some(&PYTHON_GRAMMAR),
         "javascript" | "js" | "jsx" => Some(&JAVASCRIPT_GRAMMAR),
         "typescript" | "ts" | "tsx" => Some(&TYPESCRIPT_GRAMMAR),
@@ -688,6 +749,7 @@ mod tests {
             &RUST_GRAMMAR,
             &GO_GRAMMAR,
             &JAVA_GRAMMAR,
+            &CSHARP_GRAMMAR,
             &PYTHON_GRAMMAR,
             &JAVASCRIPT_GRAMMAR,
             &TYPESCRIPT_GRAMMAR,

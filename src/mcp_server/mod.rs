@@ -1345,14 +1345,22 @@ fn get_supported_languages() -> String {
         ("Python", ".py, .pyi"),
         ("Go", ".go"),
         ("Java", ".java"),
+        ("C#", ".cs"),
         ("C", ".c, .h"),
         ("C++", ".cpp, .cc, .cxx, .hpp, .hxx, .hh"),
+        ("Kotlin", ".kt, .kts"),
         ("HTML", ".html, .htm"),
         ("CSS", ".css"),
+        ("SCSS", ".scss, .sass"),
         ("JSON", ".json"),
         ("YAML", ".yaml, .yml"),
         ("TOML", ".toml"),
+        ("XML", ".xml, .xsd, .xsl, .xslt, .svg, .plist, .pom"),
+        ("HCL/Terraform", ".tf, .hcl, .tfvars"),
         ("Markdown", ".md, .markdown"),
+        ("Vue", ".vue"),
+        ("Bash/Shell", ".sh, .bash, .zsh, .fish"),
+        ("Gradle", ".gradle"),
     ];
 
     let mut output = String::from("Supported Languages:\n\n");

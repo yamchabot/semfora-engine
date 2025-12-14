@@ -59,6 +59,9 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
             crate::lang::LangFamily::Java => {
                 crate::detectors::java::extract(&mut summary, source, tree)?;
             }
+            crate::lang::LangFamily::CSharp => {
+                crate::detectors::csharp::extract(&mut summary, source, tree)?;
+            }
             crate::lang::LangFamily::Kotlin => {
                 crate::detectors::kotlin::extract(&mut summary, source, tree)?;
             }

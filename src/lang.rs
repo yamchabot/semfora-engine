@@ -18,6 +18,8 @@ pub enum Lang {
     Java,
     C,
     Cpp,
+    /// C# (.NET)
+    CSharp,
     Kotlin,
     Html,
     Css,
@@ -62,6 +64,7 @@ impl Lang {
             "java" => Ok(Self::Java),
             "c" | "h" => Ok(Self::C),
             "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Ok(Self::Cpp),
+            "cs" => Ok(Self::CSharp),
             "kt" | "kts" => Ok(Self::Kotlin),
             "html" | "htm" => Ok(Self::Html),
             "css" => Ok(Self::Css),
@@ -94,6 +97,7 @@ impl Lang {
             Self::Java => "java",
             Self::C => "c",
             Self::Cpp => "cpp",
+            Self::CSharp => "csharp",
             Self::Kotlin => "kotlin",
             Self::Html => "html",
             Self::Css => "css",
@@ -125,6 +129,7 @@ impl Lang {
             Self::Java => tree_sitter_java::LANGUAGE.into(),
             Self::C => tree_sitter_c::LANGUAGE.into(),
             Self::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+            Self::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
             Self::Kotlin => tree_sitter_kotlin_ng::LANGUAGE.into(),
             Self::Html | Self::Vue => tree_sitter_html::LANGUAGE.into(),
             Self::Css => tree_sitter_css::language().into(),
@@ -150,6 +155,7 @@ impl Lang {
             Self::Python => LangFamily::Python,
             Self::Go => LangFamily::Go,
             Self::Java => LangFamily::Java,
+            Self::CSharp => LangFamily::CSharp,
             Self::Kotlin => LangFamily::Kotlin,
             Self::C | Self::Cpp => LangFamily::CFamily,
             Self::Html | Self::Css | Self::Scss | Self::Markdown => LangFamily::Markup,
@@ -174,6 +180,7 @@ impl Lang {
                 | LangFamily::Python
                 | LangFamily::Go
                 | LangFamily::Java
+                | LangFamily::CSharp
                 | LangFamily::Kotlin
                 | LangFamily::CFamily
                 | LangFamily::Shell
@@ -194,6 +201,7 @@ impl Lang {
             Self::Java => &["java"],
             Self::C => &["c", "h"],
             Self::Cpp => &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
+            Self::CSharp => &["cs"],
             Self::Kotlin => &["kt", "kts"],
             Self::Html => &["html", "htm"],
             Self::Css => &["css"],
@@ -229,6 +237,8 @@ pub enum LangFamily {
     Go,
     /// Java
     Java,
+    /// C# (.NET)
+    CSharp,
     /// Kotlin
     Kotlin,
     /// C and C++
@@ -254,6 +264,7 @@ impl LangFamily {
             Self::Python => "python",
             Self::Go => "go",
             Self::Java => "java",
+            Self::CSharp => "csharp",
             Self::Kotlin => "kotlin",
             Self::CFamily => "c_family",
             Self::Markup => "markup",

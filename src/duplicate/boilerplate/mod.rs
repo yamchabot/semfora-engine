@@ -18,6 +18,7 @@
 //! 3. Add `mod {language};` and chain in `all_patterns()`
 //! 4. Add categories to `BoilerplateCategory` enum
 
+pub mod csharp;
 pub mod javascript;
 pub mod rust;
 
@@ -144,30 +145,55 @@ pub enum BoilerplateCategory {
     // - HeaderGuard: #ifndef/#define/#endif patterns
 
     // =========================================================================
-    // C# Patterns (TODO: Implement in csharp.rs) - HIGHEST PRIORITY
+    // C# Patterns
     // =========================================================================
-    // TODO(SEM-XX): C# boilerplate detection - HIGHEST PRIORITY (Enterprise adoption)
-    // ASP.NET Core:
-    // - AspNetController: Controller action methods
-    // - AspNetMinimalApi: Minimal API endpoint patterns (app.MapGet, app.MapPost)
-    // - AspNetMiddleware: Middleware registration patterns
-    // - AspNetDI: Dependency injection registrations (services.AddScoped, etc.)
-    // Entity Framework:
-    // - EFDbContext: DbContext boilerplate
-    // - EFDbSet: DbSet property declarations
-    // - EFFluentApi: Fluent API schema configuration
-    // - EFMigration: Migration patterns
-    // Testing:
-    // - XUnitTest: xUnit test methods ([Fact], [Theory])
-    // - NUnitTest: NUnit test methods ([Test], [TestCase])
-    // - MoqSetup: Moq mock setup patterns
-    // LINQ:
-    // - LinqChain: Select/Where/GroupBy boilerplate chains
-    // - LinqProjection: Projection-only pipelines
-    // Unity (optional):
-    // - UnityLifecycle: MonoBehaviour lifecycle methods (Start, Update, etc.)
-    // - UnitySerializedField: [SerializeField] patterns
-    // - UnityScriptableObject: ScriptableObject configs
+    // ASP.NET Core
+    /// ASP.NET Controller action methods ([HttpGet], [HttpPost], IActionResult)
+    AspNetController,
+    /// ASP.NET Minimal API endpoints (app.MapGet, app.MapPost)
+    AspNetMinimalApi,
+    /// ASP.NET Middleware patterns (Invoke, InvokeAsync)
+    AspNetMiddleware,
+    /// ASP.NET DI registrations (services.AddScoped, AddSingleton, AddTransient)
+    AspNetDI,
+
+    // Entity Framework
+    /// EF DbContext boilerplate (OnConfiguring, OnModelCreating)
+    EFDbContext,
+    /// EF DbSet property declarations
+    EFDbSet,
+    /// EF Fluent API configuration (HasKey, HasOne, HasMany)
+    EFFluentApi,
+    /// EF Migration patterns (Up, Down methods)
+    EFMigration,
+
+    // Testing
+    /// xUnit test methods ([Fact], [Theory])
+    XUnitTest,
+    /// NUnit test methods ([Test], [TestCase])
+    NUnitTest,
+    /// Moq mock setup patterns
+    MoqSetup,
+
+    // LINQ
+    /// LINQ Select/Where/GroupBy boilerplate chains
+    LinqChain,
+    /// LINQ projection-only pipelines
+    LinqProjection,
+
+    // Unity
+    /// Unity MonoBehaviour lifecycle methods (Start, Update, Awake)
+    UnityLifecycle,
+    /// Unity [SerializeField] field patterns
+    UnitySerializedField,
+    /// Unity ScriptableObject configs (CreateAssetMenu)
+    UnityScriptableObject,
+
+    // General C#
+    /// C# auto-property accessor (get; set;)
+    CSharpProperty,
+    /// C# record types (primary constructors)
+    CSharpRecord,
 
     // =========================================================================
     // Kotlin Patterns (TODO: Implement in kotlin.rs) - HIGH PRIORITY
@@ -249,6 +275,25 @@ impl BoilerplateCategory {
             BoilerplateCategory::RustDrop => "Rust Drop implementation",
             BoilerplateCategory::RustTest => "Rust test function",
             BoilerplateCategory::RustSerde => "Rust serde helper",
+            // C# patterns
+            BoilerplateCategory::AspNetController => "ASP.NET Controller action method",
+            BoilerplateCategory::AspNetMinimalApi => "ASP.NET Minimal API endpoint",
+            BoilerplateCategory::AspNetMiddleware => "ASP.NET Middleware pattern",
+            BoilerplateCategory::AspNetDI => "ASP.NET DI registration",
+            BoilerplateCategory::EFDbContext => "Entity Framework DbContext method",
+            BoilerplateCategory::EFDbSet => "Entity Framework DbSet property",
+            BoilerplateCategory::EFFluentApi => "Entity Framework Fluent API configuration",
+            BoilerplateCategory::EFMigration => "Entity Framework Migration method",
+            BoilerplateCategory::XUnitTest => "xUnit test method",
+            BoilerplateCategory::NUnitTest => "NUnit test method",
+            BoilerplateCategory::MoqSetup => "Moq mock setup",
+            BoilerplateCategory::LinqChain => "LINQ method chain",
+            BoilerplateCategory::LinqProjection => "LINQ projection",
+            BoilerplateCategory::UnityLifecycle => "Unity lifecycle method",
+            BoilerplateCategory::UnitySerializedField => "Unity serialized field",
+            BoilerplateCategory::UnityScriptableObject => "Unity ScriptableObject",
+            BoilerplateCategory::CSharpProperty => "C# auto-property",
+            BoilerplateCategory::CSharpRecord => "C# record boilerplate",
             // Cross-language
             BoilerplateCategory::Custom => "Custom boilerplate pattern",
         }
@@ -286,6 +331,25 @@ impl BoilerplateCategory {
             | BoilerplateCategory::RustDrop
             | BoilerplateCategory::RustTest
             | BoilerplateCategory::RustSerde => Some(Lang::Rust),
+            // C# patterns
+            BoilerplateCategory::AspNetController
+            | BoilerplateCategory::AspNetMinimalApi
+            | BoilerplateCategory::AspNetMiddleware
+            | BoilerplateCategory::AspNetDI
+            | BoilerplateCategory::EFDbContext
+            | BoilerplateCategory::EFDbSet
+            | BoilerplateCategory::EFFluentApi
+            | BoilerplateCategory::EFMigration
+            | BoilerplateCategory::XUnitTest
+            | BoilerplateCategory::NUnitTest
+            | BoilerplateCategory::MoqSetup
+            | BoilerplateCategory::LinqChain
+            | BoilerplateCategory::LinqProjection
+            | BoilerplateCategory::UnityLifecycle
+            | BoilerplateCategory::UnitySerializedField
+            | BoilerplateCategory::UnityScriptableObject
+            | BoilerplateCategory::CSharpProperty
+            | BoilerplateCategory::CSharpRecord => Some(Lang::CSharp),
             // Cross-language
             BoilerplateCategory::Custom => None,
         }
@@ -319,6 +383,7 @@ pub fn all_patterns() -> impl Iterator<Item = &'static PatternMatcher> {
     javascript::PATTERNS
         .iter()
         .chain(rust::PATTERNS.iter())
+        .chain(csharp::PATTERNS.iter())
 }
 
 /// Check if a language is compatible with pattern's target languages

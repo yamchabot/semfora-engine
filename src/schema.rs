@@ -97,6 +97,11 @@ pub struct SymbolInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_changes: Vec<StateChange>,
 
+    /// Decorators/attributes applied to this symbol
+    /// Examples: C# [HttpGet], Python @decorator, Java @Annotation
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decorators: Vec<String>,
+
     /// Behavioral risk level for this symbol
     pub behavioral_risk: RiskLevel,
 }

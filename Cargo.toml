@@ -34,6 +34,7 @@ tree-sitter-go = "0.23"
 tree-sitter-java = "0.23"
 tree-sitter-c = "0.23"
 tree-sitter-cpp = "0.23"
+tree-sitter-c-sharp = "0.23"
 
 # Language grammars - Markup & Config
 tree-sitter-html = "0.23"

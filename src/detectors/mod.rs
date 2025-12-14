@@ -24,6 +24,7 @@
 //! - `python`: Python (with decorator detection)
 //! - `go`: Go
 //! - `java`: Java
+//! - `csharp`: C# (.NET)
 //! - `c_family`: C, C++
 //! - `markup`: HTML, CSS, Markdown
 //! - `config`: JSON, YAML, TOML
@@ -45,16 +46,14 @@
 //!
 //! # Language Roadmap
 //!
-//! ## Priority 1: C# (.NET) - HIGHEST PRIORITY
-//! TODO(SEM-XX): Add C# detector (csharp.rs)
+//! ## IMPLEMENTED: C# (.NET)
 //! - Parser: tree-sitter-c-sharp (mature)
 //! - Targets: classes, records, structs, interfaces, enums
 //! - Control flow: if, switch, await, try/catch, pattern matching
 //! - Modifiers: async, unsafe, partial, static
-//! - Frameworks: ASP.NET Core, Entity Framework, Unity
-//! - Strategic value: Enterprise adoption, outperform competitors on .NET repos
+//! - Frameworks: ASP.NET Core, Entity Framework, Unity (via boilerplate detection)
 //!
-//! ## Priority 2: Kotlin - HIGH PRIORITY
+//! ## Priority 1: Kotlin - HIGH PRIORITY
 //! TODO(SEM-XX): Enhance Kotlin detector (kotlin.rs)
 //! - Add data class and copy semantics
 //! - Add coroutines and suspend function tracking
@@ -97,6 +96,7 @@
 pub mod c_family;
 pub mod common;
 pub mod config;
+pub mod csharp;
 pub mod generic;
 pub mod go;
 pub mod gradle;

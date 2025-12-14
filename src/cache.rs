@@ -15,6 +15,17 @@ use crate::git;
 use crate::overlay::{LayerKind, LayeredIndex, Overlay};
 use crate::schema::{fnv1a_hash, SCHEMA_VERSION};
 
+/// Normalize symbol kind aliases for filtering
+/// Maps shorthand forms (fn, struct) to full names (function, class)
+fn normalize_kind(kind: &str) -> &str {
+    match kind {
+        "fn" | "func" | "method" => "function",
+        "struct" | "record" => "class", // C# structs/records stored as class
+        "interface" => "trait",          // Stored as trait in index
+        other => other,
+    }
+}
+
 /// Metadata for cached files to detect staleness
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheMeta {
@@ -709,7 +720,8 @@ impl CacheDir {
                 }
             }
             if let Some(k) = kind_filter {
-                if entry.kind != k {
+                let normalized_kind = normalize_kind(k);
+                if entry.kind != normalized_kind {
                     continue;
                 }
             }
@@ -768,7 +780,8 @@ impl CacheDir {
 
             // Apply optional filters
             if let Some(k) = kind_filter {
-                if entry.kind != k {
+                let normalized_kind = normalize_kind(k);
+                if entry.kind != normalized_kind {
                     continue;
                 }
             }
@@ -4031,6 +4044,7 @@ mod tests {
             control_flow: Vec::new(),
             state_changes: Vec::new(),
             behavioral_risk: crate::schema::RiskLevel::Low,
+            decorators: Vec::new(),
         };
 
         let hash1 = compute_symbol_hash(&symbol, "/path/to/file.ts");
