@@ -361,6 +361,7 @@ impl ShardWriter {
                         control_flow: summary.control_flow_changes.clone(),
                         state_changes: summary.state_changes.clone(),
                         behavioral_risk: summary.behavioral_risk,
+                        decorators: Vec::new(),
                     };
 
                     let signature = FunctionSignature::from_symbol_info(
@@ -1051,7 +1052,24 @@ fn encode_module_graph(graph: &HashMap<String, Vec<String>>) -> String {
 /// should override this with the actual language namespace.
 fn extract_module_name(file_path: &str) -> String {
     // Extract the portion of the path after /src/ (or similar source roots)
-    let source_markers = ["/src/", "/lib/", "/app/", "/pages/"];
+    // Order matters: more specific markers first (Assets/Scripts before Assets)
+    let source_markers = [
+        // Standard web/backend
+        "/src/",
+        "/lib/",
+        "/app/",
+        "/pages/",
+        // Game engines (specific first)
+        "/Assets/Scripts/", // Unity C# scripts
+        "/Assets/",         // Unity (fallback for other assets)
+        "/Source/",         // Unreal C++
+        "/Content/",        // Unreal Blueprints
+        "/scripts/",        // Godot GDScript
+        "/addons/",         // Godot addons
+        // Monorepos
+        "/packages/",
+        "/modules/",
+    ];
     let mut relative_path = file_path;
 
     for marker in &source_markers {
@@ -1061,9 +1079,22 @@ fn extract_module_name(file_path: &str) -> String {
         }
     }
 
-    // Also handle relative paths starting with src/
+    // Also handle relative paths starting with src/ (matching absolute markers)
     if relative_path == file_path {
-        for prefix in &["src/", "lib/", "app/", "pages/"] {
+        for prefix in &[
+            "src/",
+            "lib/",
+            "app/",
+            "pages/",
+            "Assets/Scripts/",
+            "Assets/",
+            "Source/",
+            "Content/",
+            "scripts/",
+            "addons/",
+            "packages/",
+            "modules/",
+        ] {
             if let Some(stripped) = file_path.strip_prefix(prefix) {
                 relative_path = stripped;
                 break;
@@ -1122,6 +1153,26 @@ mod tests {
 
         // Nested directories use dots
         assert_eq!(extract_module_name("/project/src/server/api/handlers/users.ts"), "server.api.handlers");
+
+        // Unity paths (Assets/Scripts/)
+        assert_eq!(extract_module_name("/project/Assets/Scripts/Game/Player.cs"), "Game");
+        assert_eq!(extract_module_name("/project/Assets/Scripts/UI/MainMenu.cs"), "UI");
+        assert_eq!(extract_module_name("Assets/Scripts/Entities/Enemy.cs"), "Entities");
+
+        // Unity fallback (Assets/ without Scripts)
+        assert_eq!(extract_module_name("/project/Assets/Editor/BuildTools.cs"), "Editor");
+
+        // Unreal paths (Source/)
+        assert_eq!(extract_module_name("/project/Source/MyGame/Character.cpp"), "MyGame");
+        assert_eq!(extract_module_name("Source/Game/Weapons/Gun.h"), "Game.Weapons");
+
+        // Godot paths (scripts/)
+        assert_eq!(extract_module_name("/project/scripts/player/movement.gd"), "player");
+        assert_eq!(extract_module_name("scripts/enemies/boss.gd"), "enemies");
+
+        // Monorepo paths (packages/)
+        assert_eq!(extract_module_name("/repo/packages/core/utils/format.ts"), "core.utils");
+        assert_eq!(extract_module_name("packages/api/handlers/auth.ts"), "api.handlers");
     }
 
     #[test]

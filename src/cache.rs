@@ -26,6 +26,39 @@ fn normalize_kind(kind: &str) -> &str {
     }
 }
 
+/// Match a glob pattern against a symbol name
+/// Supports: * (any chars), ? (single char)
+///
+/// Examples:
+/// - `*Manager` matches "GameManager", "TaskManager"
+/// - `get*` matches "getData", "getUser"
+/// - `*` matches everything
+/// - `handle?` matches "handler", "handles"
+fn match_glob_pattern(symbol: &str, pattern: &str) -> bool {
+    // Escape regex special chars except * and ?
+    let mut regex_pattern = String::with_capacity(pattern.len() * 2);
+    regex_pattern.push('^');
+
+    for c in pattern.chars() {
+        match c {
+            '*' => regex_pattern.push_str(".*"),
+            '?' => regex_pattern.push('.'),
+            // Escape regex metacharacters
+            '.' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' | '\\' => {
+                regex_pattern.push('\\');
+                regex_pattern.push(c);
+            }
+            _ => regex_pattern.push(c),
+        }
+    }
+
+    regex_pattern.push('$');
+
+    regex::Regex::new(&regex_pattern)
+        .map(|re| re.is_match(symbol))
+        .unwrap_or(false)
+}
+
 /// Metadata for cached files to detect staleness
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheMeta {
@@ -708,8 +741,21 @@ impl CacheDir {
                 Err(_) => continue, // Skip malformed lines
             };
 
-            // Match query against symbol name (case-insensitive, partial)
-            if !entry.symbol.to_lowercase().contains(&query_lower) {
+            // Match query against symbol name (case-insensitive)
+            // Supports: empty/"*" = match all, *foo* = glob pattern, foo = substring
+            let symbol_lower = entry.symbol.to_lowercase();
+            let matches = if query_lower.is_empty() || query_lower == "*" {
+                // Empty or "*" matches all symbols
+                true
+            } else if query_lower.contains('*') || query_lower.contains('?') {
+                // Glob pattern matching
+                match_glob_pattern(&symbol_lower, &query_lower)
+            } else {
+                // Default: substring matching (original behavior)
+                symbol_lower.contains(&query_lower)
+            };
+
+            if !matches {
                 continue;
             }
 
@@ -2274,6 +2320,45 @@ mod tests {
         assert_eq!(sanitize_filename("api"), "api");
         assert_eq!(sanitize_filename("components/ui"), "components_ui");
         assert_eq!(sanitize_filename("src:main"), "src_main");
+    }
+
+    #[test]
+    fn test_match_glob_pattern() {
+        // Exact match
+        assert!(match_glob_pattern("gamemanager", "gamemanager"));
+
+        // Wildcard at end
+        assert!(match_glob_pattern("getdata", "get*"));
+        assert!(match_glob_pattern("getuser", "get*"));
+        assert!(!match_glob_pattern("setdata", "get*"));
+
+        // Wildcard at start
+        assert!(match_glob_pattern("gamemanager", "*manager"));
+        assert!(match_glob_pattern("taskmanager", "*manager"));
+        assert!(!match_glob_pattern("managertask", "*manager"));
+
+        // Wildcard in middle
+        assert!(match_glob_pattern("getdatafromapi", "get*api"));
+        assert!(!match_glob_pattern("setdatafromapi", "get*api"));
+
+        // Multiple wildcards
+        assert!(match_glob_pattern("handleuserclick", "*user*"));
+        assert!(match_glob_pattern("getuserdata", "*user*"));
+
+        // Match all with single asterisk
+        assert!(match_glob_pattern("anything", "*"));
+        assert!(match_glob_pattern("", "*"));
+
+        // Single character wildcard
+        assert!(match_glob_pattern("handler", "handle?"));
+        assert!(match_glob_pattern("handles", "handle?"));
+        assert!(!match_glob_pattern("handle", "handle?"));
+        assert!(!match_glob_pattern("handlers", "handle?"));
+
+        // Regex special chars should be escaped
+        assert!(match_glob_pattern("foo.bar", "foo.bar"));
+        assert!(!match_glob_pattern("fooXbar", "foo.bar"));
+        assert!(match_glob_pattern("foo.bar.baz", "foo*baz"));
     }
 
     #[test]

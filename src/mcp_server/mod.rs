@@ -507,12 +507,90 @@ impl McpDiffServer {
             )]));
         }
 
-        match fs::read_to_string(&call_graph_path) {
-            Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+        // Parse parameters
+        let limit = request.limit.unwrap_or(500).min(2000) as usize;
+        let offset = request.offset.unwrap_or(0) as usize;
+        let summary_only = request.summary_only.unwrap_or(false);
+
+        // Read and parse call graph
+        let content = match fs::read_to_string(&call_graph_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to read call graph: {}", e
             ))])),
+        };
+
+        // Parse into edges: Vec<(caller, Vec<callees>)>
+        let mut edges: Vec<(String, Vec<String>)> = Vec::new();
+        for line in content.lines() {
+            // Skip header lines
+            if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+                continue;
+            }
+            // Parse "hash: ["callee1","callee2"]"
+            if let Some(colon_pos) = line.find(':') {
+                let caller = line[..colon_pos].trim().to_string();
+                let rest = line[colon_pos + 1..].trim();
+                if rest.starts_with('[') && rest.ends_with(']') {
+                    let inner = &rest[1..rest.len()-1];
+                    let callees: Vec<String> = inner
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.trim().trim_matches('"').to_string())
+                        .collect();
+                    edges.push((caller, callees));
+                }
+            }
         }
+
+        let total_edges = edges.len();
+
+        // Apply filters
+        let filtered_edges: Vec<_> = edges.into_iter()
+            .filter(|(caller, callees)| {
+                // Module filter
+                if let Some(module) = &request.module {
+                    let caller_matches = caller.contains(module);
+                    let callee_matches = callees.iter().any(|c| c.contains(module));
+                    if !caller_matches && !callee_matches {
+                        return false;
+                    }
+                }
+                // Symbol filter
+                if let Some(symbol) = &request.symbol {
+                    let symbol_lower = symbol.to_lowercase();
+                    let caller_matches = caller.to_lowercase().contains(&symbol_lower);
+                    let callee_matches = callees.iter().any(|c| c.to_lowercase().contains(&symbol_lower));
+                    if !caller_matches && !callee_matches {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+
+        let filtered_count = filtered_edges.len();
+
+        // Summary mode: return statistics only
+        if summary_only {
+            let output = format_call_graph_summary(&filtered_edges, total_edges, filtered_count);
+            return Ok(CallToolResult::success(vec![Content::text(output)]));
+        }
+
+        // Apply pagination
+        let paginated: Vec<_> = filtered_edges.into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect();
+
+        let output = format_call_graph_paginated(
+            &paginated,
+            total_edges,
+            filtered_count,
+            offset,
+            limit,
+        );
+        Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
     // ========================================================================
@@ -1105,23 +1183,71 @@ impl McpDiffServer {
         // Configure detector
         let threshold = request.threshold.unwrap_or(0.90);
         let exclude_boilerplate = request.exclude_boilerplate.unwrap_or(true);
+        let min_lines = request.min_lines.unwrap_or(3) as usize;
+        let limit = request.limit.unwrap_or(50).min(200) as usize;
+        let offset = request.offset.unwrap_or(0) as usize;
+        let sort_by = request.sort_by.as_deref().unwrap_or("similarity");
 
         let detector = DuplicateDetector::new(threshold)
             .with_boilerplate_exclusion(exclude_boilerplate);
 
-        // Filter by module if specified
-        let filtered_sigs: Vec<_> = match &request.module {
-            Some(module) => signatures.iter()
-                .filter(|s| s.file.contains(module))
-                .cloned()
-                .collect(),
-            None => signatures,
-        };
+        // Filter by module and min_lines
+        let filtered_sigs: Vec<_> = signatures.iter()
+            .filter(|s| {
+                // Apply module filter
+                if let Some(module) = &request.module {
+                    if !s.file.contains(module) {
+                        return false;
+                    }
+                }
+                // Apply min_lines filter
+                s.line_count >= min_lines
+            })
+            .cloned()
+            .collect();
 
         // Find all clusters
-        let clusters = detector.find_all_clusters(&filtered_sigs);
+        let mut clusters = detector.find_all_clusters(&filtered_sigs);
+        let total_clusters = clusters.len();
 
-        let output = format_duplicate_clusters(&clusters, threshold);
+        // Sort clusters by specified criteria
+        match sort_by {
+            "size" => {
+                // Sort by primary function size (lines), largest first
+                clusters.sort_by(|a, b| {
+                    let a_size = a.primary.end_line.saturating_sub(a.primary.start_line);
+                    let b_size = b.primary.end_line.saturating_sub(b.primary.start_line);
+                    b_size.cmp(&a_size)
+                });
+            }
+            "count" => {
+                // Sort by number of duplicates, most first
+                clusters.sort_by(|a, b| b.duplicates.len().cmp(&a.duplicates.len()));
+            }
+            _ => {
+                // Default: sort by highest similarity in cluster
+                clusters.sort_by(|a, b| {
+                    let a_max = a.duplicates.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
+                    let b_max = b.duplicates.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
+                    b_max.partial_cmp(&a_max).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+        }
+
+        // Apply pagination
+        let paginated: Vec<_> = clusters.into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect();
+
+        let output = format_duplicate_clusters_paginated(
+            &paginated,
+            threshold,
+            total_clusters,
+            offset,
+            limit,
+            sort_by,
+        );
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
@@ -1702,26 +1828,161 @@ fn load_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>, String> {
     Ok(signatures)
 }
 
-/// Format duplicate clusters as compact TOON output
-fn format_duplicate_clusters(clusters: &[DuplicateCluster], threshold: f64) -> String {
-    let mut output = String::new();
-    output.push_str("_type: duplicate_results\n");
-    output.push_str(&format!("threshold: {:.2}\n", threshold));
-    output.push_str(&format!("clusters: {}\n", clusters.len()));
+/// Format call graph with pagination
+fn format_call_graph_paginated(
+    edges: &[(String, Vec<String>)],
+    total_edges: usize,
+    filtered_count: usize,
+    offset: usize,
+    limit: usize,
+) -> String {
+    use crate::schema::SCHEMA_VERSION;
 
-    if clusters.is_empty() {
-        output.push_str("message: No duplicate clusters found above threshold.\n");
+    let mut output = String::new();
+    output.push_str("_type: call_graph\n");
+    output.push_str(&format!("schema_version: \"{}\"\n", SCHEMA_VERSION));
+    output.push_str(&format!("total_edges: {}\n", total_edges));
+    output.push_str(&format!("filtered_edges: {}\n", filtered_count));
+    output.push_str(&format!("showing: {}\n", edges.len()));
+    output.push_str(&format!("offset: {}\n", offset));
+    output.push_str(&format!("limit: {}\n", limit));
+
+    // Pagination hint
+    if offset + edges.len() < filtered_count {
+        output.push_str(&format!(
+            "next_offset: {} (use offset={} to get next page)\n",
+            offset + edges.len(),
+            offset + limit
+        ));
+    }
+
+    if edges.is_empty() {
+        output.push_str("message: No edges match the filter criteria.\n");
         return output;
     }
 
-    // Count total duplicates
-    let total_duplicates: usize = clusters.iter()
+    output.push_str("\n");
+
+    for (caller, callees) in edges {
+        let callees_str = callees.iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(",");
+        output.push_str(&format!("{}: [{}]\n", caller, callees_str));
+    }
+
+    output
+}
+
+/// Format call graph summary (statistics only, no edges)
+fn format_call_graph_summary(
+    edges: &[(String, Vec<String>)],
+    total_edges: usize,
+    filtered_count: usize,
+) -> String {
+    use crate::schema::SCHEMA_VERSION;
+    use std::collections::HashMap;
+
+    let mut output = String::new();
+    output.push_str("_type: call_graph_summary\n");
+    output.push_str(&format!("schema_version: \"{}\"\n", SCHEMA_VERSION));
+    output.push_str(&format!("total_edges: {}\n", total_edges));
+    output.push_str(&format!("filtered_edges: {}\n", filtered_count));
+
+    // Calculate statistics
+    let total_calls: usize = edges.iter().map(|(_, callees)| callees.len()).sum();
+    let avg_calls = if edges.is_empty() { 0.0 } else { total_calls as f64 / edges.len() as f64 };
+    let max_calls = edges.iter().map(|(_, callees)| callees.len()).max().unwrap_or(0);
+
+    output.push_str(&format!("total_calls: {}\n", total_calls));
+    output.push_str(&format!("avg_calls_per_symbol: {:.1}\n", avg_calls));
+    output.push_str(&format!("max_calls_in_symbol: {}\n", max_calls));
+
+    // Top callers (symbols that make the most calls)
+    let mut callers_by_count: Vec<_> = edges.iter()
+        .map(|(caller, callees)| (caller.clone(), callees.len()))
+        .collect();
+    callers_by_count.sort_by(|a, b| b.1.cmp(&a.1));
+
+    output.push_str("\ntop_callers[10]:\n");
+    for (caller, count) in callers_by_count.iter().take(10) {
+        output.push_str(&format!("  - {} (calls: {})\n", caller, count));
+    }
+
+    // Top callees (most called symbols)
+    let mut callee_counts: HashMap<String, usize> = HashMap::new();
+    for (_, callees) in edges {
+        for callee in callees {
+            *callee_counts.entry(callee.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut callees_by_count: Vec<_> = callee_counts.into_iter().collect();
+    callees_by_count.sort_by(|a, b| b.1.cmp(&a.1));
+
+    output.push_str("\ntop_callees[10]:\n");
+    for (callee, count) in callees_by_count.iter().take(10) {
+        output.push_str(&format!("  - {} (called: {} times)\n", callee, count));
+    }
+
+    // Leaf functions (call nothing)
+    let leaf_count = edges.iter().filter(|(_, callees)| callees.is_empty()).count();
+    output.push_str(&format!("\nleaf_functions: {}\n", leaf_count));
+
+    output
+}
+
+/// Format duplicate clusters as compact TOON output
+fn format_duplicate_clusters(clusters: &[DuplicateCluster], threshold: f64) -> String {
+    format_duplicate_clusters_paginated(clusters, threshold, clusters.len(), 0, clusters.len(), "similarity")
+}
+
+/// Format duplicate clusters with pagination info
+fn format_duplicate_clusters_paginated(
+    clusters: &[DuplicateCluster],
+    threshold: f64,
+    total_clusters: usize,
+    offset: usize,
+    limit: usize,
+    sort_by: &str,
+) -> String {
+    let mut output = String::new();
+    output.push_str("_type: duplicate_results\n");
+    output.push_str(&format!("threshold: {:.2}\n", threshold));
+    output.push_str(&format!("total_clusters: {}\n", total_clusters));
+    output.push_str(&format!("showing: {}\n", clusters.len()));
+    output.push_str(&format!("offset: {}\n", offset));
+    output.push_str(&format!("limit: {}\n", limit));
+    output.push_str(&format!("sort_by: {}\n", sort_by));
+
+    // Pagination hint
+    if offset + clusters.len() < total_clusters {
+        output.push_str(&format!(
+            "next_offset: {} (use offset={} to get next page)\n",
+            offset + clusters.len(),
+            offset + limit
+        ));
+    }
+
+    if clusters.is_empty() {
+        if total_clusters == 0 {
+            output.push_str("message: No duplicate clusters found above threshold.\n");
+        } else {
+            output.push_str(&format!(
+                "message: No clusters at offset {}. Total clusters: {}.\n",
+                offset, total_clusters
+            ));
+        }
+        return output;
+    }
+
+    // Count total duplicates in this page
+    let page_duplicates: usize = clusters.iter()
         .map(|c| c.duplicates.len())
         .sum();
-    output.push_str(&format!("total_duplicates: {}\n\n", total_duplicates));
+    output.push_str(&format!("page_duplicates: {}\n\n", page_duplicates));
 
     for (i, cluster) in clusters.iter().enumerate() {
-        output.push_str(&format!("cluster[{}]:\n", i + 1));
+        output.push_str(&format!("cluster[{}]:\n", offset + i + 1));
         output.push_str(&format!("  primary: {} ({})\n", cluster.primary.name, cluster.primary.file));
         output.push_str(&format!("  hash: {}\n", cluster.primary.hash));
         if cluster.primary.start_line > 0 {

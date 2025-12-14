@@ -137,6 +137,26 @@ pub struct GetCallGraphRequest {
     /// Path to the repository (defaults to current directory)
     #[schemars(description = "Path to the repository root (defaults to current directory)")]
     pub path: Option<String>,
+
+    /// Filter to calls from/to symbols in this module
+    #[schemars(description = "Filter to edges involving symbols in this module")]
+    pub module: Option<String>,
+
+    /// Filter to calls from/to this specific symbol
+    #[schemars(description = "Filter to edges from or to this symbol (by name or hash)")]
+    pub symbol: Option<String>,
+
+    /// Maximum edges to return (default: 500, max: 2000)
+    #[schemars(description = "Maximum edges to return (default: 500, max: 2000)")]
+    pub limit: Option<u32>,
+
+    /// Pagination offset (default: 0)
+    #[schemars(description = "Skip first N edges for pagination (default: 0)")]
+    pub offset: Option<u32>,
+
+    /// Return summary statistics only (no edge list)
+    #[schemars(description = "Return only statistics (edge count, top callers) without full edge list")]
+    pub summary_only: Option<bool>,
 }
 
 /// Request to get source code for a symbol (surgical read)
@@ -170,8 +190,10 @@ pub struct GetSymbolSourceRequest {
 /// Search for symbols by name across the repository (lightweight, query-driven)
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SearchSymbolsRequest {
-    /// Search query - matches symbol names (case-insensitive, partial match)
-    #[schemars(description = "Search query - matches symbol names (case-insensitive, partial match)")]
+    /// Search query - supports partial match, wildcards (* for any chars, ? for single char), or empty/"*" to match all
+    #[schemars(
+        description = "Search query - matches symbol names (case-insensitive). Supports: 'foo' (substring), '*Manager' (glob pattern), '*' or '' (match all)"
+    )]
     pub query: String,
 
     /// Optional: filter by module name
@@ -374,6 +396,22 @@ pub struct FindDuplicatesRequest {
     /// Repository path (defaults to current directory)
     #[schemars(description = "Repository path")]
     pub path: Option<String>,
+
+    /// Minimum function lines to include (default: 3, filters out trivial functions)
+    #[schemars(description = "Minimum function lines to include (default: 3)")]
+    pub min_lines: Option<u32>,
+
+    /// Maximum clusters to return (default: 50, max: 200)
+    #[schemars(description = "Maximum clusters to return (default: 50, max: 200)")]
+    pub limit: Option<u32>,
+
+    /// Pagination offset (default: 0)
+    #[schemars(description = "Skip first N clusters for pagination (default: 0)")]
+    pub offset: Option<u32>,
+
+    /// Sort clusters by: "similarity" (default), "size", or "count"
+    #[schemars(description = "Sort by: 'similarity' (highest first), 'size' (largest functions), 'count' (most duplicates)")]
+    pub sort_by: Option<String>,
 }
 
 /// Request to check if a specific function has duplicates
