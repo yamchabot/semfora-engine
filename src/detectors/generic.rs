@@ -63,6 +63,7 @@ struct SymbolCandidate {
     start_line: usize,
     end_line: usize,
     score: i32,
+    decorators: Vec<String>,
 }
 
 /// Extract all symbols (functions, classes, interfaces, enums)
@@ -91,6 +92,7 @@ fn extract_symbols(summary: &mut SemanticSummary, root: &Node, source: &str, gra
             calls: Vec::new(),
             control_flow: Vec::new(),
             state_changes: Vec::new(),
+            decorators: candidate.decorators.clone(),
             behavioral_risk: RiskLevel::Low,
         };
         summary.symbols.push(symbol_info);
@@ -132,6 +134,7 @@ fn collect_symbols_recursive(
         if let Some(name) = extract_symbol_name(node, source, grammar) {
             let is_exported = (grammar.is_exported)(node, source);
             let score = calculate_symbol_score(&name, &kind, is_exported, filename_stem, grammar);
+            let decorators = extract_decorators(node, source, grammar);
 
             candidates.push(SymbolCandidate {
                 name,
@@ -140,6 +143,7 @@ fn collect_symbols_recursive(
                 start_line: node.start_position().row + 1,
                 end_line: node.end_position().row + 1,
                 score,
+                decorators,
             });
         }
     }
@@ -149,6 +153,101 @@ fn collect_symbols_recursive(
     for child in node.children(&mut cursor) {
         collect_symbols_recursive(&child, source, grammar, filename_stem, candidates);
     }
+}
+
+/// Extract decorators/attributes from a symbol node
+///
+/// Looks for decorator nodes in:
+/// 1. Preceding siblings (Python @decorator, C# [Attribute])
+/// 2. Child nodes (some grammars nest attributes within the declaration)
+fn extract_decorators(node: &Node, source: &str, grammar: &LangGrammar) -> Vec<String> {
+    let mut decorators = Vec::new();
+
+    if grammar.decorator_nodes.is_empty() {
+        return decorators;
+    }
+
+    // Check preceding siblings for decorators (common in Python, C#, Java)
+    let mut prev = node.prev_sibling();
+    while let Some(sibling) = prev {
+        let sibling_kind = sibling.kind();
+        if grammar.decorator_nodes.contains(&sibling_kind) {
+            if let Some(text) = extract_decorator_text(&sibling, source) {
+                decorators.push(text);
+            }
+        } else {
+            // Stop when we hit a non-decorator node
+            break;
+        }
+        prev = sibling.prev_sibling();
+    }
+
+    // Also check direct children (some grammars nest attributes within declaration)
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        let child_kind = child.kind();
+        if grammar.decorator_nodes.contains(&child_kind) {
+            // For attribute_list nodes, extract each attribute
+            if child_kind == "attribute_list" {
+                let mut inner_cursor = child.walk();
+                for attr in child.children(&mut inner_cursor) {
+                    if attr.kind() == "attribute" {
+                        if let Some(text) = extract_decorator_text(&attr, source) {
+                            decorators.push(text);
+                        }
+                    }
+                }
+            } else if let Some(text) = extract_decorator_text(&child, source) {
+                decorators.push(text);
+            }
+        }
+    }
+
+    // Reverse so they're in source order (we collected backwards from prev_sibling)
+    decorators.reverse();
+    decorators
+}
+
+/// Extract the text representation of a decorator/attribute
+fn extract_decorator_text(node: &Node, source: &str) -> Option<String> {
+    // Try to get just the name/identifier
+    if let Some(name_node) = node.child_by_field_name("name") {
+        let text = get_node_text(&name_node, source);
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+
+    // Look for identifier child
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" || child.kind() == "name" || child.kind() == "scoped_identifier" {
+            let text = get_node_text(&child, source);
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+
+    // Fallback: get the whole node text (for simple decorators)
+    let text = get_node_text(node, source);
+    if !text.is_empty() {
+        // Clean up common decorator prefixes/brackets
+        let cleaned = text
+            .trim()
+            .trim_start_matches('@')
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim();
+
+        // Extract just the attribute name (before any parentheses)
+        if let Some(paren_idx) = cleaned.find('(') {
+            return Some(cleaned[..paren_idx].to_string());
+        }
+        return Some(cleaned.to_string());
+    }
+
+    None
 }
 
 fn extract_symbol_name(node: &Node, source: &str, grammar: &LangGrammar) -> Option<String> {

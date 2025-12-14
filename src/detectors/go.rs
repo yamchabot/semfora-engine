@@ -88,6 +88,7 @@ fn find_go_type_symbols(summary: &mut SemanticSummary, root: &Node, source: &str
                 control_flow: Vec::new(),
                 state_changes: Vec::new(),
                 behavioral_risk: RiskLevel::Low,
+                decorators: Vec::new(),
             };
             summary.symbols.push(symbol_info);
         }

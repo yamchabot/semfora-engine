@@ -174,6 +174,7 @@ fn extract_block_symbol(node: &Node, source: &str) -> Option<SymbolInfo> {
         control_flow: Vec::new(),
         state_changes: Vec::new(),
         behavioral_risk: RiskLevel::Low,
+        decorators: Vec::new(),
     })
 }
 
