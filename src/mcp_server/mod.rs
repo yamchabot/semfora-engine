@@ -564,11 +564,27 @@ impl McpDiffServer {
 
         // If working_overlay is true, search only uncommitted files
         if request.working_overlay.unwrap_or(false) {
+            // Map symbol kind to file extensions for filtering
             let file_types = match request.kind.as_deref() {
-                Some("component") => Some(vec!["tsx".to_string(), "jsx".to_string(), "vue".to_string(), "svelte".to_string()]),
-                Some("struct") | Some("trait") | Some("enum") => Some(vec!["rs".to_string()]),
-                Some("class") => Some(vec!["py".to_string(), "ts".to_string(), "tsx".to_string(), "java".to_string()]),
-                Some("interface") => Some(vec!["ts".to_string(), "tsx".to_string(), "java".to_string()]),
+                Some("component") => Some(vec![
+                    "tsx".to_string(), "jsx".to_string(), "vue".to_string(), "svelte".to_string()
+                ]),
+                Some("fn") | Some("function") | Some("method") => None, // All languages
+                Some("struct") => Some(vec![
+                    "rs".to_string(), "go".to_string(), "cs".to_string()
+                ]),
+                Some("trait") => Some(vec!["rs".to_string()]),
+                Some("enum") => Some(vec![
+                    "rs".to_string(), "ts".to_string(), "cs".to_string(), "java".to_string(), "kt".to_string()
+                ]),
+                Some("class") => Some(vec![
+                    "py".to_string(), "ts".to_string(), "tsx".to_string(),
+                    "java".to_string(), "kt".to_string(), "cs".to_string()
+                ]),
+                Some("interface") => Some(vec![
+                    "ts".to_string(), "tsx".to_string(), "java".to_string(),
+                    "kt".to_string(), "cs".to_string(), "go".to_string()
+                ]),
                 _ => None,
             };
 
@@ -1025,6 +1041,7 @@ impl McpDiffServer {
     ) -> Result<CallToolResult, McpError> {
         let mut output = String::new();
         output.push_str("_type: server_mode\n");
+        output.push_str(&format!("version: {}\n", env!("CARGO_PKG_VERSION")));
         output.push_str(&format!("persistent_mode: {}\n", self.server_state.is_some()));
 
         if let Some(state) = &self.server_state {
