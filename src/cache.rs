@@ -2258,9 +2258,13 @@ pub struct SymbolIndexEntry {
     #[serde(rename = "s")]
     pub symbol: String,
 
-    /// Symbol hash (for get_symbol lookup)
+    /// Symbol hash (full two-part hash for get_symbol lookup)
     #[serde(rename = "h")]
     pub hash: String,
+
+    /// Semantic hash (for move detection and duplicate finding)
+    #[serde(rename = "sh", default, skip_serializing_if = "String::is_empty")]
+    pub semantic_hash: String,
 
     /// Symbol kind (fn, struct, component, enum, trait, etc.)
     #[serde(rename = "k")]
@@ -2899,10 +2903,10 @@ mod tests {
     }
 
     /// TDD: test_schema_version_bump
-    /// Verifies schema version is 2.0 for layered index support
+    /// Verifies schema version is 2.1 for two-part hash support
     #[test]
     fn test_schema_version_bump() {
-        assert_eq!(SCHEMA_VERSION, "2.0", "Schema version should be 2.0 for SEM-45");
+        assert_eq!(SCHEMA_VERSION, "2.1", "Schema version should be 2.1 for two-part hash support");
     }
 
     /// TDD: test_meta_json_structure
@@ -4457,6 +4461,7 @@ export { formatName, processData };
             symbol_entries.push(SymbolIndexEntry {
                 symbol: symbol.name.clone(),
                 hash: hash.clone(),
+                semantic_hash: crate::overlay::extract_semantic_hash(&hash).to_string(),
                 kind: format!("{:?}", symbol.kind).to_lowercase(),
                 module: "src".to_string(),
                 file: ts_file.to_string_lossy().to_string(),
@@ -4489,11 +4494,18 @@ export { formatName, processData };
         let call_graph_content = fs::read_to_string(&call_graph_path).unwrap();
 
         // Extract hashes from call graph
+        // Format: "file_hash:semantic_hash: [callees]" - split on ": [" to get the full hash
         let call_graph_hashes: Vec<String> = call_graph_content
             .lines()
             .filter(|line| !line.starts_with("_type:") && !line.starts_with("schema_version:") && !line.starts_with("edges:"))
-            .filter_map(|line| line.split(':').next())
-            .map(|s| s.trim().to_string())
+            .filter_map(|line| {
+                // Split on ": [" to separate hash from array
+                if let Some(bracket_pos) = line.find(": [") {
+                    Some(line[..bracket_pos].trim().to_string())
+                } else {
+                    None
+                }
+            })
             .filter(|s| !s.is_empty())
             .collect();
 

@@ -577,7 +577,7 @@ fn update_symbol_shards(
         // If we have symbols in the multi-symbol format, use those
         if !summary.symbols.is_empty() {
             for symbol_info in &summary.symbols {
-                let symbol_id = symbol_info.to_symbol_id(&namespace);
+                let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
                 let toon = crate::shard::encode_symbol_shard_from_info(summary, symbol_info, &symbol_id);
                 let path = cache.symbol_path(&symbol_id.hash);
 

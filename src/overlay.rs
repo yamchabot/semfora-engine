@@ -509,21 +509,45 @@ impl Overlay {
 // Content-Addressable Symbol Hash
 // ============================================================================
 
-/// Compute a content-addressable hash for a symbol
+/// Compute a two-part hash for a symbol
 ///
-/// This hash is based on the symbol's content, not its location,
-/// so it survives file moves and refactors.
+/// Returns format: `{file_hash}:{semantic_hash}` (25 chars)
+/// - file_hash (8 chars): Hash of file path for uniqueness
+/// - semantic_hash (16 chars): Hash of namespace:name:kind:arity for move detection
 pub fn compute_symbol_hash(symbol: &SymbolInfo, file_path: &str) -> String {
-    // Hash based on: namespace + name + kind + signature
+    // Semantic hash (for move detection and duplicate finding)
     let namespace = crate::schema::SymbolId::namespace_from_path(file_path);
-    let signature = format!(
+    let semantic_input = format!(
         "{}:{}:{}:{}",
         namespace,
         symbol.name,
         symbol.kind.as_str(),
         symbol.arguments.len() + symbol.props.len()
     );
-    format!("{:016x}", fnv1a_hash(&signature))
+    let semantic_hash = format!("{:016x}", fnv1a_hash(&semantic_input));
+
+    // File hash (for uniqueness across different files)
+    // Truncate to 32 bits (8 hex chars) for compactness
+    let file_hash = format!("{:08x}", fnv1a_hash(file_path) as u32);
+
+    // Combined hash: file_hash:semantic_hash
+    format!("{}:{}", file_hash, semantic_hash)
+}
+
+/// Extract the semantic hash from a full two-part hash
+///
+/// Given "file_hash:semantic_hash", returns "semantic_hash".
+/// For backward compatibility, returns the full hash if no colon is found.
+pub fn extract_semantic_hash(full_hash: &str) -> &str {
+    full_hash.split(':').nth(1).unwrap_or(full_hash)
+}
+
+/// Extract the file hash from a full two-part hash
+///
+/// Given "file_hash:semantic_hash", returns "file_hash".
+/// For backward compatibility, returns empty string if no colon is found.
+pub fn extract_file_hash(full_hash: &str) -> &str {
+    full_hash.split(':').next().filter(|_| full_hash.contains(':')).unwrap_or("")
 }
 
 /// Compute a hash of symbol content for conflict detection
@@ -1489,8 +1513,60 @@ mod tests {
         let hash1 = compute_symbol_hash(&symbol, "src/components/a.rs");
         let hash2 = compute_symbol_hash(&symbol, "lib/components/b.rs");
 
-        // Should be the same since namespace is "components" for both
-        assert_eq!(hash1, hash2);
+        // Full hashes should be DIFFERENT (different files)
+        assert_ne!(hash1, hash2);
+
+        // Semantic hashes should be the SAME (same signature)
+        assert_eq!(extract_semantic_hash(&hash1), extract_semantic_hash(&hash2));
+    }
+
+    #[test]
+    fn test_compute_symbol_hash_unique_per_file_in_same_dir() {
+        let symbol = make_test_symbol("enhance");
+
+        // Same directory, same symbol name - the original bug scenario
+        let hash1 = compute_symbol_hash(&symbol, "src/frameworks/nextjs.rs");
+        let hash2 = compute_symbol_hash(&symbol, "src/frameworks/react.rs");
+
+        // Full hashes should be DIFFERENT (different files)
+        assert_ne!(hash1, hash2);
+
+        // Semantic hashes should be the SAME (same signature, enables duplicate detection)
+        assert_eq!(extract_semantic_hash(&hash1), extract_semantic_hash(&hash2));
+    }
+
+    #[test]
+    fn test_compute_symbol_hash_two_part_format() {
+        let symbol = make_test_symbol("test_fn");
+        let hash = compute_symbol_hash(&symbol, "src/lib.rs");
+
+        // Hash should have format "file_hash:semantic_hash"
+        assert!(hash.contains(':'), "Hash should contain colon separator");
+
+        let parts: Vec<&str> = hash.split(':').collect();
+        assert_eq!(parts.len(), 2, "Hash should have exactly 2 parts");
+        assert_eq!(parts[0].len(), 8, "File hash should be 8 chars");
+        assert_eq!(parts[1].len(), 16, "Semantic hash should be 16 chars");
+    }
+
+    #[test]
+    fn test_extract_semantic_hash() {
+        let full_hash = "a1b2c3d4:1234567890abcdef";
+        assert_eq!(extract_semantic_hash(full_hash), "1234567890abcdef");
+
+        // Backward compatibility with old 16-char hashes
+        let old_hash = "1234567890abcdef";
+        assert_eq!(extract_semantic_hash(old_hash), "1234567890abcdef");
+    }
+
+    #[test]
+    fn test_extract_file_hash() {
+        let full_hash = "a1b2c3d4:1234567890abcdef";
+        assert_eq!(extract_file_hash(full_hash), "a1b2c3d4");
+
+        // Backward compatibility with old 16-char hashes
+        let old_hash = "1234567890abcdef";
+        assert_eq!(extract_file_hash(old_hash), "");
     }
 
     #[test]

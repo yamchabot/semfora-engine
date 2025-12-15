@@ -339,6 +339,7 @@ impl LayerSynchronizer {
             let entry = crate::cache::SymbolIndexEntry {
                 symbol: symbol.name.clone(),
                 hash: hash.clone(),
+                semantic_hash: crate::overlay::extract_semantic_hash(&hash).to_string(),
                 kind: format!("{:?}", symbol.kind).to_lowercase(),
                 module: module_name.clone(),
                 file: full_path.to_string_lossy().to_string(),

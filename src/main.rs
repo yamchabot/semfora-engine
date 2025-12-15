@@ -1981,6 +1981,10 @@ fn run_semantic_search(cli: &Cli, query: &str) -> semfora_engine::Result<String>
         let kind_lower = kind_filter.to_lowercase();
         results.retain(|r| r.kind.to_lowercase() == kind_lower);
     }
+    if let Some(ref module_filter) = cli.module {
+        let module_lower = module_filter.to_lowercase();
+        results.retain(|r| r.module.to_lowercase() == module_lower);
+    }
 
     results.truncate(limit);
 

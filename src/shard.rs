@@ -158,7 +158,7 @@ impl ShardWriter {
             // If we have symbols in the new multi-symbol format, use those
             if !summary.symbols.is_empty() {
                 for symbol_info in &summary.symbols {
-                    let symbol_id = symbol_info.to_symbol_id(&namespace);
+                    let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
                     let toon = encode_symbol_shard_from_info(summary, symbol_info, &symbol_id);
                     let path = self.cache.symbol_path(&symbol_id.hash);
 
@@ -225,7 +225,7 @@ impl ShardWriter {
             // If we have symbols in the new multi-symbol format, use those
             if !summary.symbols.is_empty() {
                 for symbol_info in &summary.symbols {
-                    let symbol_id = symbol_info.to_symbol_id(&namespace);
+                    let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
 
                     // Calculate cognitive complexity from control flow
                     // If symbol has its own control_flow, use that
@@ -253,6 +253,7 @@ impl ShardWriter {
                     let entry = SymbolIndexEntry {
                         symbol: symbol_info.name.clone(),
                         hash: symbol_id.hash.clone(),
+                        semantic_hash: symbol_id.semantic_hash.clone(),
                         kind: format!("{:?}", symbol_info.kind).to_lowercase(),
                         module: module_name.clone(),
                         file: summary.file.clone(),
@@ -279,6 +280,7 @@ impl ShardWriter {
                 let entry = SymbolIndexEntry {
                     symbol: summary.symbol.clone().unwrap_or_default(),
                     hash: symbol_id.hash.clone(),
+                    semantic_hash: symbol_id.semantic_hash.clone(),
                     kind: summary.symbol_kind
                         .map(|k| format!("{:?}", k).to_lowercase())
                         .unwrap_or_else(|| "unknown".to_string()),
@@ -332,7 +334,7 @@ impl ShardWriter {
                         continue;
                     }
 
-                    let symbol_id = symbol_info.to_symbol_id(&namespace);
+                    let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
                     let signature = FunctionSignature::from_symbol_info(
                         symbol_info,
                         &symbol_id.hash,
@@ -411,7 +413,7 @@ impl ShardWriter {
             // If we have symbols in the new multi-symbol format, use those
             if !summary.symbols.is_empty() {
                 for symbol_info in &summary.symbols {
-                    let symbol_id = symbol_info.to_symbol_id(&namespace);
+                    let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
                     let kind_str = format!("{:?}", symbol_info.kind).to_lowercase();
 
                     // Extract searchable terms from this symbol
@@ -632,7 +634,7 @@ pub(crate) fn encode_module_shard(module_name: &str, summaries: &[SemanticSummar
         // If we have multi-symbol format, use those
         if !summary.symbols.is_empty() {
             for symbol_info in &summary.symbols {
-                let symbol_id = symbol_info.to_symbol_id(&namespace);
+                let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
                 let lines_str = format!("{}-{}", symbol_info.start_line, symbol_info.end_line);
                 all_symbols.push((
                     symbol_id.hash,

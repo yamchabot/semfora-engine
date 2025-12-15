@@ -5,7 +5,8 @@ use std::collections::HashMap;
 
 /// Current schema version for output stability
 /// 2.0 - Added layered index support (SEM-45)
-pub const SCHEMA_VERSION: &str = "2.0";
+/// 2.1 - Two-part hash for uniqueness (file_hash:semantic_hash)
+pub const SCHEMA_VERSION: &str = "2.1";
 
 // FNV-1a constants for 64-bit hash
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
@@ -25,12 +26,18 @@ pub fn fnv1a_hash(data: &str) -> u64 {
 
 /// Stable symbol identifier for cross-commit tracking
 ///
-/// Uses namespace-based identity (not file paths) to survive refactors.
-/// The hash is computed from: namespace + symbol + kind + arity
+/// Uses two-part hash format: `{file_hash}:{semantic_hash}` (25 chars)
+/// - file_hash (8 chars): Hash of relative file path - ensures uniqueness
+/// - semantic_hash (16 chars): Hash of namespace:symbol:kind:arity - enables move detection
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SymbolId {
-    /// Stable hash identifier (16-char hex string)
+    /// Full unique hash: "file_hash:semantic_hash" (25-char string)
     pub hash: String,
+
+    /// Semantic hash only (16-char hex string) for move detection and duplicate finding
+    /// Symbols with same semantic_hash have the same signature (name + kind + arity)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub semantic_hash: String,
 
     /// Module/package namespace (extracted from file structure, NOT full path)
     pub namespace: String,
@@ -107,10 +114,10 @@ pub struct SymbolInfo {
 }
 
 impl SymbolInfo {
-    /// Create a SymbolId for this symbol given a namespace
-    pub fn to_symbol_id(&self, namespace: &str) -> SymbolId {
+    /// Create a SymbolId for this symbol given a namespace and file path
+    pub fn to_symbol_id(&self, namespace: &str, file_path: &str) -> SymbolId {
         let arity = self.arguments.len() + self.props.len();
-        SymbolId::new(namespace, &self.name, self.kind, arity)
+        SymbolId::new(namespace, &self.name, self.kind, arity, file_path)
     }
 
     /// Calculate behavioral risk from calls and control flow
@@ -140,12 +147,43 @@ impl SymbolInfo {
 
 impl SymbolId {
     /// Create a new SymbolId from components
-    pub fn new(namespace: &str, symbol: &str, kind: SymbolKind, arity: usize) -> Self {
-        let hash_input = format!("{}:{}:{}:{}", namespace, symbol, kind.as_str(), arity);
-        let hash = format!("{:016x}", fnv1a_hash(&hash_input));
+    ///
+    /// The hash is computed as two parts:
+    /// - file_hash (8 chars): Hash of the file path for uniqueness
+    /// - semantic_hash (16 chars): Hash of namespace:symbol:kind:arity for move detection
+    pub fn new(namespace: &str, symbol: &str, kind: SymbolKind, arity: usize, file_path: &str) -> Self {
+        // Semantic hash (existing formula - for move detection and duplicate finding)
+        let semantic_input = format!("{}:{}:{}:{}", namespace, symbol, kind.as_str(), arity);
+        let semantic_hash = format!("{:016x}", fnv1a_hash(&semantic_input));
+
+        // File hash (for uniqueness across different files)
+        // Truncate to 32 bits (8 hex chars) for compactness
+        let file_hash = format!("{:08x}", fnv1a_hash(file_path) as u32);
+
+        // Combined hash: file_hash:semantic_hash
+        let hash = format!("{}:{}", file_hash, semantic_hash);
 
         Self {
             hash,
+            semantic_hash,
+            namespace: namespace.to_string(),
+            symbol: symbol.to_string(),
+            kind,
+            arity,
+        }
+    }
+
+    /// Create a SymbolId without file path (for backward compatibility)
+    /// NOTE: This produces only a semantic hash, not the two-part format.
+    /// Prefer `new()` with file_path when possible.
+    #[deprecated(note = "Use new() with file_path for unique hashes")]
+    pub fn new_semantic_only(namespace: &str, symbol: &str, kind: SymbolKind, arity: usize) -> Self {
+        let semantic_input = format!("{}:{}:{}:{}", namespace, symbol, kind.as_str(), arity);
+        let semantic_hash = format!("{:016x}", fnv1a_hash(&semantic_input));
+
+        Self {
+            hash: semantic_hash.clone(),
+            semantic_hash,
             namespace: namespace.to_string(),
             symbol: symbol.to_string(),
             kind,
@@ -188,7 +226,20 @@ impl SymbolId {
         let arity = summary.arguments.len() + summary.props.len();
         let namespace = Self::namespace_from_path(&summary.file);
 
-        Some(Self::new(&namespace, symbol, kind, arity))
+        Some(Self::new(&namespace, symbol, kind, arity, &summary.file))
+    }
+
+    /// Extract the semantic hash from a full hash
+    ///
+    /// Full hash format: "file_hash:semantic_hash" (25 chars)
+    /// Returns the semantic_hash portion (16 chars) or the full hash if not in two-part format
+    pub fn extract_semantic_hash(full_hash: &str) -> &str {
+        full_hash.split(':').nth(1).unwrap_or(full_hash)
+    }
+
+    /// Check if a hash is in the two-part format
+    pub fn is_two_part_hash(hash: &str) -> bool {
+        hash.len() == 25 && hash.chars().nth(8) == Some(':')
     }
 }
 
@@ -1002,24 +1053,47 @@ mod tests {
 
     #[test]
     fn test_symbol_id_creation() {
-        let id = SymbolId::new("components", "Button", SymbolKind::Component, 3);
+        let id = SymbolId::new("components", "Button", SymbolKind::Component, 3, "src/components/Button.tsx");
         assert_eq!(id.namespace, "components");
         assert_eq!(id.symbol, "Button");
         assert_eq!(id.kind, SymbolKind::Component);
         assert_eq!(id.arity, 3);
-        assert_eq!(id.hash.len(), 16); // 64-bit hash as hex
+        // Two-part hash format: "file_hash:semantic_hash" (25 chars)
+        assert_eq!(id.hash.len(), 25);
+        assert!(id.hash.contains(':'));
+        // Semantic hash should be 16 chars
+        assert_eq!(id.semantic_hash.len(), 16);
     }
 
     #[test]
     fn test_symbol_id_deterministic() {
         // Same inputs should always produce the same hash
-        let id1 = SymbolId::new("components", "Button", SymbolKind::Component, 3);
-        let id2 = SymbolId::new("components", "Button", SymbolKind::Component, 3);
+        let id1 = SymbolId::new("components", "Button", SymbolKind::Component, 3, "src/components/Button.tsx");
+        let id2 = SymbolId::new("components", "Button", SymbolKind::Component, 3, "src/components/Button.tsx");
         assert_eq!(id1.hash, id2.hash);
+        assert_eq!(id1.semantic_hash, id2.semantic_hash);
 
-        // Different inputs should produce different hashes
-        let id3 = SymbolId::new("components", "Button", SymbolKind::Component, 4);
+        // Different arity should produce different hashes
+        let id3 = SymbolId::new("components", "Button", SymbolKind::Component, 4, "src/components/Button.tsx");
         assert_ne!(id1.hash, id3.hash);
+        assert_ne!(id1.semantic_hash, id3.semantic_hash);
+    }
+
+    #[test]
+    fn test_symbol_id_unique_per_file() {
+        // Same signature in different files should have different full hashes
+        let id1 = SymbolId::new("frameworks", "enhance", SymbolKind::Function, 3, "src/frameworks/nextjs.rs");
+        let id2 = SymbolId::new("frameworks", "enhance", SymbolKind::Function, 3, "src/frameworks/react.rs");
+        let id3 = SymbolId::new("frameworks", "enhance", SymbolKind::Function, 3, "src/frameworks/vue.rs");
+
+        // Full hashes should be unique (different files)
+        assert_ne!(id1.hash, id2.hash);
+        assert_ne!(id2.hash, id3.hash);
+        assert_ne!(id1.hash, id3.hash);
+
+        // Semantic hashes should be the same (same signature)
+        assert_eq!(id1.semantic_hash, id2.semantic_hash);
+        assert_eq!(id2.semantic_hash, id3.semantic_hash);
     }
 
     #[test]
@@ -1071,15 +1145,32 @@ mod tests {
     }
 
     #[test]
-    fn test_symbol_id_survives_file_move() {
-        // Moving a file should NOT change its identity if namespace stays same
-        let id1 = SymbolId::new("components", "Button", SymbolKind::Component, 2);
+    fn test_symbol_id_file_move_detection() {
+        // Moving a file changes the full hash but keeps semantic_hash the same
+        let id1 = SymbolId::new("components", "Button", SymbolKind::Component, 2, "src/components/Button.tsx");
+        let id2 = SymbolId::new("components", "Button", SymbolKind::Component, 2, "lib/components/Button.tsx");
 
-        // Simulate moving file from src/components/Button.tsx to lib/components/Button.tsx
-        // The namespace "components" stays the same
-        let id2 = SymbolId::new("components", "Button", SymbolKind::Component, 2);
+        // Full hashes should differ (different file paths)
+        assert_ne!(id1.hash, id2.hash, "Full hash should change when file moves");
 
-        assert_eq!(id1.hash, id2.hash, "Symbol ID should survive file moves within same namespace");
+        // Semantic hashes should match (same signature - can detect as potential move)
+        assert_eq!(id1.semantic_hash, id2.semantic_hash, "Semantic hash should match for potential move detection");
+    }
+
+    #[test]
+    fn test_extract_semantic_hash() {
+        // Two-part hash
+        assert_eq!(SymbolId::extract_semantic_hash("a1b2c3d4:8e021ca5a492c67d"), "8e021ca5a492c67d");
+
+        // Legacy single-part hash (backward compatibility)
+        assert_eq!(SymbolId::extract_semantic_hash("8e021ca5a492c67d"), "8e021ca5a492c67d");
+    }
+
+    #[test]
+    fn test_is_two_part_hash() {
+        assert!(SymbolId::is_two_part_hash("a1b2c3d4:8e021ca5a492c67d"));
+        assert!(!SymbolId::is_two_part_hash("8e021ca5a492c67d")); // Legacy 16-char hash
+        assert!(!SymbolId::is_two_part_hash("short"));
     }
 
     #[test]

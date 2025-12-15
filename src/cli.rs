@@ -159,6 +159,10 @@ pub struct Cli {
     #[arg(long, value_name = "RISK")]
     pub risk: Option<String>,
 
+    /// Filter results by module name
+    #[arg(long, value_name = "MODULE")]
+    pub module: Option<String>,
+
     /// Limit number of results (default: 50)
     #[arg(long, default_value = "50")]
     pub limit: usize,
