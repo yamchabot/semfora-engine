@@ -59,7 +59,7 @@ Semfora Engine is a semantic code analysis system that produces compressed TOON 
 
 ### Semantic Extraction (`src/extract.rs`, `src/detectors/`)
 
-Tree-sitter based AST traversal for 16+ languages.
+Tree-sitter based AST traversal for 20+ languages.
 
 | Component | File | Purpose |
 |-----------|------|---------|
@@ -67,7 +67,10 @@ Tree-sitter based AST traversal for 16+ languages.
 | JavaScript Family | `detectors/javascript/` | TS, TSX, JS, JSX with framework detection |
 | Rust | `detectors/rust.rs` | Full Rust extraction |
 | Python | `detectors/python.rs` | Python with decorator support |
-| Go/Java/C/C++ | `detectors/*.rs` | Basic extraction |
+| C# | `detectors/csharp.rs` | Full C# with async/await, records, pattern matching |
+| Go | `detectors/go.rs` | Go with methods and structs |
+| HCL/Terraform | `detectors/hcl.rs` | Infrastructure-as-code extraction |
+| Java/Kotlin/C/C++ | `detectors/*.rs` | Basic extraction |
 | Config/Markup | `detectors/config.rs`, `markup.rs` | JSON, YAML, TOML, HTML, CSS, MD |
 
 ### Sharded Index (`src/shard.rs`)
@@ -196,14 +199,28 @@ Token budget per query:
 | JSX | `.jsx` | Full + JSX |
 | Rust | `.rs` | Full |
 | Python | `.py`, `.pyi` | Full |
-| Go | `.go` | Basic (symbols, imports) |
+| C# | `.cs` | Full (async/await, records, pattern matching) |
+| Go | `.go` | Full (methods, structs, interfaces) |
+| HCL/Terraform | `.tf`, `.hcl`, `.tfvars` | Full (blocks, resources, variables) |
 | Java | `.java` | Basic |
 | Kotlin | `.kt`, `.kts` | Basic |
-| C# | `.cs` | Basic |
 | C/C++ | `.c`, `.cpp`, `.h`, etc. | Basic |
-| HTML/CSS | `.html`, `.css` | Structural |
-| JSON/YAML/TOML | `.json`, `.yaml`, `.toml` | Config extraction |
+| HTML/CSS/SCSS | `.html`, `.css`, `.scss` | Structural |
+| JSON/YAML/TOML/XML | `.json`, `.yaml`, `.toml`, `.xml` | Config extraction |
 | Markdown | `.md` | Structural |
+| Vue SFC | `.vue` | Full (script extraction with lang detection) |
+| Shell/Bash | `.sh`, `.bash`, `.zsh` | Basic |
+| Gradle | `.gradle` | Basic |
+
+### Boilerplate Detection (`src/duplicate/boilerplate/`)
+
+Semantic duplicate detection filters out expected boilerplate patterns.
+
+| Language | Patterns | Coverage |
+|----------|----------|----------|
+| **JavaScript/TypeScript** | 14 | ReactQuery, ReactHook, EventHandler, ApiRoute, TestSetup, TypeGuard, ConfigExport, ReduxPattern, ValidationSchema, TestMock, NextjsDataFetching, ReactWrapper, ClassicReduxReducer, ApiWrapper |
+| **Rust** | 13 | TraitImpl, Builder, Getter, Setter, Constructor, Conversion, Derived, ErrorFrom, Iterator, Deref, Drop, Test, Serde |
+| **C#** | 18 | ASP.NET (Controller, MinimalApi, Middleware, DI), Entity Framework (DbContext, DbSet, FluentApi, Migration), Testing (XUnit, NUnit, Moq), LINQ (Chain, Projection), Unity (Lifecycle, SerializedField, ScriptableObject), General (Property, Record) |
 
 ---
 

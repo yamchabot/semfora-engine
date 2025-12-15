@@ -116,6 +116,7 @@ Semfora Engine includes semantic duplicate detection that identifies similar fun
 |----------|----------|--------|
 | **JavaScript/TypeScript** | 14 patterns | Full support |
 | **Rust** | 13 patterns | Full support |
+| **C#** | 18 patterns | Full support |
 | **Python** | 0 patterns | Planned |
 | **Go** | 0 patterns | Planned |
 | **Java** | 0 patterns | Planned |
@@ -131,6 +132,14 @@ Semfora Engine includes semantic duplicate detection that identifies similar fun
 - RustConversion, RustDerived, RustErrorFrom, RustIterator, RustDeref
 - RustDrop, RustTest, RustSerde
 
+### C# Patterns (18)
+- **ASP.NET Core**: AspNetController, AspNetMinimalApi, AspNetMiddleware, AspNetDI
+- **Entity Framework**: EFDbContext, EFDbSet, EFFluentApi, EFMigration
+- **Testing**: XUnitTest, NUnitTest, MoqSetup
+- **LINQ**: LinqChain, LinqProjection
+- **Unity**: UnityLifecycle, UnitySerializedField, UnityScriptableObject
+- **General**: CSharpProperty, CSharpRecord
+
 ### Planned Boilerplate Patterns
 
 | Language | Planned Patterns | Priority |
@@ -139,35 +148,21 @@ Semfora Engine includes semantic duplicate detection that identifies similar fun
 | **Go** | HTTP handlers, middleware, error wrapping, builder structs, test helpers | High |
 | **Java** | Spring controllers/services, Lombok-generated, DTOs, JPA entities, JUnit tests | High |
 | **C/C++** | Getters/setters, RAII wrappers, copy/move boilerplate, operator overloads | Medium |
-| **C#** | ASP.NET controllers, EF Core, xUnit/NUnit, LINQ chains, Unity lifecycle | Highest |
 | **Kotlin** | Data classes, Spring Boot, Ktor routing, Android ViewModel, coroutines | High |
 
 ## Language Roadmap
 
 Prioritized based on enterprise adoption potential and architectural fit with Semfora's orchestrator-first design.
 
-### Priority 1: C# and .NET Ecosystem (HIGHEST)
+### C# and .NET Ecosystem (COMPLETE)
 
-C# is the single biggest gap relative to enterprise, game-dev, and backend workloads.
+Full C# support implemented with 18 boilerplate patterns covering ASP.NET Core, Entity Framework, Unity, LINQ, and testing frameworks. See [C# Patterns](#c-patterns-18) above.
 
-| Item | Details |
-|------|---------|
-| **Extensions** | `.cs` |
-| **Parser** | `tree-sitter-c-sharp` (mature, widely used) |
-| **Semantic Targets** | Classes, records, structs, interfaces, enums |
-| **Control Flow** | if, switch, await, try/catch, pattern matching |
-| **Modifiers** | async, unsafe, partial, static |
+### HCL/Terraform (COMPLETE)
 
-**Framework Patterns:**
-- **ASP.NET Core**: Controllers, Minimal API endpoints, middleware, DI registrations
-- **Entity Framework**: DbContext, DbSet, Fluent API, migrations
-- **Testing**: xUnit/NUnit tests, Moq mocks
-- **LINQ**: Select/Where/GroupBy chains
-- **Unity** (optional): MonoBehaviour lifecycle, SerializeField patterns
+Full HCL support implemented for infrastructure-as-code analysis (`.tf`, `.hcl`, `.tfvars`).
 
-**Strategic Value**: Positions Semfora uniquely against Claude Code and GitHub Copilot Chat, which struggle with large .NET repos, LINQ-heavy reasoning, and EF Core side effects.
-
-### Priority 2: Kotlin
+### Priority 1: Kotlin
 
 Complements Java support for Android and modern JVM coverage.
 
@@ -179,7 +174,7 @@ Complements Java support for Android and modern JVM coverage.
 
 **Framework Patterns**: Spring Boot, Ktor routing, Android ViewModel + LiveData, coroutine scopes
 
-### Priority 3: Swift
+### Priority 2: Swift
 
 Unlocks iOS/macOS and SwiftUI ecosystems.
 
@@ -189,7 +184,7 @@ Unlocks iOS/macOS and SwiftUI ecosystems.
 | **Parser** | `tree-sitter-swift` |
 | **Targets** | Struct vs class semantics, protocol conformance, property wrappers, async/await |
 
-### Priority 4: PHP
+### Priority 3: PHP
 
 High ROI due to extreme boilerplate density in Laravel/WordPress codebases.
 
@@ -199,7 +194,7 @@ High ROI due to extreme boilerplate density in Laravel/WordPress codebases.
 | **Parser** | `tree-sitter-php` |
 | **Targets** | Laravel controllers, service providers, middleware, Eloquent models |
 
-### Priority 5: Ruby
+### Priority 4: Ruby
 
 Smaller but relevant via Rails ecosystem.
 
@@ -209,7 +204,7 @@ Smaller but relevant via Rails ecosystem.
 | **Parser** | `tree-sitter-ruby` |
 | **Targets** | ActiveRecord models, Rails controllers, RSpec scaffolding |
 
-### Priority 6: Infra Languages (Non-Semantic)
+### Priority 5: Infra Languages (Non-Semantic)
 
 Structural parsing for repo comprehension without full semantic analysis.
 
