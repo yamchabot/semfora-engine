@@ -27,6 +27,9 @@ pub enum McpDiffError {
     #[error("Not a git repository")]
     NotGitRepo,
 
+    #[error("Export error: {message}")]
+    ExportError { message: String },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -39,6 +42,7 @@ impl McpDiffError {
     /// - 3: Parse failure
     /// - 4: Internal semantic extraction failure
     /// - 5: Git error
+    /// - 6: Export error
     pub fn exit_code(&self) -> ExitCode {
         match self {
             Self::FileNotFound { .. } => ExitCode::from(1),
@@ -48,6 +52,7 @@ impl McpDiffError {
             Self::QueryError { .. } => ExitCode::from(4),
             Self::GitError { .. } => ExitCode::from(5),
             Self::NotGitRepo => ExitCode::from(5),
+            Self::ExportError { .. } => ExitCode::from(6),
             Self::Io(_) => ExitCode::from(1),
         }
     }

@@ -657,6 +657,30 @@ pub struct ValidateModuleSymbolsRequest {
 }
 
 // ============================================================================
+// SQLite Export Types (Call Graph Visualization)
+// ============================================================================
+
+/// Request to export call graph to SQLite database
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ExportCallGraphSqliteRequest {
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Output file path for SQLite database (defaults to <cache>/call_graph.sqlite)
+    #[schemars(
+        description = "Output path for SQLite file. Defaults to cache directory. Use absolute path for custom location."
+    )]
+    pub output_path: Option<String>,
+
+    /// Batch size for transactions (default: 5000, max: 50000)
+    #[schemars(
+        description = "Rows per transaction batch (default: 5000). Higher = faster but more memory."
+    )]
+    pub batch_size: Option<usize>,
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

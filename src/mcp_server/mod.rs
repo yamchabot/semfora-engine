@@ -863,6 +863,69 @@ impl McpDiffServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
+    #[tool(description = "Export call graph to SQLite database file for use with semfora-graph explorer or any SQLite client. IMPORTANT: This is an expensive disk-writing operation. Returns ONLY statistics (nodes, edges, file size) - NEVER the actual data. Requires explicit user confirmation before running. The output SQLite file can be queried with SQL for graph exploration.")]
+    async fn export_call_graph_sqlite(
+        &self,
+        Parameters(request): Parameters<types::ExportCallGraphSqliteRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::sqlite_export::{default_export_path, SqliteExporter};
+        use std::path::Path;
+
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        // Ensure index exists and is fresh
+        let freshness = match self.ensure_index(&repo_path).await {
+            Ok(r) => r,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
+        };
+        let cache = freshness.cache;
+
+        // Determine output path
+        let output_path = match &request.output_path {
+            Some(p) => {
+                let path = Path::new(p);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    repo_path.join(p)
+                }
+            }
+            None => default_export_path(&cache),
+        };
+
+        // Validate batch size
+        let batch_size = request.batch_size.unwrap_or(5000).clamp(100, 50000);
+
+        let exporter = SqliteExporter::new().with_batch_size(batch_size);
+
+        match exporter.export(&cache, &output_path, None) {
+            Ok(stats) => {
+                let mut output = String::new();
+                output.push_str("_type: sqlite_export_result\n");
+                output.push_str("status: \"success\"\n");
+                output.push_str(&format!("output_path: \"{}\"\n", stats.output_path));
+                output.push_str(&format!(
+                    "file_size_mb: {:.2}\n",
+                    stats.file_size_bytes as f64 / 1024.0 / 1024.0
+                ));
+                output.push_str(&format!("nodes_exported: {}\n", stats.nodes_inserted));
+                output.push_str(&format!("edges_exported: {}\n", stats.edges_inserted));
+                output.push_str(&format!("module_edges: {}\n", stats.module_edges_inserted));
+                output.push_str(&format!("duration_ms: {}\n", stats.duration_ms));
+                output.push_str("\nhint: \"Open with semfora-graph explorer or any SQLite client (DB Browser, DBeaver, sqlite3 CLI)\"\n");
+
+                Ok(CallToolResult::success(vec![Content::text(output)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Export failed: {}",
+                e
+            ))])),
+        }
+    }
+
     // ========================================================================
     // Query-Driven API Tools
     // ========================================================================

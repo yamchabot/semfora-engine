@@ -61,6 +61,7 @@ pub mod search;
 pub mod server;
 pub mod shard;
 pub mod socket_server;
+pub mod sqlite_export;
 pub mod test_runner;
 pub mod tokens;
 pub mod toon;
@@ -151,4 +152,10 @@ pub use duplicate::{
     boilerplate::{BoilerplateCategory, BoilerplateConfig, CustomBoilerplateRule},
     Difference, DuplicateCluster, DuplicateDetector, DuplicateKind, DuplicateMatch,
     FunctionSignature, SymbolRef,
+};
+
+// Re-export SQLite export types (call graph visualization)
+pub use sqlite_export::{
+    default_export_path, ExportPhase, ExportProgress, ExportStats, ProgressCallback,
+    SqliteExporter,
 };

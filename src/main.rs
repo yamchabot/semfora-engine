@@ -91,6 +91,11 @@ fn run() -> semfora_engine::Result<String> {
         return run_get_call_graph(&cli);
     }
 
+    // Handle SQLite export
+    if cli.export_sqlite.is_some() {
+        return run_export_sqlite(&cli);
+    }
+
     // Handle static analysis
     if cli.analyze {
         return run_static_analysis(&cli);
@@ -886,6 +891,70 @@ fn run_get_call_graph(cli: &Cli) -> semfora_engine::Result<String> {
     })?;
 
     Ok(json)
+}
+
+/// Export call graph to SQLite database
+fn run_export_sqlite(cli: &Cli) -> semfora_engine::Result<String> {
+    use semfora_engine::{default_export_path, ExportProgress, SqliteExporter};
+    use std::io::{stderr, Write};
+
+    let repo_dir = get_repo_dir(cli)?;
+    let cache = CacheDir::for_repo(&repo_dir)?;
+
+    if !cache.exists() {
+        return Err(McpDiffError::FileNotFound {
+            path: "No index found. Run with --shard first to generate index.".to_string(),
+        });
+    }
+
+    // Determine output path
+    let output_arg = cli.export_sqlite.as_deref().unwrap_or("");
+    let output_path = if output_arg.is_empty() {
+        default_export_path(&cache)
+    } else {
+        let path = std::path::Path::new(output_arg);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            repo_dir.join(output_arg)
+        }
+    };
+
+    eprintln!("Exporting call graph to SQLite: {}", output_path.display());
+
+    // Progress callback for stderr
+    let progress_callback: Option<Box<dyn Fn(ExportProgress) + Send>> =
+        Some(Box::new(|progress| {
+            eprint!(
+                "\r  {:?}: {}/{} - {}          ",
+                progress.phase, progress.current, progress.total, progress.message
+            );
+            let _ = stderr().flush();
+        }));
+
+    let exporter = SqliteExporter::new().with_batch_size(5000);
+    let stats = exporter.export(&cache, &output_path, progress_callback)?;
+
+    eprintln!("\n");
+    eprintln!("Export complete:");
+    eprintln!("  Output: {}", stats.output_path);
+    eprintln!(
+        "  Size: {:.2} MB",
+        stats.file_size_bytes as f64 / 1024.0 / 1024.0
+    );
+    eprintln!("  Nodes: {}", stats.nodes_inserted);
+    eprintln!("  Edges: {}", stats.edges_inserted);
+    eprintln!("  Module edges: {}", stats.module_edges_inserted);
+    eprintln!("  Duration: {}ms", stats.duration_ms);
+
+    // Return minimal output to stdout
+    Ok(format!(
+        "Exported to: {}\nNodes: {}, Edges: {}, Size: {:.2} MB",
+        stats.output_path,
+        stats.nodes_inserted,
+        stats.edges_inserted,
+        stats.file_size_bytes as f64 / 1024.0 / 1024.0
+    ))
 }
 
 /// Recursively collect supported files from a directory

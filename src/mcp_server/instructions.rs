@@ -125,6 +125,28 @@ When reviewing changes:
 2. **Before modifying**: Use `get_callers` to check impact
 3. **Quality audit**: Use `validate_symbol` for complexity analysis
 
+## Expensive Operations (Require Confirmation)
+
+### export_call_graph_sqlite
+Exports call graph to SQLite database for visualization with semfora-graph explorer.
+
+**IMPORTANT**: This is an expensive disk-writing operation.
+- ALWAYS ask for user confirmation before running
+- Can take several minutes on large codebases (>100k edges)
+- Writes directly to disk - default location: `<cache>/call_graph.sqlite`
+- Returns ONLY statistics - NEVER returns actual data to avoid token blowout
+- Note: semfora-graph may not be installed on the user's system
+
+**When to use**:
+- User explicitly requests SQLite export for graph visualization
+- User wants to explore call graph in external tools
+- User mentions semfora-graph, graph database, or SQLite export
+
+**Example confirmation prompt**:
+"I'll export the call graph to SQLite. This may take a few minutes for large codebases.
+The file will be written to: <path>
+Proceed? (This is an expensive operation)"
+
 ## Remember
 - Start with `get_context` (~200 tokens vs reading git status)
 - Use `semantic_search` for "how does X work?" questions

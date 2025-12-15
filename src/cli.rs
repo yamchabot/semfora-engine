@@ -13,7 +13,7 @@ use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyz
 #[command(author)]
 pub struct Cli {
     /// Path to file to analyze (single file mode)
-    #[arg(value_name = "FILE", required_unless_present_any = ["diff", "commit", "commits", "uncommitted", "cache_info", "cache_clear", "cache_prune", "dir", "benchmark", "list_modules", "get_module", "search_symbols", "list_symbols", "get_symbol", "get_overview", "get_call_graph", "analyze", "find_duplicates", "check_duplicates", "get_source", "raw_search", "semantic_search", "file_symbols", "get_callers"])]
+    #[arg(value_name = "FILE", required_unless_present_any = ["diff", "commit", "commits", "uncommitted", "cache_info", "cache_clear", "cache_prune", "dir", "benchmark", "list_modules", "get_module", "search_symbols", "list_symbols", "get_symbol", "get_overview", "get_call_graph", "analyze", "find_duplicates", "check_duplicates", "get_source", "raw_search", "semantic_search", "file_symbols", "get_callers", "export_sqlite"])]
     pub file: Option<PathBuf>,
 
     /// Output format
@@ -150,6 +150,11 @@ pub struct Cli {
     /// Returns JSON mapping symbol hashes to their callees
     #[arg(long)]
     pub get_call_graph: bool,
+
+    /// Export call graph to SQLite database file
+    /// Writes to <cache>/call_graph.sqlite by default, or specify custom path
+    #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "")]
+    pub export_sqlite: Option<String>,
 
     /// Filter results by symbol kind (fn, struct, component, etc.)
     #[arg(long, value_name = "KIND")]
