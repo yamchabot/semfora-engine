@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     encode_toon, encode_toon_directory, generate_repo_overview, Lang,
-    CacheDir, ShardWriter, RipgrepSearchResult,
+    CacheDir, ShardWriter, RipgrepSearchResult, normalize_kind,
     test_runner::{self, TestFramework, TestRunOptions},
     server::ServerState,
     duplicate::DuplicateDetector,
@@ -35,6 +35,9 @@ use helpers::{
     check_cache_staleness_detailed, collect_files, parse_and_extract,
     generate_index_internal, analyze_files_with_stats, filter_repo_overview,
     ensure_fresh_index, FreshnessResult, format_freshness_note,
+    // Validation helpers
+    find_symbol_by_hash, find_symbol_by_location, validate_single_symbol,
+    format_validation_result, validate_symbols_batch, format_batch_validation_results,
 };
 use formatting::{
     analyze_files, format_diff_output, get_supported_languages, resolve_line_range,
@@ -1711,7 +1714,7 @@ impl McpDiffServer {
                         target_file.ends_with(entry_file)
                     })
                     .filter(|e| {
-                        request.kind.as_ref().map_or(true, |k| e.kind == *k)
+                        request.kind.as_ref().map_or(true, |k| e.kind == normalize_kind(k))
                     })
                     .collect()
             }
@@ -1908,7 +1911,7 @@ impl McpDiffServer {
     }
 
     // ========================================================================
-    // Validation Tool (Phase 4)
+    // Validation Tools (Phase 4 & 5)
     // ========================================================================
 
     #[tool(description = "**Use for quality audits** - validates a symbol's complexity, finds duplicates, and shows impact radius (callers). Combines complexity metrics, duplicate detection, and caller analysis into one comprehensive report. Useful after code review or before refactoring.")]
@@ -1934,48 +1937,16 @@ impl McpDiffServer {
             ))]));
         }
 
-        // Find the target symbol
-        let (symbol_hash, symbol_entry) = if let Some(ref hash) = request.symbol_hash {
-            // Look up by hash
-            let entries = match cache.load_all_symbol_entries() {
-                Ok(e) => e,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to load symbol index: {}", e
-                ))])),
-            };
-            match entries.into_iter().find(|e| e.hash == *hash) {
-                Some(entry) => (hash.clone(), entry),
-                None => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Symbol {} not found in index.", hash
-                ))])),
+        // Find the target symbol using helper functions
+        let symbol_entry = if let Some(ref hash) = request.symbol_hash {
+            match find_symbol_by_hash(&cache, hash) {
+                Ok(entry) => entry,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
             }
         } else if let (Some(ref file_path), Some(line)) = (&request.file_path, request.line) {
-            // Look up by file + line
-            let entries = match cache.load_all_symbol_entries() {
-                Ok(e) => e,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to load symbol index: {}", e
-                ))])),
-            };
-
-            // Find symbol that contains this line
-            let matching = entries.into_iter().find(|e| {
-                if !e.file.ends_with(file_path) && !file_path.ends_with(&e.file) {
-                    return false;
-                }
-                if let Some((start, end)) = e.lines.split_once('-') {
-                    if let (Ok(s), Ok(en)) = (start.parse::<usize>(), end.parse::<usize>()) {
-                        return line >= s && line <= en;
-                    }
-                }
-                false
-            });
-
-            match matching {
-                Some(entry) => (entry.hash.clone(), entry),
-                None => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "No symbol found at {}:{}", file_path, line
-                ))])),
+            match find_symbol_by_location(&cache, file_path, line) {
+                Ok(entry) => entry,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
             }
         } else {
             return Ok(CallToolResult::error(vec![Content::text(
@@ -1983,168 +1954,142 @@ impl McpDiffServer {
             )]));
         };
 
-        // Start building the validation report
-        let mut output = String::new();
-        output.push_str("_type: validation_result\n");
-        output.push_str(&format!("symbol: {}\n", symbol_entry.symbol));
-        output.push_str(&format!("file: {}\n", symbol_entry.file));
-        output.push_str(&format!("lines: {}\n", symbol_entry.lines));
-        output.push_str(&format!("kind: {}\n", symbol_entry.kind));
-        output.push_str(&format!("hash: {}\n", symbol_hash));
-
-        // Complexity metrics (already computed during indexing)
-        output.push_str("\ncomplexity:\n");
-        output.push_str(&format!("  cognitive: {}\n", symbol_entry.cognitive_complexity));
-        output.push_str(&format!("  max_nesting: {}\n", symbol_entry.max_nesting));
-        output.push_str(&format!("  risk: {}\n", symbol_entry.risk));
-
-        // Complexity assessment
-        let complexity_concerns: Vec<&str> = {
-            let mut concerns = Vec::new();
-            if symbol_entry.cognitive_complexity > 15 {
-                concerns.push("High cognitive complexity (>15) - consider breaking into smaller functions");
-            } else if symbol_entry.cognitive_complexity > 10 {
-                concerns.push("Moderate cognitive complexity (>10) - may be hard to maintain");
-            }
-            if symbol_entry.max_nesting > 4 {
-                concerns.push("Deep nesting (>4) - consider early returns or guard clauses");
-            }
-            concerns
-        };
-
-        // Duplicate detection
+        // Validate using helper
         let threshold = request.duplicate_threshold.unwrap_or(0.85);
-        let mut duplicates: Vec<(String, String, f64)> = Vec::new(); // (name, file, similarity)
+        let result = validate_single_symbol(&cache, &symbol_entry, threshold);
 
-        if let Ok(signatures) = load_signatures(&cache) {
-            if let Some(target_sig) = signatures.iter().find(|s| s.symbol_hash == symbol_hash) {
-                let detector = DuplicateDetector::new(threshold);
-                let matches = detector.find_duplicates(target_sig, &signatures);
-
-                for m in matches.iter().take(5) {
-                    duplicates.push((
-                        m.symbol.name.clone(),
-                        m.symbol.file.clone(),
-                        m.similarity,
-                    ));
-                }
-            }
-        }
-
-        output.push_str("\nduplicates:\n");
-        if duplicates.is_empty() {
-            output.push_str("  (none found above threshold)\n");
-        } else {
-            output.push_str(&format!("  count: {}\n", duplicates.len()));
-            output.push_str(&format!("  threshold: {:.0}%\n", threshold * 100.0));
-            for (name, file, sim) in &duplicates {
-                output.push_str(&format!("  - {} ({}) [{:.0}%]\n", name, file, sim * 100.0));
-            }
-        }
-
-        // Caller analysis (impact radius)
-        let mut callers: Vec<(String, String)> = Vec::new(); // (name, hash)
-        let mut high_risk_callers: Vec<String> = Vec::new();
-
-        let call_graph_path = cache.call_graph_path();
-        if call_graph_path.exists() {
-            if let Ok(content) = fs::read_to_string(&call_graph_path) {
-                // Build reverse call graph
-                let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-
-                for line in content.lines() {
-                    if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
-                        continue;
-                    }
-                    if let Some(colon_pos) = line.find(':') {
-                        let caller = line[..colon_pos].trim().to_string();
-                        let rest = line[colon_pos + 1..].trim();
-                        if rest.starts_with('[') && rest.ends_with(']') {
-                            let inner = &rest[1..rest.len()-1];
-                            for callee in inner.split(',').filter(|s| !s.is_empty()) {
-                                let callee = callee.trim().trim_matches('"').to_string();
-                                if !callee.starts_with("ext:") {
-                                    reverse_graph.entry(callee).or_default().push(caller.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Load symbol names for resolution
-                let mut symbol_names: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new(); // hash -> (name, risk)
-                if let Ok(entries) = cache.load_all_symbol_entries() {
-                    for entry in entries {
-                        symbol_names.insert(entry.hash.clone(), (entry.symbol.clone(), entry.risk.clone()));
-                    }
-                }
-
-                // Find direct callers
-                if let Some(caller_hashes) = reverse_graph.get(&symbol_hash) {
-                    for caller_hash in caller_hashes.iter().take(20) {
-                        if let Some((name, risk)) = symbol_names.get(caller_hash) {
-                            callers.push((name.clone(), caller_hash.clone()));
-                            if risk == "high" {
-                                high_risk_callers.push(name.clone());
-                            }
-                        } else {
-                            callers.push((caller_hash.clone(), caller_hash.clone()));
-                        }
-                    }
-                }
-            }
-        }
-
-        output.push_str("\ncallers:\n");
-        output.push_str(&format!("  direct: {}\n", callers.len()));
-        if !high_risk_callers.is_empty() {
-            output.push_str(&format!("  high_risk_callers: [{}]\n", high_risk_callers.join(", ")));
-        }
-        if !callers.is_empty() {
-            output.push_str("  list:\n");
-            for (name, hash) in callers.iter().take(10) {
-                output.push_str(&format!("    - {} ({})\n", name, hash));
-            }
-            if callers.len() > 10 {
-                output.push_str(&format!("    ... and {} more\n", callers.len() - 10));
-            }
-        }
-
-        // Generate suggestions
-        output.push_str("\nsuggestions:\n");
-        let mut has_suggestions = false;
-
-        for concern in &complexity_concerns {
-            output.push_str(&format!("  - {}\n", concern));
-            has_suggestions = true;
-        }
-
-        if !duplicates.is_empty() {
-            let (dup_name, _, dup_sim) = &duplicates[0];
-            output.push_str(&format!(
-                "  - {:.0}% similar to {} - consider consolidation\n",
-                dup_sim * 100.0, dup_name
-            ));
-            has_suggestions = true;
-        }
-
-        if callers.len() > 10 {
-            output.push_str("  - High impact radius (>10 callers) - changes require careful testing\n");
-            has_suggestions = true;
-        }
-
-        if !has_suggestions {
-            output.push_str("  (none - symbol looks good)\n");
-        }
+        // Format the result
+        let mut output = format_validation_result(&result);
 
         // Include source if requested
-        let include_source = request.include_source.unwrap_or(false);
-        if include_source {
+        if request.include_source.unwrap_or(false) {
             if let Some(source) = get_symbol_source_snippet(&cache, &symbol_entry.file, &symbol_entry.lines, 2) {
                 output.push_str("\n__source__:\n");
                 output.push_str(&source);
             }
         }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "**Use for file-level quality audits** - validates all symbols in a file at once. Returns aggregated complexity metrics, duplicates, and suggestions for the entire file. Much more efficient than calling validate_symbol repeatedly.")]
+    async fn validate_file_symbols(
+        &self,
+        Parameters(request): Parameters<ValidateFileSymbolsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+            ))]));
+        }
+
+        // Load all symbol entries
+        let all_entries = match cache.load_all_symbol_entries() {
+            Ok(e) => e,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to load symbol index: {}", e
+            ))])),
+        };
+
+        // Filter to symbols in the target file
+        let file_path = &request.file_path;
+        let mut entries: Vec<_> = all_entries.into_iter()
+            .filter(|e| e.file.ends_with(file_path) || file_path.ends_with(&e.file))
+            .collect();
+
+        // Apply kind filter if specified
+        if let Some(ref kind) = request.kind {
+            let normalized = normalize_kind(kind);
+            entries.retain(|e| e.kind.eq_ignore_ascii_case(normalized));
+        }
+
+        if entries.is_empty() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No symbols found in file: {}", file_path
+            ))]));
+        }
+
+        // Validate all symbols
+        let threshold = request.duplicate_threshold.unwrap_or(0.85);
+        let results = validate_symbols_batch(&cache, &entries, threshold);
+
+        // Format batch results
+        let output = format_batch_validation_results(&results, file_path);
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "**Use for module-level quality audits** - validates all symbols in a module at once. Returns aggregated complexity metrics, duplicates, and suggestions for the entire module. Much more efficient than calling validate_symbol repeatedly.")]
+    async fn validate_module_symbols(
+        &self,
+        Parameters(request): Parameters<ValidateModuleSymbolsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+            ))]));
+        }
+
+        // Load all symbol entries
+        let all_entries = match cache.load_all_symbol_entries() {
+            Ok(e) => e,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to load symbol index: {}", e
+            ))])),
+        };
+
+        // Filter to symbols in the target module
+        let module_name = &request.module;
+        let mut entries: Vec<_> = all_entries.into_iter()
+            .filter(|e| e.module.eq_ignore_ascii_case(module_name) || e.module.ends_with(module_name))
+            .collect();
+
+        // Apply kind filter if specified
+        if let Some(ref kind) = request.kind {
+            let normalized = normalize_kind(kind);
+            entries.retain(|e| e.kind.eq_ignore_ascii_case(normalized));
+        }
+
+        // Apply limit
+        let limit = request.limit.unwrap_or(100).min(500);
+        entries.truncate(limit);
+
+        if entries.is_empty() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No symbols found in module: {}", module_name
+            ))]));
+        }
+
+        // Validate all symbols
+        let threshold = request.duplicate_threshold.unwrap_or(0.85);
+        let results = validate_symbols_batch(&cache, &entries, threshold);
+
+        // Format batch results
+        let output = format_batch_validation_results(&results, &format!("module:{}", module_name));
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
@@ -2191,8 +2136,8 @@ impl McpDiffServer {
 
         // Apply filters
         if let Some(ref kind_filter) = request.kind {
-            let kind_lower = kind_filter.to_lowercase();
-            results.retain(|r| r.kind.to_lowercase() == kind_lower);
+            let normalized = normalize_kind(kind_filter).to_lowercase();
+            results.retain(|r| r.kind.to_lowercase() == normalized);
         }
         if let Some(ref module_filter) = request.module {
             let module_lower = module_filter.to_lowercase();

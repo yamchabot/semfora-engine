@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{extract, extract_module_name, Lang, McpDiffError, SemanticSummary, CacheDir, ShardWriter};
+use crate::{extract, extract_module_name, Lang, McpDiffError, SemanticSummary, CacheDir, ShardWriter, SymbolIndexEntry};
+use crate::duplicate::{DuplicateDetector, FunctionSignature};
 
 // ============================================================================
 // Staleness Info Struct
@@ -878,6 +879,487 @@ pub fn filter_repo_overview(content: &str, max_modules: usize, exclude_test_dirs
             output.push_str(module_line);
             output.push('\n');
         }
+    }
+
+    output
+}
+
+// ============================================================================
+// Symbol Validation Helpers
+// ============================================================================
+
+/// Information about a duplicate match
+#[derive(Debug, Clone)]
+pub struct DuplicateMatch {
+    /// Name of the duplicate symbol
+    pub name: String,
+    /// File containing the duplicate
+    pub file: String,
+    /// Similarity score (0.0 to 1.0)
+    pub similarity: f64,
+}
+
+/// Information about a caller
+#[derive(Debug, Clone)]
+pub struct CallerInfo {
+    /// Name of the calling symbol
+    pub name: String,
+    /// Hash of the calling symbol
+    pub hash: String,
+    /// Risk level of the caller
+    pub risk: String,
+}
+
+/// Result of validating a single symbol
+#[derive(Debug, Clone)]
+pub struct SymbolValidationResult {
+    /// Symbol name
+    pub symbol: String,
+    /// File containing the symbol
+    pub file: String,
+    /// Line range (e.g., "45-89")
+    pub lines: String,
+    /// Symbol kind (fn, struct, etc.)
+    pub kind: String,
+    /// Symbol hash
+    pub hash: String,
+    /// Cognitive complexity score
+    pub cognitive_complexity: usize,
+    /// Maximum nesting depth
+    pub max_nesting: usize,
+    /// Risk level
+    pub risk: String,
+    /// Complexity-related concerns
+    pub complexity_concerns: Vec<String>,
+    /// Similar symbols (potential duplicates)
+    pub duplicates: Vec<DuplicateMatch>,
+    /// Functions that call this symbol
+    pub callers: Vec<CallerInfo>,
+    /// High-risk callers specifically
+    pub high_risk_callers: Vec<String>,
+    /// Actionable suggestions
+    pub suggestions: Vec<String>,
+}
+
+/// Find a symbol by hash in the index
+pub fn find_symbol_by_hash(
+    cache: &CacheDir,
+    hash: &str,
+) -> Result<SymbolIndexEntry, String> {
+    let entries = cache.load_all_symbol_entries()
+        .map_err(|e| format!("Failed to load symbol index: {}", e))?;
+
+    entries.into_iter()
+        .find(|e| e.hash == hash)
+        .ok_or_else(|| format!("Symbol {} not found in index", hash))
+}
+
+/// Find a symbol by file path and line number
+pub fn find_symbol_by_location(
+    cache: &CacheDir,
+    file_path: &str,
+    line: usize,
+) -> Result<SymbolIndexEntry, String> {
+    let entries = cache.load_all_symbol_entries()
+        .map_err(|e| format!("Failed to load symbol index: {}", e))?;
+
+    entries.into_iter()
+        .find(|e| {
+            // Check if file matches
+            if !e.file.ends_with(file_path) && !file_path.ends_with(&e.file) {
+                return false;
+            }
+            // Check if line is within range
+            if let Some((start, end)) = e.lines.split_once('-') {
+                if let (Ok(s), Ok(en)) = (start.parse::<usize>(), end.parse::<usize>()) {
+                    return line >= s && line <= en;
+                }
+            }
+            false
+        })
+        .ok_or_else(|| format!("No symbol found at {}:{}", file_path, line))
+}
+
+/// Assess complexity concerns for a symbol
+pub fn assess_complexity(entry: &SymbolIndexEntry) -> Vec<String> {
+    let mut concerns = Vec::new();
+
+    if entry.cognitive_complexity > 15 {
+        concerns.push("High cognitive complexity (>15) - consider breaking into smaller functions".to_string());
+    } else if entry.cognitive_complexity > 10 {
+        concerns.push("Moderate cognitive complexity (>10) - may be hard to maintain".to_string());
+    }
+
+    if entry.max_nesting > 4 {
+        concerns.push("Deep nesting (>4) - consider early returns or guard clauses".to_string());
+    }
+
+    concerns
+}
+
+/// Find duplicates for a symbol using the duplicate detector
+pub fn find_symbol_duplicates(
+    cache: &CacheDir,
+    symbol_hash: &str,
+    threshold: f64,
+    max_results: usize,
+) -> Vec<DuplicateMatch> {
+    let mut duplicates = Vec::new();
+
+    // Load signatures from cache
+    let signatures = match load_function_signatures(cache) {
+        Ok(sigs) => sigs,
+        Err(_) => return duplicates,
+    };
+
+    // Find the target signature
+    let target_sig = match signatures.iter().find(|s| s.symbol_hash == symbol_hash) {
+        Some(sig) => sig,
+        None => return duplicates,
+    };
+
+    // Use duplicate detector
+    let detector = DuplicateDetector::new(threshold);
+    let matches = detector.find_duplicates(target_sig, &signatures);
+
+    for m in matches.iter().take(max_results) {
+        duplicates.push(DuplicateMatch {
+            name: m.symbol.name.clone(),
+            file: m.symbol.file.clone(),
+            similarity: m.similarity,
+        });
+    }
+
+    duplicates
+}
+
+/// Load function signatures from cache
+pub fn load_function_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>, String> {
+    let sig_path = cache.signature_index_path();
+    if !sig_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(&sig_path)
+        .map_err(|e| format!("Failed to read signatures: {}", e))?;
+
+    let mut signatures = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(sig) = serde_json::from_str::<FunctionSignature>(line) {
+            signatures.push(sig);
+        }
+    }
+
+    Ok(signatures)
+}
+
+/// Build a reverse call graph (callee -> callers) from the call graph file
+pub fn build_reverse_call_graph(cache: &CacheDir) -> HashMap<String, Vec<String>> {
+    let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
+
+    let call_graph_path = cache.call_graph_path();
+    if !call_graph_path.exists() {
+        return reverse_graph;
+    }
+
+    let content = match fs::read_to_string(&call_graph_path) {
+        Ok(c) => c,
+        Err(_) => return reverse_graph,
+    };
+
+    for line in content.lines() {
+        // Skip metadata lines
+        if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+            continue;
+        }
+
+        if let Some(colon_pos) = line.find(':') {
+            let caller = line[..colon_pos].trim().to_string();
+            let rest = line[colon_pos + 1..].trim();
+
+            if rest.starts_with('[') && rest.ends_with(']') {
+                let inner = &rest[1..rest.len()-1];
+                for callee in inner.split(',').filter(|s| !s.is_empty()) {
+                    let callee = callee.trim().trim_matches('"').to_string();
+                    // Skip external calls
+                    if !callee.starts_with("ext:") {
+                        reverse_graph.entry(callee).or_default().push(caller.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    reverse_graph
+}
+
+/// Find callers for a symbol
+pub fn find_symbol_callers(
+    cache: &CacheDir,
+    symbol_hash: &str,
+    max_callers: usize,
+) -> (Vec<CallerInfo>, Vec<String>) {
+    let mut callers = Vec::new();
+    let mut high_risk_callers = Vec::new();
+
+    // Build reverse call graph
+    let reverse_graph = build_reverse_call_graph(cache);
+
+    // Load symbol names for resolution
+    let symbol_names: HashMap<String, (String, String)> = cache.load_all_symbol_entries()
+        .map(|entries| {
+            entries.into_iter()
+                .map(|e| (e.hash.clone(), (e.symbol.clone(), e.risk.clone())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Find direct callers
+    if let Some(caller_hashes) = reverse_graph.get(symbol_hash) {
+        for caller_hash in caller_hashes.iter().take(max_callers) {
+            if let Some((name, risk)) = symbol_names.get(caller_hash) {
+                callers.push(CallerInfo {
+                    name: name.clone(),
+                    hash: caller_hash.clone(),
+                    risk: risk.clone(),
+                });
+                if risk == "high" {
+                    high_risk_callers.push(name.clone());
+                }
+            } else {
+                callers.push(CallerInfo {
+                    name: caller_hash.clone(),
+                    hash: caller_hash.clone(),
+                    risk: "unknown".to_string(),
+                });
+            }
+        }
+    }
+
+    (callers, high_risk_callers)
+}
+
+/// Generate suggestions based on validation results
+pub fn generate_validation_suggestions(
+    complexity_concerns: &[String],
+    duplicates: &[DuplicateMatch],
+    callers: &[CallerInfo],
+) -> Vec<String> {
+    let mut suggestions = Vec::new();
+
+    // Add complexity concerns as suggestions
+    suggestions.extend(complexity_concerns.iter().cloned());
+
+    // Add duplicate suggestion if any
+    if let Some(dup) = duplicates.first() {
+        suggestions.push(format!(
+            "{:.0}% similar to {} - consider consolidation",
+            dup.similarity * 100.0, dup.name
+        ));
+    }
+
+    // Add high impact radius suggestion
+    if callers.len() > 10 {
+        suggestions.push("High impact radius (>10 callers) - changes require careful testing".to_string());
+    }
+
+    suggestions
+}
+
+/// Validate a single symbol and return the validation result
+pub fn validate_single_symbol(
+    cache: &CacheDir,
+    entry: &SymbolIndexEntry,
+    duplicate_threshold: f64,
+) -> SymbolValidationResult {
+    // Assess complexity
+    let complexity_concerns = assess_complexity(entry);
+
+    // Find duplicates
+    let duplicates = find_symbol_duplicates(cache, &entry.hash, duplicate_threshold, 5);
+
+    // Find callers
+    let (callers, high_risk_callers) = find_symbol_callers(cache, &entry.hash, 20);
+
+    // Generate suggestions
+    let suggestions = generate_validation_suggestions(&complexity_concerns, &duplicates, &callers);
+
+    SymbolValidationResult {
+        symbol: entry.symbol.clone(),
+        file: entry.file.clone(),
+        lines: entry.lines.clone(),
+        kind: entry.kind.clone(),
+        hash: entry.hash.clone(),
+        cognitive_complexity: entry.cognitive_complexity,
+        max_nesting: entry.max_nesting,
+        risk: entry.risk.clone(),
+        complexity_concerns,
+        duplicates,
+        callers,
+        high_risk_callers,
+        suggestions,
+    }
+}
+
+/// Format a single validation result to TOON format
+pub fn format_validation_result(result: &SymbolValidationResult) -> String {
+    let mut output = String::new();
+
+    output.push_str("_type: validation_result\n");
+    output.push_str(&format!("symbol: {}\n", result.symbol));
+    output.push_str(&format!("file: {}\n", result.file));
+    output.push_str(&format!("lines: {}\n", result.lines));
+    output.push_str(&format!("kind: {}\n", result.kind));
+    output.push_str(&format!("hash: {}\n", result.hash));
+
+    output.push_str("\ncomplexity:\n");
+    output.push_str(&format!("  cognitive: {}\n", result.cognitive_complexity));
+    output.push_str(&format!("  max_nesting: {}\n", result.max_nesting));
+    output.push_str(&format!("  risk: {}\n", result.risk));
+
+    output.push_str("\nduplicates:\n");
+    if result.duplicates.is_empty() {
+        output.push_str("  (none found above threshold)\n");
+    } else {
+        output.push_str(&format!("  count: {}\n", result.duplicates.len()));
+        for dup in &result.duplicates {
+            output.push_str(&format!("  - {} ({}) [{:.0}%]\n", dup.name, dup.file, dup.similarity * 100.0));
+        }
+    }
+
+    output.push_str("\ncallers:\n");
+    output.push_str(&format!("  direct: {}\n", result.callers.len()));
+    if !result.high_risk_callers.is_empty() {
+        output.push_str(&format!("  high_risk_callers: [{}]\n", result.high_risk_callers.join(", ")));
+    }
+    if !result.callers.is_empty() {
+        output.push_str("  list:\n");
+        for caller in result.callers.iter().take(10) {
+            output.push_str(&format!("    - {} ({})\n", caller.name, caller.hash));
+        }
+        if result.callers.len() > 10 {
+            output.push_str(&format!("    ... and {} more\n", result.callers.len() - 10));
+        }
+    }
+
+    output.push_str("\nsuggestions:\n");
+    if result.suggestions.is_empty() {
+        output.push_str("  (none - symbol looks good)\n");
+    } else {
+        for suggestion in &result.suggestions {
+            output.push_str(&format!("  - {}\n", suggestion));
+        }
+    }
+
+    output
+}
+
+/// Batch validate multiple symbols and return aggregated results
+pub fn validate_symbols_batch(
+    cache: &CacheDir,
+    entries: &[SymbolIndexEntry],
+    duplicate_threshold: f64,
+) -> Vec<SymbolValidationResult> {
+    entries.iter()
+        .map(|entry| validate_single_symbol(cache, entry, duplicate_threshold))
+        .collect()
+}
+
+/// Format batch validation results with summary
+pub fn format_batch_validation_results(
+    results: &[SymbolValidationResult],
+    context_name: &str,
+) -> String {
+    let mut output = String::new();
+
+    // Summary header
+    output.push_str("_type: batch_validation_results\n");
+    output.push_str(&format!("context: {}\n", context_name));
+    output.push_str(&format!("total_symbols: {}\n", results.len()));
+
+    // Calculate summary stats
+    let high_complexity: Vec<_> = results.iter()
+        .filter(|r| r.cognitive_complexity > 15)
+        .collect();
+    let moderate_complexity: Vec<_> = results.iter()
+        .filter(|r| r.cognitive_complexity > 10 && r.cognitive_complexity <= 15)
+        .collect();
+    let deep_nesting: Vec<_> = results.iter()
+        .filter(|r| r.max_nesting > 4)
+        .collect();
+    let with_duplicates: Vec<_> = results.iter()
+        .filter(|r| !r.duplicates.is_empty())
+        .collect();
+    let high_impact: Vec<_> = results.iter()
+        .filter(|r| r.callers.len() > 10)
+        .collect();
+
+    output.push_str("\nsummary:\n");
+    output.push_str(&format!("  high_complexity: {} (>15 cognitive)\n", high_complexity.len()));
+    output.push_str(&format!("  moderate_complexity: {} (10-15 cognitive)\n", moderate_complexity.len()));
+    output.push_str(&format!("  deep_nesting: {} (>4 levels)\n", deep_nesting.len()));
+    output.push_str(&format!("  potential_duplicates: {}\n", with_duplicates.len()));
+    output.push_str(&format!("  high_impact: {} (>10 callers)\n", high_impact.len()));
+
+    // List symbols needing attention (high complexity first)
+    if !high_complexity.is_empty() {
+        output.push_str("\nhigh_complexity_symbols:\n");
+        for r in high_complexity.iter().take(10) {
+            output.push_str(&format!("  - {} (cc:{}, nest:{}) {}\n",
+                r.symbol, r.cognitive_complexity, r.max_nesting, r.file));
+        }
+        if high_complexity.len() > 10 {
+            output.push_str(&format!("  ... and {} more\n", high_complexity.len() - 10));
+        }
+    }
+
+    if !deep_nesting.is_empty() {
+        output.push_str("\ndeep_nesting_symbols:\n");
+        for r in deep_nesting.iter().take(10) {
+            output.push_str(&format!("  - {} (nest:{}) {}\n",
+                r.symbol, r.max_nesting, r.file));
+        }
+        if deep_nesting.len() > 10 {
+            output.push_str(&format!("  ... and {} more\n", deep_nesting.len() - 10));
+        }
+    }
+
+    if !with_duplicates.is_empty() {
+        output.push_str("\nsymbols_with_duplicates:\n");
+        for r in with_duplicates.iter().take(10) {
+            if let Some(dup) = r.duplicates.first() {
+                output.push_str(&format!("  - {} ~ {} ({:.0}%)\n",
+                    r.symbol, dup.name, dup.similarity * 100.0));
+            }
+        }
+        if with_duplicates.len() > 10 {
+            output.push_str(&format!("  ... and {} more\n", with_duplicates.len() - 10));
+        }
+    }
+
+    if !high_impact.is_empty() {
+        output.push_str("\nhigh_impact_symbols:\n");
+        for r in high_impact.iter().take(10) {
+            output.push_str(&format!("  - {} ({} callers) {}\n",
+                r.symbol, r.callers.len(), r.file));
+        }
+        if high_impact.len() > 10 {
+            output.push_str(&format!("  ... and {} more\n", high_impact.len() - 10));
+        }
+    }
+
+    // All symbols table (compact)
+    output.push_str(&format!("\nall_symbols[{}]{{name,cc,nest,dups,callers,risk}}:\n", results.len()));
+    for r in results.iter().take(50) {
+        output.push_str(&format!("  {},{},{},{},{},{}\n",
+            r.symbol, r.cognitive_complexity, r.max_nesting,
+            r.duplicates.len(), r.callers.len(), r.risk));
+    }
+    if results.len() > 50 {
+        output.push_str(&format!("  ... and {} more\n", results.len() - 50));
     }
 
     output

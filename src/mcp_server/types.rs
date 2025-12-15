@@ -609,6 +609,54 @@ pub struct SemanticSearchRequest {
 }
 
 // ============================================================================
+// Batch Validation Types (Phase 5)
+// ============================================================================
+
+/// Request to validate all symbols in a file
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ValidateFileSymbolsRequest {
+    /// Path to the source file to validate
+    #[schemars(description = "Path to the source file to validate")]
+    pub file_path: String,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Similarity threshold for duplicate detection (default: 0.85)
+    #[schemars(description = "Similarity threshold for finding duplicates (default: 0.85)")]
+    pub duplicate_threshold: Option<f64>,
+
+    /// Filter by symbol kind (fn, struct, component, etc.)
+    #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
+    pub kind: Option<String>,
+}
+
+/// Request to validate all symbols in a module
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ValidateModuleSymbolsRequest {
+    /// Module name to validate (e.g., 'api', 'components', 'lib')
+    #[schemars(description = "Module name to validate (e.g., 'api', 'components', 'lib')")]
+    pub module: String,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Similarity threshold for duplicate detection (default: 0.85)
+    #[schemars(description = "Similarity threshold for finding duplicates (default: 0.85)")]
+    pub duplicate_threshold: Option<f64>,
+
+    /// Filter by symbol kind (fn, struct, component, etc.)
+    #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
+    pub kind: Option<String>,
+
+    /// Maximum symbols to validate (default: 100)
+    #[schemars(description = "Maximum symbols to validate (default: 100, max: 500)")]
+    pub limit: Option<usize>,
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

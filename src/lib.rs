@@ -92,7 +92,7 @@ pub use git::{
 
 // Re-export cache module types
 pub use cache::{
-    get_cache_base_dir, list_cached_repos, prune_old_caches, CacheDir, CacheMeta,
+    get_cache_base_dir, list_cached_repos, normalize_kind, prune_old_caches, CacheDir, CacheMeta,
     IndexingStatus, LayeredIndexMeta, RipgrepSearchResult, SearchWithFallbackResult,
     SourceFileInfo, SymbolIndexEntry,
 };

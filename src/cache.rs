@@ -20,7 +20,7 @@ use crate::schema::{fnv1a_hash, SCHEMA_VERSION};
 
 /// Normalize symbol kind aliases for filtering
 /// Maps shorthand forms (fn, struct) to full names (function, class)
-fn normalize_kind(kind: &str) -> &str {
+pub fn normalize_kind(kind: &str) -> &str {
     match kind {
         "fn" | "func" | "method" => "function",
         "struct" | "record" => "class", // C# structs/records stored as class
