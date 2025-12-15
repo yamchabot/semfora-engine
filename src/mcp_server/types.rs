@@ -545,6 +545,70 @@ pub struct GetCallersRequest {
 }
 
 // ============================================================================
+// Validation Request Types (Phase 4)
+// ============================================================================
+
+/// Request to validate a symbol's quality (complexity, duplicates, impact)
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ValidateSymbolRequest {
+    /// Symbol hash to validate (from search_symbols or get_file_symbols)
+    #[schemars(description = "Symbol hash to validate")]
+    pub symbol_hash: Option<String>,
+
+    /// Alternative: file path + line to find symbol
+    #[schemars(description = "File path containing the symbol (alternative to symbol_hash)")]
+    pub file_path: Option<String>,
+
+    /// Line number within file (used with file_path)
+    #[schemars(description = "Line number within the file to find the symbol")]
+    pub line: Option<usize>,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Similarity threshold for duplicate detection (default: 0.85)
+    #[schemars(description = "Similarity threshold for finding duplicates (default: 0.85)")]
+    pub duplicate_threshold: Option<f64>,
+
+    /// Include source code in response (default: false)
+    #[schemars(description = "Include source code snippet in response")]
+    pub include_source: Option<bool>,
+}
+
+// ============================================================================
+// BM25 Semantic Search Types (Phase 3)
+// ============================================================================
+
+/// Request for semantic search using BM25 ranking
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SemanticSearchRequest {
+    /// Natural language query (e.g., "authentication", "error handling", "database connection")
+    #[schemars(description = "Natural language query - searches symbol names, comments, strings, file paths")]
+    pub query: String,
+
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Maximum results to return (default: 20, max: 50)
+    #[schemars(description = "Maximum results to return (default: 20, max: 50)")]
+    pub limit: Option<usize>,
+
+    /// Include source code snippets (default: false)
+    #[schemars(description = "Include source code snippets with results")]
+    pub include_source: Option<bool>,
+
+    /// Filter by symbol kind (fn, struct, component, etc.)
+    #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
+    pub kind: Option<String>,
+
+    /// Filter by module
+    #[schemars(description = "Filter results to a specific module")]
+    pub module: Option<String>,
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

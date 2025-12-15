@@ -1895,6 +1895,347 @@ impl McpDiffServer {
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
+
+    // ========================================================================
+    // Validation Tool (Phase 4)
+    // ========================================================================
+
+    #[tool(description = "**Use for quality audits** - validates a symbol's complexity, finds duplicates, and shows impact radius (callers). Combines complexity metrics, duplicate detection, and caller analysis into one comprehensive report. Useful after code review or before refactoring.")]
+    async fn validate_symbol(
+        &self,
+        Parameters(request): Parameters<ValidateSymbolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        if !cache.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+            ))]));
+        }
+
+        // Find the target symbol
+        let (symbol_hash, symbol_entry) = if let Some(ref hash) = request.symbol_hash {
+            // Look up by hash
+            let entries = match cache.load_all_symbol_entries() {
+                Ok(e) => e,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to load symbol index: {}", e
+                ))])),
+            };
+            match entries.into_iter().find(|e| e.hash == *hash) {
+                Some(entry) => (hash.clone(), entry),
+                None => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Symbol {} not found in index.", hash
+                ))])),
+            }
+        } else if let (Some(ref file_path), Some(line)) = (&request.file_path, request.line) {
+            // Look up by file + line
+            let entries = match cache.load_all_symbol_entries() {
+                Ok(e) => e,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to load symbol index: {}", e
+                ))])),
+            };
+
+            // Find symbol that contains this line
+            let matching = entries.into_iter().find(|e| {
+                if !e.file.ends_with(file_path) && !file_path.ends_with(&e.file) {
+                    return false;
+                }
+                if let Some((start, end)) = e.lines.split_once('-') {
+                    if let (Ok(s), Ok(en)) = (start.parse::<usize>(), end.parse::<usize>()) {
+                        return line >= s && line <= en;
+                    }
+                }
+                false
+            });
+
+            match matching {
+                Some(entry) => (entry.hash.clone(), entry),
+                None => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "No symbol found at {}:{}", file_path, line
+                ))])),
+            }
+        } else {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Must provide either symbol_hash or file_path + line"
+            )]));
+        };
+
+        // Start building the validation report
+        let mut output = String::new();
+        output.push_str("_type: validation_result\n");
+        output.push_str(&format!("symbol: {}\n", symbol_entry.symbol));
+        output.push_str(&format!("file: {}\n", symbol_entry.file));
+        output.push_str(&format!("lines: {}\n", symbol_entry.lines));
+        output.push_str(&format!("kind: {}\n", symbol_entry.kind));
+        output.push_str(&format!("hash: {}\n", symbol_hash));
+
+        // Complexity metrics (already computed during indexing)
+        output.push_str("\ncomplexity:\n");
+        output.push_str(&format!("  cognitive: {}\n", symbol_entry.cognitive_complexity));
+        output.push_str(&format!("  max_nesting: {}\n", symbol_entry.max_nesting));
+        output.push_str(&format!("  risk: {}\n", symbol_entry.risk));
+
+        // Complexity assessment
+        let complexity_concerns: Vec<&str> = {
+            let mut concerns = Vec::new();
+            if symbol_entry.cognitive_complexity > 15 {
+                concerns.push("High cognitive complexity (>15) - consider breaking into smaller functions");
+            } else if symbol_entry.cognitive_complexity > 10 {
+                concerns.push("Moderate cognitive complexity (>10) - may be hard to maintain");
+            }
+            if symbol_entry.max_nesting > 4 {
+                concerns.push("Deep nesting (>4) - consider early returns or guard clauses");
+            }
+            concerns
+        };
+
+        // Duplicate detection
+        let threshold = request.duplicate_threshold.unwrap_or(0.85);
+        let mut duplicates: Vec<(String, String, f64)> = Vec::new(); // (name, file, similarity)
+
+        if let Ok(signatures) = load_signatures(&cache) {
+            if let Some(target_sig) = signatures.iter().find(|s| s.symbol_hash == symbol_hash) {
+                let detector = DuplicateDetector::new(threshold);
+                let matches = detector.find_duplicates(target_sig, &signatures);
+
+                for m in matches.iter().take(5) {
+                    duplicates.push((
+                        m.symbol.name.clone(),
+                        m.symbol.file.clone(),
+                        m.similarity,
+                    ));
+                }
+            }
+        }
+
+        output.push_str("\nduplicates:\n");
+        if duplicates.is_empty() {
+            output.push_str("  (none found above threshold)\n");
+        } else {
+            output.push_str(&format!("  count: {}\n", duplicates.len()));
+            output.push_str(&format!("  threshold: {:.0}%\n", threshold * 100.0));
+            for (name, file, sim) in &duplicates {
+                output.push_str(&format!("  - {} ({}) [{:.0}%]\n", name, file, sim * 100.0));
+            }
+        }
+
+        // Caller analysis (impact radius)
+        let mut callers: Vec<(String, String)> = Vec::new(); // (name, hash)
+        let mut high_risk_callers: Vec<String> = Vec::new();
+
+        let call_graph_path = cache.call_graph_path();
+        if call_graph_path.exists() {
+            if let Ok(content) = fs::read_to_string(&call_graph_path) {
+                // Build reverse call graph
+                let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+
+                for line in content.lines() {
+                    if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+                        continue;
+                    }
+                    if let Some(colon_pos) = line.find(':') {
+                        let caller = line[..colon_pos].trim().to_string();
+                        let rest = line[colon_pos + 1..].trim();
+                        if rest.starts_with('[') && rest.ends_with(']') {
+                            let inner = &rest[1..rest.len()-1];
+                            for callee in inner.split(',').filter(|s| !s.is_empty()) {
+                                let callee = callee.trim().trim_matches('"').to_string();
+                                if !callee.starts_with("ext:") {
+                                    reverse_graph.entry(callee).or_default().push(caller.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Load symbol names for resolution
+                let mut symbol_names: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new(); // hash -> (name, risk)
+                if let Ok(entries) = cache.load_all_symbol_entries() {
+                    for entry in entries {
+                        symbol_names.insert(entry.hash.clone(), (entry.symbol.clone(), entry.risk.clone()));
+                    }
+                }
+
+                // Find direct callers
+                if let Some(caller_hashes) = reverse_graph.get(&symbol_hash) {
+                    for caller_hash in caller_hashes.iter().take(20) {
+                        if let Some((name, risk)) = symbol_names.get(caller_hash) {
+                            callers.push((name.clone(), caller_hash.clone()));
+                            if risk == "high" {
+                                high_risk_callers.push(name.clone());
+                            }
+                        } else {
+                            callers.push((caller_hash.clone(), caller_hash.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        output.push_str("\ncallers:\n");
+        output.push_str(&format!("  direct: {}\n", callers.len()));
+        if !high_risk_callers.is_empty() {
+            output.push_str(&format!("  high_risk_callers: [{}]\n", high_risk_callers.join(", ")));
+        }
+        if !callers.is_empty() {
+            output.push_str("  list:\n");
+            for (name, hash) in callers.iter().take(10) {
+                output.push_str(&format!("    - {} ({})\n", name, hash));
+            }
+            if callers.len() > 10 {
+                output.push_str(&format!("    ... and {} more\n", callers.len() - 10));
+            }
+        }
+
+        // Generate suggestions
+        output.push_str("\nsuggestions:\n");
+        let mut has_suggestions = false;
+
+        for concern in &complexity_concerns {
+            output.push_str(&format!("  - {}\n", concern));
+            has_suggestions = true;
+        }
+
+        if !duplicates.is_empty() {
+            let (dup_name, _, dup_sim) = &duplicates[0];
+            output.push_str(&format!(
+                "  - {:.0}% similar to {} - consider consolidation\n",
+                dup_sim * 100.0, dup_name
+            ));
+            has_suggestions = true;
+        }
+
+        if callers.len() > 10 {
+            output.push_str("  - High impact radius (>10 callers) - changes require careful testing\n");
+            has_suggestions = true;
+        }
+
+        if !has_suggestions {
+            output.push_str("  (none - symbol looks good)\n");
+        }
+
+        // Include source if requested
+        let include_source = request.include_source.unwrap_or(false);
+        if include_source {
+            if let Some(source) = get_symbol_source_snippet(&cache, &symbol_entry.file, &symbol_entry.lines, 2) {
+                output.push_str("\n__source__:\n");
+                output.push_str(&source);
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "**Use for conceptual code search** - finds symbols matching loose natural language queries like 'authentication', 'error handling', or 'database connection'. Unlike search_symbols which matches symbol names, this uses BM25 ranking to find conceptually related code. Great for discovering code when you don't know exact function names.")]
+    async fn semantic_search(
+        &self,
+        Parameters(request): Parameters<SemanticSearchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::bm25::Bm25Index;
+
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+        let cache = CacheDir::for_repo(&repo_path).map_err(|e| {
+            McpError::internal_error(format!("Failed to access cache: {}", e), None)
+        })?;
+
+        // Check if BM25 index exists
+        if !cache.has_bm25_index() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "_error: BM25 index not found. Run generate_index to create it.\n\
+                 _hint: The BM25 index is generated automatically during indexing."
+            )]));
+        }
+
+        // Load the BM25 index
+        let bm25_path = cache.bm25_index_path();
+        let index = match Bm25Index::load(&bm25_path) {
+            Ok(idx) => idx,
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    format!("_error: Failed to load BM25 index: {}", e)
+                )]));
+            }
+        };
+
+        let limit = request.limit.unwrap_or(20).min(100);
+        let include_source = request.include_source.unwrap_or(false);
+
+        // Perform BM25 search
+        let mut results = index.search(&request.query, limit * 2); // Get extra for filtering
+
+        // Apply filters
+        if let Some(ref kind_filter) = request.kind {
+            let kind_lower = kind_filter.to_lowercase();
+            results.retain(|r| r.kind.to_lowercase() == kind_lower);
+        }
+        if let Some(ref module_filter) = request.module {
+            let module_lower = module_filter.to_lowercase();
+            results.retain(|r| r.module.to_lowercase() == module_lower);
+        }
+
+        // Limit results after filtering
+        results.truncate(limit);
+
+        if results.is_empty() {
+            // Get query suggestions
+            let suggestions = index.suggest_related_terms(&request.query, 5);
+            let mut output = String::from("_type: semantic_search_results\n");
+            output.push_str(&format!("query: \"{}\"\n", request.query));
+            output.push_str("result_count: 0\n");
+            if !suggestions.is_empty() {
+                output.push_str(&format!("_hint: Try related terms: {}\n", suggestions.join(", ")));
+            }
+            return Ok(CallToolResult::success(vec![Content::text(output)]));
+        }
+
+        // Build output
+        let mut output = String::from("_type: semantic_search_results\n");
+        output.push_str(&format!("query: \"{}\"\n", request.query));
+        output.push_str(&format!("result_count: {}\n", results.len()));
+        output.push_str("---\n");
+
+        for result in &results {
+            output.push_str(&format!("\n## {} ({})\n", result.symbol, result.kind));
+            output.push_str(&format!("hash: {}\n", result.hash));
+            output.push_str(&format!("file: {}\n", result.file));
+            output.push_str(&format!("lines: {}\n", result.lines));
+            output.push_str(&format!("module: {}\n", result.module));
+            output.push_str(&format!("risk: {}\n", result.risk));
+            output.push_str(&format!("score: {:.3}\n", result.score));
+            output.push_str(&format!("matched_terms: {}\n", result.matched_terms.join(", ")));
+
+            // Optionally include source snippet
+            if include_source {
+                if let Some(source) = get_symbol_source_snippet(&cache, &result.file, &result.lines, 2) {
+                    output.push_str("__source__:\n");
+                    output.push_str(&source);
+                }
+            }
+        }
+
+        // Add related term suggestions
+        let suggestions = index.suggest_related_terms(&request.query, 5);
+        if !suggestions.is_empty() {
+            output.push_str(&format!("\n---\nrelated_terms: {}\n", suggestions.join(", ")));
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
 }
 
 /// Get source snippet for a symbol given file and line range

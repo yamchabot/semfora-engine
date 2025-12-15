@@ -779,6 +779,17 @@ impl CacheDir {
         self.signature_index_path().exists()
     }
 
+    /// Path to the BM25 semantic search index file (JSON format)
+    /// Used for loose term queries like "authentication" or "error handling"
+    pub fn bm25_index_path(&self) -> PathBuf {
+        self.root.join("bm25_index.json")
+    }
+
+    /// Check if BM25 index exists
+    pub fn has_bm25_index(&self) -> bool {
+        self.bm25_index_path().exists()
+    }
+
     /// Update symbol index for a single file (incremental update)
     ///
     /// This removes all existing entries for the file and adds new ones.

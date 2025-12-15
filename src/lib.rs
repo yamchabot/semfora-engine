@@ -42,6 +42,7 @@
 pub mod analysis;
 pub mod benchmark;
 pub mod benchmark_builder;
+pub mod bm25;
 pub mod cache;
 pub mod cli;
 pub mod detectors;
@@ -141,6 +142,9 @@ pub use server::{
     FileWatcher, GitPoller, LayerStatus, LayerSynchronizer, LayerUpdateStats,
     ServerState, ServerStatus,
 };
+
+// Re-export BM25 semantic search types (Phase 3)
+pub use bm25::{Bm25Document, Bm25Index, Bm25SearchResult, extract_terms_from_symbol, tokenize};
 
 // Re-export duplicate detection types
 pub use duplicate::{

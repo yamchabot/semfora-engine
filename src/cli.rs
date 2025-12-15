@@ -13,7 +13,7 @@ use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyz
 #[command(author)]
 pub struct Cli {
     /// Path to file to analyze (single file mode)
-    #[arg(value_name = "FILE", required_unless_present_any = ["diff", "commit", "commits", "uncommitted", "cache_info", "cache_clear", "cache_prune", "dir", "benchmark", "list_modules", "get_module", "search_symbols", "list_symbols", "get_symbol", "get_overview", "get_call_graph", "analyze", "find_duplicates", "check_duplicates"])]
+    #[arg(value_name = "FILE", required_unless_present_any = ["diff", "commit", "commits", "uncommitted", "cache_info", "cache_clear", "cache_prune", "dir", "benchmark", "list_modules", "get_module", "search_symbols", "list_symbols", "get_symbol", "get_overview", "get_call_graph", "analyze", "find_duplicates", "check_duplicates", "get_source", "raw_search", "semantic_search", "file_symbols", "get_callers"])]
     pub file: Option<PathBuf>,
 
     /// Output format
@@ -162,6 +162,70 @@ pub struct Cli {
     /// Limit number of results (default: 50)
     #[arg(long, default_value = "50")]
     pub limit: usize,
+
+    // ============================================
+    // Source Code Query Options
+    // ============================================
+
+    /// Get source code for a file (use with --start-line and --end-line)
+    #[arg(long, value_name = "FILE")]
+    pub get_source: Option<String>,
+
+    /// Start line for --get-source (1-indexed)
+    #[arg(long, value_name = "LINE", requires = "get_source")]
+    pub start_line: Option<usize>,
+
+    /// End line for --get-source (1-indexed, inclusive)
+    #[arg(long, value_name = "LINE", requires = "get_source")]
+    pub end_line: Option<usize>,
+
+    /// Context lines before/after for source extraction (default: 5)
+    #[arg(long, default_value = "5")]
+    pub context: usize,
+
+    /// Get all symbols in a specific file
+    #[arg(long, value_name = "FILE")]
+    pub file_symbols: Option<String>,
+
+    /// Include source code snippets in output
+    #[arg(long)]
+    pub include_source: bool,
+
+    // ============================================
+    // Search Options
+    // ============================================
+
+    /// Direct ripgrep search (regex pattern)
+    #[arg(long, value_name = "PATTERN")]
+    pub raw_search: Option<String>,
+
+    /// Semantic search using BM25 (natural language query)
+    #[arg(long, value_name = "QUERY")]
+    pub semantic_search: Option<String>,
+
+    /// File types to search (for --raw-search, e.g., "rs,ts,py")
+    #[arg(long, value_name = "TYPES")]
+    pub file_types: Option<String>,
+
+    /// Case sensitive search (default: false, i.e., case insensitive)
+    #[arg(long)]
+    pub case_sensitive: bool,
+
+    /// Merge adjacent matches within N lines (for --raw-search, default: 3)
+    #[arg(long, default_value = "3")]
+    pub merge_threshold: usize,
+
+    // ============================================
+    // Call Graph Query Options
+    // ============================================
+
+    /// Get callers of a symbol (reverse call graph)
+    #[arg(long, value_name = "HASH")]
+    pub get_callers: Option<String>,
+
+    /// Depth for --get-callers (1=direct only, max 3, default: 1)
+    #[arg(long, default_value = "1")]
+    pub depth: usize,
 
     // ============================================
     // Benchmark Options

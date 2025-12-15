@@ -105,6 +105,27 @@ fn run() -> semfora_engine::Result<String> {
         return run_check_duplicates(&cli);
     }
 
+    // Handle new query commands
+    if let Some(ref file_path) = cli.get_source {
+        return run_get_source(&cli, file_path);
+    }
+
+    if let Some(ref pattern) = cli.raw_search {
+        return run_raw_search(&cli, pattern);
+    }
+
+    if let Some(ref query) = cli.semantic_search {
+        return run_semantic_search(&cli, query);
+    }
+
+    if let Some(ref file_path) = cli.file_symbols {
+        return run_file_symbols(&cli, file_path);
+    }
+
+    if let Some(ref symbol_hash) = cli.get_callers {
+        return run_get_callers(&cli, symbol_hash);
+    }
+
     let mode = cli.operation_mode()?;
 
     // Handle sharded output mode
@@ -1819,4 +1840,451 @@ fn run_check_duplicates(cli: &Cli) -> semfora_engine::Result<String> {
     }
 
     Ok(output)
+}
+
+// ============================================================================
+// New Query Commands (CLI parity with MCP tools)
+// ============================================================================
+
+/// Get source code for a file with optional line range
+fn run_get_source(cli: &Cli, file_path: &str) -> semfora_engine::Result<String> {
+    let repo_dir = get_repo_dir(cli)?;
+    let full_path = if Path::new(file_path).is_absolute() {
+        PathBuf::from(file_path)
+    } else {
+        repo_dir.join(file_path)
+    };
+
+    if !full_path.exists() {
+        return Err(McpDiffError::FileNotFound {
+            path: full_path.display().to_string(),
+        });
+    }
+
+    let source = fs::read_to_string(&full_path)?;
+    let lines: Vec<&str> = source.lines().collect();
+    let total_lines = lines.len();
+
+    let start = cli.start_line.unwrap_or(1).saturating_sub(1);
+    let end = cli.end_line.unwrap_or(total_lines).min(total_lines);
+    let context = cli.context;
+
+    // Apply context
+    let actual_start = start.saturating_sub(context);
+    let actual_end = (end + context).min(total_lines);
+
+    let mut output = String::new();
+    output.push_str(&format!("// {} (lines {}-{}, showing {}-{})\n",
+        full_path.display(), start + 1, end, actual_start + 1, actual_end));
+
+    for (i, line) in lines.iter().enumerate().skip(actual_start).take(actual_end - actual_start) {
+        let line_num = i + 1;
+        let marker = if line_num > start && line_num <= end { ">" } else { " " };
+        output.push_str(&format!("{:>5} |{} {}\n", line_num, marker, line));
+    }
+
+    Ok(output)
+}
+
+/// Direct ripgrep search (regex pattern)
+fn run_raw_search(cli: &Cli, pattern: &str) -> semfora_engine::Result<String> {
+    use semfora_engine::ripgrep::{RipgrepSearcher, SearchOptions};
+
+    let repo_dir = get_repo_dir(cli)?;
+    let limit = cli.limit;
+    let merge_threshold = cli.merge_threshold;
+
+    let mut options = SearchOptions::new(pattern)
+        .with_limit(limit)
+        .with_merge_threshold(merge_threshold);
+
+    if !cli.case_sensitive {
+        options = options.case_insensitive();
+    }
+
+    if let Some(ref types) = cli.file_types {
+        let file_types: Vec<String> = types.split(',').map(|s| s.trim().to_string()).collect();
+        options = options.with_file_types(file_types);
+    }
+
+    let searcher = RipgrepSearcher::new();
+
+    let mut output = String::new();
+
+    if merge_threshold > 0 {
+        match searcher.search_merged(&repo_dir, &options) {
+            Ok(blocks) => {
+                output.push_str(&format!("pattern: \"{}\"\n", pattern));
+                output.push_str(&format!("blocks[{}]:\n", blocks.len()));
+                for block in &blocks {
+                    let relative_file = block.file.strip_prefix(&repo_dir)
+                        .unwrap_or(&block.file)
+                        .to_string_lossy();
+                    output.push_str(&format!("\n--- {}:{}-{} ---\n", relative_file, block.start_line, block.end_line));
+                    for line in &block.lines {
+                        let prefix = if line.is_match { ">" } else { " " };
+                        output.push_str(&format!("{} {:>4} | {}\n", prefix, line.line, line.content));
+                    }
+                }
+            }
+            Err(e) => return Err(McpDiffError::GitError {
+                message: format!("Search failed: {}", e),
+            }),
+        }
+    } else {
+        match searcher.search(&repo_dir, &options) {
+            Ok(matches) => {
+                output.push_str(&format!("pattern: \"{}\"\n", pattern));
+                output.push_str(&format!("matches[{}]:\n", matches.len()));
+                for m in &matches {
+                    let relative_file = m.file.strip_prefix(&repo_dir)
+                        .unwrap_or(&m.file)
+                        .to_string_lossy();
+                    output.push_str(&format!("  {}:{}:{}: {}\n",
+                        relative_file, m.line, m.column, m.content.trim()));
+                }
+            }
+            Err(e) => return Err(McpDiffError::GitError {
+                message: format!("Search failed: {}", e),
+            }),
+        }
+    }
+
+    Ok(output)
+}
+
+/// Semantic search using BM25 (natural language query)
+fn run_semantic_search(cli: &Cli, query: &str) -> semfora_engine::Result<String> {
+    use semfora_engine::bm25::Bm25Index;
+
+    let repo_dir = get_repo_dir(cli)?;
+    let cache = CacheDir::for_repo(&repo_dir)?;
+
+    if !cache.has_bm25_index() {
+        return Err(McpDiffError::FileNotFound {
+            path: "BM25 index not found. Run with --shard first to generate index.".to_string(),
+        });
+    }
+
+    let bm25_path = cache.bm25_index_path();
+    let index = Bm25Index::load(&bm25_path).map_err(|e| McpDiffError::GitError {
+        message: format!("Failed to load BM25 index: {}", e),
+    })?;
+
+    let limit = cli.limit;
+    let include_source = cli.include_source;
+
+    let mut results = index.search(query, limit * 2);
+
+    // Apply filters
+    if let Some(ref kind_filter) = cli.kind {
+        let kind_lower = kind_filter.to_lowercase();
+        results.retain(|r| r.kind.to_lowercase() == kind_lower);
+    }
+
+    results.truncate(limit);
+
+    let mut output = String::new();
+
+    match cli.format {
+        OutputFormat::Json => {
+            let json = serde_json::json!({
+                "query": query,
+                "results": results.iter().map(|r| serde_json::json!({
+                    "symbol": r.symbol,
+                    "kind": r.kind,
+                    "hash": r.hash,
+                    "file": r.file,
+                    "lines": r.lines,
+                    "module": r.module,
+                    "risk": r.risk,
+                    "score": r.score,
+                    "matched_terms": r.matched_terms
+                })).collect::<Vec<_>>(),
+                "count": results.len()
+            });
+            output = serde_json::to_string_pretty(&json).unwrap_or_default();
+        }
+        OutputFormat::Toon => {
+            output.push_str(&format!("query: \"{}\"\n", query));
+            output.push_str(&format!("results[{}]:\n", results.len()));
+
+            for result in &results {
+                output.push_str(&format!("\n## {} ({})\n", result.symbol, result.kind));
+                output.push_str(&format!("hash: {}\n", result.hash));
+                output.push_str(&format!("file: {}\n", result.file));
+                output.push_str(&format!("lines: {}\n", result.lines));
+                output.push_str(&format!("module: {}\n", result.module));
+                output.push_str(&format!("risk: {}\n", result.risk));
+                output.push_str(&format!("score: {:.3}\n", result.score));
+                output.push_str(&format!("matched_terms: {}\n", result.matched_terms.join(", ")));
+
+                if include_source {
+                    if let Some(source) = get_source_snippet(&cache, &result.file, &result.lines, 2) {
+                        output.push_str("__source__:\n");
+                        output.push_str(&source);
+                    }
+                }
+            }
+
+            let suggestions = index.suggest_related_terms(query, 5);
+            if !suggestions.is_empty() {
+                output.push_str(&format!("\n---\nrelated_terms: {}\n", suggestions.join(", ")));
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+/// Get all symbols in a specific file
+fn run_file_symbols(cli: &Cli, file_path: &str) -> semfora_engine::Result<String> {
+    let repo_dir = get_repo_dir(cli)?;
+    let cache = CacheDir::for_repo(&repo_dir)?;
+
+    if !cache.exists() {
+        return Err(McpDiffError::FileNotFound {
+            path: "No index found. Run with --shard first to generate index.".to_string(),
+        });
+    }
+
+    let include_source = cli.include_source;
+    let context = cli.context;
+
+    // Normalize the target file path to absolute
+    let target_path = Path::new(file_path);
+    let target_file = if target_path.is_absolute() {
+        file_path.to_string()
+    } else {
+        // Convert relative path to absolute using repo_dir
+        repo_dir.join(file_path).to_string_lossy().to_string()
+    };
+
+    let symbols: Vec<_> = match cache.load_all_symbol_entries() {
+        Ok(all) => {
+            all.into_iter()
+                .filter(|e| {
+                    // Compare normalized paths
+                    e.file == target_file ||
+                    e.file.ends_with(&format!("/{}", file_path.trim_start_matches("./"))) ||
+                    Path::new(&e.file) == Path::new(&target_file)
+                })
+                .filter(|e| {
+                    cli.kind.as_ref().map_or(true, |k| e.kind == *k)
+                })
+                .collect()
+        }
+        Err(e) => return Err(McpDiffError::GitError {
+            message: format!("Failed to load symbol index: {}", e),
+        }),
+    };
+
+    let mut output = String::new();
+
+    match cli.format {
+        OutputFormat::Json => {
+            let json = serde_json::json!({
+                "file": file_path,
+                "symbols": symbols,
+                "count": symbols.len()
+            });
+            output = serde_json::to_string_pretty(&json).unwrap_or_default();
+        }
+        OutputFormat::Toon => {
+            output.push_str(&format!("file: \"{}\"\n", file_path));
+            output.push_str(&format!("symbols[{}]:\n", symbols.len()));
+
+            for entry in &symbols {
+                output.push_str(&format!(
+                    "  {} ({}) [{}] - {}:{}\n",
+                    entry.symbol, entry.kind, entry.risk, entry.file, entry.lines
+                ));
+            }
+
+            if include_source && !symbols.is_empty() {
+                output.push_str("\n__sources__:\n");
+                for entry in &symbols {
+                    if let Some(source) = get_source_snippet(&cache, &entry.file, &entry.lines, context) {
+                        output.push_str(&format!("\n--- {} ({}) ---\n", entry.symbol, entry.lines));
+                        output.push_str(&source);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+/// Get callers of a symbol (reverse call graph)
+fn run_get_callers(cli: &Cli, symbol_hash: &str) -> semfora_engine::Result<String> {
+    let repo_dir = get_repo_dir(cli)?;
+    let cache = CacheDir::for_repo(&repo_dir)?;
+
+    if !cache.exists() {
+        return Err(McpDiffError::FileNotFound {
+            path: "No index found. Run with --shard first to generate index.".to_string(),
+        });
+    }
+
+    let depth = cli.depth.min(3);
+    let limit = cli.limit;
+    let include_source = cli.include_source;
+
+    let call_graph_path = cache.call_graph_path();
+    if !call_graph_path.exists() {
+        return Err(McpDiffError::FileNotFound {
+            path: "Call graph not found. Run generate_index to create it.".to_string(),
+        });
+    }
+
+    let content = fs::read_to_string(&call_graph_path)?;
+
+    // Build reverse call graph (callee -> callers)
+    let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut symbol_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for line in content.lines() {
+        if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+            continue;
+        }
+        if let Some(colon_pos) = line.find(':') {
+            let caller = line[..colon_pos].trim().to_string();
+            let rest = line[colon_pos + 1..].trim();
+            if rest.starts_with('[') && rest.ends_with(']') {
+                let inner = &rest[1..rest.len()-1];
+                for callee in inner.split(',').filter(|s| !s.is_empty()) {
+                    let callee = callee.trim().trim_matches('"').to_string();
+                    if !callee.starts_with("ext:") {
+                        reverse_graph.entry(callee.clone()).or_default().push(caller.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Load symbol index for name resolution
+    if let Ok(entries) = cache.load_all_symbol_entries() {
+        for entry in entries {
+            symbol_names.insert(entry.hash.clone(), entry.symbol.clone());
+        }
+    }
+
+    // Find callers at each depth level
+    let target_name = symbol_names.get(symbol_hash).cloned().unwrap_or_else(|| symbol_hash.to_string());
+
+    let mut all_callers: Vec<(String, String, usize)> = Vec::new();
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut current_level: Vec<String> = vec![symbol_hash.to_string()];
+
+    for current_depth in 1..=depth {
+        let mut next_level: Vec<String> = Vec::new();
+
+        for hash in &current_level {
+            if let Some(callers) = reverse_graph.get(hash) {
+                for caller_hash in callers {
+                    if !visited.contains(caller_hash) && all_callers.len() < limit {
+                        visited.insert(caller_hash.clone());
+                        let caller_name = symbol_names.get(caller_hash)
+                            .cloned()
+                            .unwrap_or_else(|| caller_hash.clone());
+                        all_callers.push((caller_hash.clone(), caller_name, current_depth));
+                        next_level.push(caller_hash.clone());
+                    }
+                }
+            }
+        }
+
+        current_level = next_level;
+        if current_level.is_empty() {
+            break;
+        }
+    }
+
+    let mut output = String::new();
+
+    match cli.format {
+        OutputFormat::Json => {
+            let json = serde_json::json!({
+                "target": target_name,
+                "target_hash": symbol_hash,
+                "depth": depth,
+                "callers": all_callers.iter().map(|(hash, name, d)| serde_json::json!({
+                    "hash": hash,
+                    "name": name,
+                    "depth": d
+                })).collect::<Vec<_>>(),
+                "count": all_callers.len()
+            });
+            output = serde_json::to_string_pretty(&json).unwrap_or_default();
+        }
+        OutputFormat::Toon => {
+            output.push_str(&format!("target: {} ({})\n", target_name, symbol_hash));
+            output.push_str(&format!("depth: {}\n", depth));
+            output.push_str(&format!("total_callers: {}\n", all_callers.len()));
+
+            if all_callers.is_empty() {
+                output.push_str("callers: (none - this may be an entry point or unused)\n");
+            } else {
+                output.push_str(&format!("callers[{}]:\n", all_callers.len()));
+                for (hash, name, d) in &all_callers {
+                    output.push_str(&format!("  {} ({}) depth={}\n", name, hash, d));
+                }
+
+                if include_source {
+                    output.push_str("\n__caller_sources__:\n");
+                    for (hash, name, _) in all_callers.iter().take(5) {
+                        let symbol_path = cache.symbol_path(hash);
+                        if symbol_path.exists() {
+                            if let Ok(content) = fs::read_to_string(&symbol_path) {
+                                let mut file: Option<String> = None;
+                                let mut lines: Option<String> = None;
+                                for line in content.lines() {
+                                    let trimmed = line.trim();
+                                    if trimmed.starts_with("file:") {
+                                        file = Some(trimmed.trim_start_matches("file:").trim().trim_matches('"').to_string());
+                                    } else if trimmed.starts_with("lines:") {
+                                        lines = Some(trimmed.trim_start_matches("lines:").trim().trim_matches('"').to_string());
+                                    }
+                                }
+                                if let (Some(f), Some(l)) = (file, lines) {
+                                    if let Some(source) = get_source_snippet(&cache, &f, &l, 2) {
+                                        output.push_str(&format!("\n--- {} ({}) ---\n", name, l));
+                                        output.push_str(&source);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+/// Helper: Get source snippet for a symbol given file and line range
+fn get_source_snippet(cache: &CacheDir, file: &str, lines: &str, context: usize) -> Option<String> {
+    let (start_line, end_line) = if let Some((s, e)) = lines.split_once('-') {
+        (s.parse::<usize>().ok()?, e.parse::<usize>().ok()?)
+    } else {
+        let line = lines.parse::<usize>().ok()?;
+        (line, line)
+    };
+
+    let full_path = cache.repo_root.join(file);
+    let source = fs::read_to_string(&full_path).ok()?;
+    let all_lines: Vec<&str> = source.lines().collect();
+
+    let actual_start = start_line.saturating_sub(1).saturating_sub(context);
+    let actual_end = (end_line + context).min(all_lines.len());
+
+    let mut output = String::new();
+    for (i, line) in all_lines.iter().enumerate().skip(actual_start).take(actual_end - actual_start) {
+        let line_num = i + 1;
+        output.push_str(&format!("{:>5} | {}\n", line_num, line));
+    }
+
+    Some(output)
 }

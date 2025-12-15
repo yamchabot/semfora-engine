@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::prelude::*;
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
+use crate::bm25::{Bm25Document, Bm25Index, extract_terms_from_symbol};
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
 use crate::duplicate::FunctionSignature;
 use crate::error::Result;
@@ -103,6 +104,9 @@ impl ShardWriter {
 
         // Write function signature index (duplicate detection)
         self.write_signature_index(&mut stats)?;
+
+        // Write BM25 semantic search index (Phase 3)
+        self.write_bm25_index(&mut stats)?;
 
         Ok(stats)
     }
@@ -390,6 +394,93 @@ impl ShardWriter {
         Ok(())
     }
 
+    /// Write the BM25 semantic search index
+    ///
+    /// Generates a BM25 index from all symbols for loose term queries
+    /// like "authentication", "error handling", or "database connection".
+    fn write_bm25_index(&self, stats: &mut ShardStats) -> Result<()> {
+        let mut index = Bm25Index::new();
+
+        for summary in &self.all_summaries {
+            let namespace = SymbolId::namespace_from_path(&summary.file);
+            let module_name = extract_module_name(&summary.file);
+
+            // Get TOON content for term extraction (from the file-level summary)
+            let toon_content = encode_toon(summary);
+
+            // If we have symbols in the new multi-symbol format, use those
+            if !summary.symbols.is_empty() {
+                for symbol_info in &summary.symbols {
+                    let symbol_id = symbol_info.to_symbol_id(&namespace);
+                    let kind_str = format!("{:?}", symbol_info.kind).to_lowercase();
+
+                    // Extract searchable terms from this symbol
+                    let terms = extract_terms_from_symbol(
+                        &symbol_info.name,
+                        &summary.file,
+                        &kind_str,
+                        Some(&toon_content),
+                    );
+
+                    let doc = Bm25Document {
+                        hash: symbol_id.hash,
+                        symbol: symbol_info.name.clone(),
+                        file: summary.file.clone(),
+                        lines: format!("{}-{}", symbol_info.start_line, symbol_info.end_line),
+                        kind: kind_str,
+                        module: module_name.clone(),
+                        risk: format!("{:?}", symbol_info.behavioral_risk).to_lowercase(),
+                        doc_length: 0, // Will be set by add_document
+                    };
+
+                    index.add_document(doc, terms);
+                    stats.bm25_entries += 1;
+                }
+            } else if let Some(ref symbol_id) = summary.symbol_id {
+                // Fallback to old single-symbol format
+                let kind_str = summary.symbol_kind
+                    .map(|k| format!("{:?}", k).to_lowercase())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let terms = extract_terms_from_symbol(
+                    summary.symbol.as_deref().unwrap_or(""),
+                    &summary.file,
+                    &kind_str,
+                    Some(&toon_content),
+                );
+
+                let doc = Bm25Document {
+                    hash: symbol_id.hash.clone(),
+                    symbol: summary.symbol.clone().unwrap_or_default(),
+                    file: summary.file.clone(),
+                    lines: match (summary.start_line, summary.end_line) {
+                        (Some(s), Some(e)) => format!("{}-{}", s, e),
+                        (Some(s), None) => format!("{}", s),
+                        _ => String::new(),
+                    },
+                    kind: kind_str,
+                    module: module_name,
+                    risk: format!("{:?}", summary.behavioral_risk).to_lowercase(),
+                    doc_length: 0,
+                };
+
+                index.add_document(doc, terms);
+                stats.bm25_entries += 1;
+            }
+        }
+
+        // Finalize index (compute averages)
+        index.finalize();
+
+        // Write to cache
+        let path = self.cache.bm25_index_path();
+        index.save(&path)?;
+
+        stats.bm25_bytes = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+        stats.files_written += 1;
+        Ok(())
+    }
+
     /// Get the cache directory path
     pub fn cache_path(&self) -> &Path {
         &self.cache.root
@@ -436,12 +527,18 @@ pub struct ShardStats {
 
     /// Bytes written for signature index
     pub signature_bytes: usize,
+
+    /// Number of documents in BM25 semantic search index
+    pub bm25_entries: usize,
+
+    /// Bytes written for BM25 index
+    pub bm25_bytes: usize,
 }
 
 impl ShardStats {
     /// Total bytes written
     pub fn total_bytes(&self) -> usize {
-        self.overview_bytes + self.module_bytes + self.symbol_bytes + self.graph_bytes + self.index_bytes + self.signature_bytes
+        self.overview_bytes + self.module_bytes + self.symbol_bytes + self.graph_bytes + self.index_bytes + self.signature_bytes + self.bm25_bytes
     }
 }
 
