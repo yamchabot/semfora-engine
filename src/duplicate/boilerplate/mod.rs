@@ -69,6 +69,16 @@ pub enum BoilerplateCategory {
     ClassicReduxReducer,
     /// Axios/Fetch API wrapper (thin HTTP wrappers)
     ApiWrapper,
+    /// Context provider components (wraps children with Context.Provider)
+    ContextProvider,
+    /// Simple useContext hook wrappers (one-liner context hooks)
+    SimpleContextHook,
+    /// Higher-order component wrappers (withAuth, withRouter patterns)
+    HOCWrapper,
+    /// React.lazy dynamic import wrappers
+    LazyComponent,
+    /// Suspense/ErrorBoundary wrapper components
+    SuspenseBoundary,
 
     // =========================================================================
     // Rust Patterns
@@ -261,6 +271,11 @@ impl BoilerplateCategory {
             BoilerplateCategory::ReactWrapper => "React wrapper (memo/forwardRef)",
             BoilerplateCategory::ClassicReduxReducer => "Classic Redux reducer (pre-RTK)",
             BoilerplateCategory::ApiWrapper => "API wrapper (thin HTTP wrapper)",
+            BoilerplateCategory::ContextProvider => "Context provider component",
+            BoilerplateCategory::SimpleContextHook => "Simple useContext hook wrapper",
+            BoilerplateCategory::HOCWrapper => "Higher-order component wrapper",
+            BoilerplateCategory::LazyComponent => "React.lazy dynamic import",
+            BoilerplateCategory::SuspenseBoundary => "Suspense/ErrorBoundary wrapper",
             // Rust
             BoilerplateCategory::RustTraitImpl => "Rust trait implementation",
             BoilerplateCategory::RustBuilder => "Rust builder pattern method",
@@ -316,7 +331,12 @@ impl BoilerplateCategory {
             | BoilerplateCategory::NextjsDataFetching
             | BoilerplateCategory::ReactWrapper
             | BoilerplateCategory::ClassicReduxReducer
-            | BoilerplateCategory::ApiWrapper => Some(Lang::JavaScript),
+            | BoilerplateCategory::ApiWrapper
+            | BoilerplateCategory::ContextProvider
+            | BoilerplateCategory::SimpleContextHook
+            | BoilerplateCategory::HOCWrapper
+            | BoilerplateCategory::LazyComponent
+            | BoilerplateCategory::SuspenseBoundary => Some(Lang::JavaScript),
             // Rust patterns
             BoilerplateCategory::RustTraitImpl
             | BoilerplateCategory::RustBuilder

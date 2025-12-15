@@ -110,6 +110,36 @@ pub static PATTERNS: &[PatternMatcher] = &[
         detector: is_api_wrapper,
         enabled_by_default: true,
     },
+    PatternMatcher {
+        category: BoilerplateCategory::ContextProvider,
+        languages: &[Lang::JavaScript],
+        detector: is_context_provider,
+        enabled_by_default: true,
+    },
+    PatternMatcher {
+        category: BoilerplateCategory::SimpleContextHook,
+        languages: &[Lang::JavaScript],
+        detector: is_simple_context_hook,
+        enabled_by_default: true,
+    },
+    PatternMatcher {
+        category: BoilerplateCategory::HOCWrapper,
+        languages: &[Lang::JavaScript],
+        detector: is_hoc_wrapper,
+        enabled_by_default: true,
+    },
+    PatternMatcher {
+        category: BoilerplateCategory::LazyComponent,
+        languages: &[Lang::JavaScript],
+        detector: is_lazy_component,
+        enabled_by_default: true,
+    },
+    PatternMatcher {
+        category: BoilerplateCategory::SuspenseBoundary,
+        languages: &[Lang::JavaScript],
+        detector: is_suspense_boundary,
+        enabled_by_default: true,
+    },
 ];
 
 // =============================================================================
@@ -505,6 +535,137 @@ pub fn is_api_wrapper(info: &SymbolInfo) -> bool {
     // Thin wrapper: HTTP call + minimal additional logic
     // Allow a few extra calls for headers, params, etc.
     info.calls.len() <= http_calls.len() + 2 && info.control_flow.len() <= 1
+}
+
+/// Context provider: Component wrapping children with Context.Provider
+///
+/// Detects React context provider components that wrap children with a provider.
+/// Pattern: *Provider name + children prop + Provider JSX element
+pub fn is_context_provider(info: &SymbolInfo) -> bool {
+    // Name must contain "Provider"
+    if !info.name.contains("Provider") {
+        return false;
+    }
+
+    // Check for provider-related calls
+    let provider_calls: Vec<_> = info
+        .calls
+        .iter()
+        .filter(|c| {
+            let name = c.name.as_str();
+            // Context creation or usage
+            matches!(name, "createContext" | "useContext" | "useState" | "useReducer" | "useMemo")
+        })
+        .collect();
+
+    // Provider with minimal logic - mostly just wrapping children
+    // Allow state hooks and context creation, but not much else
+    info.calls.len() <= provider_calls.len() + 3 && info.control_flow.len() <= 2
+}
+
+/// Simple useContext hook: One-liner hooks that just call useContext
+///
+/// Detects trivial useContext wrapper hooks like:
+/// `export const useTheme = () => useContext(ThemeContext);`
+pub fn is_simple_context_hook(info: &SymbolInfo) -> bool {
+    // Name must start with "use"
+    if !info.name.starts_with("use") {
+        return false;
+    }
+
+    // Must have useContext call
+    let has_use_context = info.calls.iter().any(|c| c.name == "useContext");
+    if !has_use_context {
+        return false;
+    }
+
+    // Very minimal: useContext + maybe one other call (like a getter)
+    info.calls.len() <= 2 && info.control_flow.is_empty()
+}
+
+/// HOC wrapper: Higher-order component patterns (withAuth, withRouter)
+///
+/// Detects HOC wrapper functions that wrap components with additional functionality.
+/// Pattern: with* name that returns a component with React hooks
+pub fn is_hoc_wrapper(info: &SymbolInfo) -> bool {
+    // Name must start with "with"
+    if !info.name.starts_with("with") {
+        return false;
+    }
+
+    // HOCs typically have hook usage or React element creation
+    let wrapper_calls: Vec<_> = info
+        .calls
+        .iter()
+        .filter(|c| {
+            let name = c.name.as_str();
+            name.starts_with("use") || matches!(name, "createElement" | "React.createElement")
+        })
+        .collect();
+
+    // Must have at least one React-related call to distinguish from Rust builders
+    if wrapper_calls.is_empty() {
+        return false;
+    }
+
+    // HOC with minimal logic (hook calls + maybe forwardRef or memo)
+    info.calls.len() <= wrapper_calls.len() + 3 && info.control_flow.len() <= 1
+}
+
+/// Lazy component: React.lazy dynamic import wrappers
+///
+/// Detects React.lazy with dynamic imports for code splitting.
+/// Pattern: const X = lazy(() => import('./X'))
+pub fn is_lazy_component(info: &SymbolInfo) -> bool {
+    // Check for lazy call
+    let has_lazy = info
+        .calls
+        .iter()
+        .any(|c| matches!(c.name.as_str(), "lazy" | "React.lazy"));
+
+    if !has_lazy {
+        return false;
+    }
+
+    // Lazy components are very minimal - just the lazy call and maybe import
+    info.calls.len() <= 2 && info.control_flow.is_empty()
+}
+
+/// Suspense/ErrorBoundary wrapper: Components that wrap children with Suspense or ErrorBoundary
+///
+/// Detects wrapper components that provide loading states or error boundaries.
+/// Pattern: Component with children that renders Suspense or ErrorBoundary
+pub fn is_suspense_boundary(info: &SymbolInfo) -> bool {
+    // Check for boundary-related names or calls
+    let boundary_calls: Vec<_> = info
+        .calls
+        .iter()
+        .filter(|c| {
+            let name = c.name.as_str();
+            matches!(
+                name,
+                "Suspense" | "ErrorBoundary" | "lazy" | "React.lazy"
+                | "startTransition" | "useTransition" | "useDeferredValue"
+            )
+        })
+        .collect();
+
+    if boundary_calls.is_empty() {
+        // Check name patterns
+        let name_lower = info.name.to_lowercase();
+        let is_boundary_name = name_lower.contains("boundary")
+            || name_lower.contains("suspense")
+            || name_lower.contains("fallback")
+            || name_lower.contains("async")
+            || name_lower.contains("loading");
+
+        if !is_boundary_name {
+            return false;
+        }
+    }
+
+    // Boundary wrapper with minimal logic
+    info.calls.len() <= boundary_calls.len() + 3 && info.control_flow.len() <= 2
 }
 
 #[cfg(test)]
@@ -1186,5 +1347,214 @@ mod tests {
         // Too much control flow - has business logic
         let symbol = make_symbol_with_calls("fetchUser", vec![("get", Some("axios"))], 2);
         assert!(!is_api_wrapper(&symbol));
+    }
+
+    // =========================================================================
+    // Context Provider Tests
+    // =========================================================================
+
+    #[test]
+    fn test_context_provider_basic() {
+        let symbol = make_symbol("ThemeProvider", vec!["createContext", "useState"], 0);
+        assert!(is_context_provider(&symbol));
+    }
+
+    #[test]
+    fn test_context_provider_with_reducer() {
+        let symbol = make_symbol("AuthProvider", vec!["useReducer", "useMemo"], 1);
+        assert!(is_context_provider(&symbol));
+    }
+
+    #[test]
+    fn test_context_provider_not_provider_name() {
+        // Missing "Provider" in name
+        let symbol = make_symbol("ThemeWrapper", vec!["createContext", "useState"], 0);
+        assert!(!is_context_provider(&symbol));
+    }
+
+    #[test]
+    fn test_context_provider_too_complex() {
+        // Too many non-provider calls
+        let symbol = make_symbol(
+            "DataProvider",
+            vec!["createContext", "fetch", "validate", "transform", "cache", "notify"],
+            3,
+        );
+        assert!(!is_context_provider(&symbol));
+    }
+
+    // =========================================================================
+    // Simple Context Hook Tests
+    // =========================================================================
+
+    #[test]
+    fn test_simple_context_hook_basic() {
+        let symbol = make_symbol("useTheme", vec!["useContext"], 0);
+        assert!(is_simple_context_hook(&symbol));
+    }
+
+    #[test]
+    fn test_simple_context_hook_with_extra_call() {
+        // One extra call is allowed
+        let symbol = make_symbol("useAuth", vec!["useContext", "useMemo"], 0);
+        assert!(is_simple_context_hook(&symbol));
+    }
+
+    #[test]
+    fn test_simple_context_hook_not_hook_name() {
+        // Doesn't start with "use"
+        let symbol = make_symbol("getTheme", vec!["useContext"], 0);
+        assert!(!is_simple_context_hook(&symbol));
+    }
+
+    #[test]
+    fn test_simple_context_hook_no_use_context() {
+        // Missing useContext call
+        let symbol = make_symbol("useTheme", vec!["useState"], 0);
+        assert!(!is_simple_context_hook(&symbol));
+    }
+
+    #[test]
+    fn test_simple_context_hook_too_many_calls() {
+        let symbol = make_symbol("useTheme", vec!["useContext", "useMemo", "useCallback"], 0);
+        assert!(!is_simple_context_hook(&symbol));
+    }
+
+    #[test]
+    fn test_simple_context_hook_with_control_flow() {
+        // Has control flow - not a simple wrapper
+        let symbol = make_symbol("useTheme", vec!["useContext"], 1);
+        assert!(!is_simple_context_hook(&symbol));
+    }
+
+    // =========================================================================
+    // HOC Wrapper Tests
+    // =========================================================================
+
+    #[test]
+    fn test_hoc_wrapper_basic() {
+        let symbol = make_symbol("withAuth", vec!["useAuth"], 0);
+        assert!(is_hoc_wrapper(&symbol));
+    }
+
+    #[test]
+    fn test_hoc_wrapper_with_multiple_hooks() {
+        let symbol = make_symbol("withRouter", vec!["useRouter", "useLocation"], 0);
+        assert!(is_hoc_wrapper(&symbol));
+    }
+
+    #[test]
+    fn test_hoc_wrapper_not_with_prefix() {
+        // Doesn't start with "with"
+        let symbol = make_symbol("authHOC", vec!["useAuth"], 0);
+        assert!(!is_hoc_wrapper(&symbol));
+    }
+
+    #[test]
+    fn test_hoc_wrapper_too_many_non_hook_calls() {
+        let symbol = make_symbol(
+            "withData",
+            vec!["useAuth", "fetch", "validate", "transform", "process"],
+            1,
+        );
+        assert!(!is_hoc_wrapper(&symbol));
+    }
+
+    #[test]
+    fn test_hoc_wrapper_too_much_control_flow() {
+        let symbol = make_symbol("withAuth", vec!["useAuth"], 2);
+        assert!(!is_hoc_wrapper(&symbol));
+    }
+
+    // =========================================================================
+    // Lazy Component Tests
+    // =========================================================================
+
+    #[test]
+    fn test_lazy_component_basic() {
+        let symbol = make_symbol("Dashboard", vec!["lazy"], 0);
+        assert!(is_lazy_component(&symbol));
+    }
+
+    #[test]
+    fn test_lazy_component_react_lazy() {
+        let symbol = make_symbol_with_calls("Settings", vec![("lazy", Some("React"))], 0);
+        assert!(is_lazy_component(&symbol));
+    }
+
+    #[test]
+    fn test_lazy_component_no_lazy_call() {
+        let symbol = make_symbol("Dashboard", vec!["import"], 0);
+        assert!(!is_lazy_component(&symbol));
+    }
+
+    #[test]
+    fn test_lazy_component_too_many_calls() {
+        let symbol = make_symbol("Dashboard", vec!["lazy", "preload", "cache"], 0);
+        assert!(!is_lazy_component(&symbol));
+    }
+
+    #[test]
+    fn test_lazy_component_with_control_flow() {
+        let symbol = make_symbol("Dashboard", vec!["lazy"], 1);
+        assert!(!is_lazy_component(&symbol));
+    }
+
+    // =========================================================================
+    // Suspense Boundary Tests
+    // =========================================================================
+
+    #[test]
+    fn test_suspense_boundary_with_suspense_call() {
+        let symbol = make_symbol("AsyncWrapper", vec!["Suspense"], 0);
+        assert!(is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_with_error_boundary() {
+        let symbol = make_symbol("SafeWrapper", vec!["ErrorBoundary", "Suspense"], 1);
+        assert!(is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_by_name_boundary() {
+        // No boundary calls, but name contains "boundary"
+        let symbol = make_symbol("ErrorBoundary", vec!["render"], 1);
+        assert!(is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_by_name_suspense() {
+        let symbol = make_symbol("SuspenseWrapper", vec!["render"], 0);
+        assert!(is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_by_name_loading() {
+        let symbol = make_symbol("LoadingBoundary", vec!["render"], 0);
+        assert!(is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_with_transition() {
+        let symbol = make_symbol("DeferredContent", vec!["useTransition", "useDeferredValue"], 0);
+        assert!(is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_too_complex() {
+        let symbol = make_symbol(
+            "ComplexBoundary",
+            vec!["Suspense", "fetch", "validate", "transform", "process", "cache"],
+            3,
+        );
+        assert!(!is_suspense_boundary(&symbol));
+    }
+
+    #[test]
+    fn test_suspense_boundary_not_boundary() {
+        // No boundary calls and not a boundary name
+        let symbol = make_symbol("DataFetcher", vec!["fetch"], 0);
+        assert!(!is_suspense_boundary(&symbol));
     }
 }

@@ -114,7 +114,7 @@ Semfora Engine includes semantic duplicate detection that identifies similar fun
 
 | Language | Patterns | Status |
 |----------|----------|--------|
-| **JavaScript/TypeScript** | 14 patterns | Full support |
+| **JavaScript/TypeScript** | 19 patterns | Full support |
 | **Rust** | 13 patterns | Full support |
 | **C#** | 18 patterns | Full support |
 | **Python** | 0 patterns | Planned |
@@ -122,10 +122,11 @@ Semfora Engine includes semantic duplicate detection that identifies similar fun
 | **Java** | 0 patterns | Planned |
 | **C/C++** | 0 patterns | Planned |
 
-### JavaScript/TypeScript Patterns (14)
+### JavaScript/TypeScript Patterns (19)
 - ReactQuery, ReactHook, EventHandler, ApiRoute, TestSetup, TypeGuard
 - ConfigExport, ReduxPattern, ValidationSchema, TestMock, NextjsDataFetching
 - ReactWrapper, ClassicReduxReducer, ApiWrapper
+- ContextProvider, SimpleContextHook, HOCWrapper, LazyComponent, SuspenseBoundary
 
 ### Rust Patterns (13)
 - RustTraitImpl, RustBuilder, RustGetter, RustSetter, RustConstructor

@@ -2,6 +2,9 @@
 //!
 //! Specialized extraction for React applications including:
 //! - State hooks (useState, useReducer)
+//! - Effect hooks (useEffect with dependency tracking)
+//! - Memoization hooks (useMemo, useCallback)
+//! - Ref hooks (useRef for DOM and mutable values)
 //! - JSX elements and component structure
 //! - forwardRef/memo patterns
 //! - styled-components
@@ -15,8 +18,18 @@ use crate::schema::{Call, SemanticSummary, StateChange};
 ///
 /// This is called when React is detected in the file.
 pub fn enhance(summary: &mut SemanticSummary, root: &Node, source: &str) {
-    // Extract state hooks
+    // Extract state hooks (useState, useReducer)
     extract_state_hooks(summary, root, source);
+
+    // Extract effect hooks (useEffect)
+    extract_effect_hooks(summary, root, source);
+
+    // Extract memoization hooks (useMemo, useCallback)
+    extract_memo_hooks(summary, root, source);
+    extract_callback_hooks(summary, root, source);
+
+    // Extract ref hooks (useRef)
+    extract_ref_hooks(summary, root, source);
 
     // Extract JSX patterns
     extract_jsx_insertions(summary, root, source);
@@ -108,6 +121,286 @@ fn infer_type(init: &str) -> String {
         "null".to_string()
     } else {
         "_".to_string()
+    }
+}
+
+// =============================================================================
+// Effect Hooks Extraction
+// =============================================================================
+
+/// Extract React effect hooks (useEffect, useLayoutEffect)
+///
+/// Detects patterns like:
+/// ```javascript
+/// useEffect(() => { fetchData(); }, [id]);      // effect on [id]
+/// useEffect(() => { setup(); }, []);            // effect on mount
+/// useEffect(() => { update(); });               // effect on every render
+/// useEffect(() => { return () => cleanup(); }, []); // effect with cleanup
+/// ```
+pub fn extract_effect_hooks(summary: &mut SemanticSummary, root: &Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let func_name = get_node_text(&func, source);
+                if func_name == "useEffect" || func_name == "useLayoutEffect" {
+                    extract_effect_info(summary, node, &func_name, source);
+                }
+            }
+        }
+    });
+}
+
+/// Extract information from an effect hook call
+fn extract_effect_info(summary: &mut SemanticSummary, node: &Node, func_name: &str, source: &str) {
+    if let Some(args) = node.child_by_field_name("arguments") {
+        let mut callback_node: Option<Node> = None;
+        let mut deps_node: Option<Node> = None;
+        let mut arg_index = 0;
+
+        let mut cursor = args.walk();
+        for child in args.children(&mut cursor) {
+            if child.kind() == "(" || child.kind() == ")" || child.kind() == "," {
+                continue;
+            }
+            if arg_index == 0 {
+                callback_node = Some(child);
+            } else if arg_index == 1 {
+                deps_node = Some(child);
+            }
+            arg_index += 1;
+        }
+
+        // Check for cleanup function (return statement in callback)
+        let has_cleanup = callback_node
+            .map(|cb| {
+                let cb_text = get_node_text(&cb, source);
+                cb_text.contains("return ")
+                    && (cb_text.contains("() =>") || cb_text.contains("function"))
+            })
+            .unwrap_or(false);
+
+        // Build insertion string
+        let effect_type = if func_name == "useLayoutEffect" {
+            "layout effect"
+        } else {
+            "effect"
+        };
+
+        let deps_desc = match deps_node {
+            Some(deps) => {
+                let deps_text = get_node_text(&deps, source);
+                if deps_text == "[]" {
+                    "on mount".to_string()
+                } else {
+                    // Extract dependency names from array
+                    let deps_inner = deps_text.trim_start_matches('[').trim_end_matches(']');
+                    if deps_inner.is_empty() {
+                        "on mount".to_string()
+                    } else {
+                        format!("on [{}]", truncate_deps(deps_inner))
+                    }
+                }
+            }
+            None => "on every render".to_string(),
+        };
+
+        let cleanup_suffix = if has_cleanup { " with cleanup" } else { "" };
+
+        push_unique_insertion(
+            &mut summary.insertions,
+            format!("{} {}{}", effect_type, deps_desc, cleanup_suffix),
+            effect_type,
+        );
+    }
+}
+
+// =============================================================================
+// Memoization Hooks Extraction
+// =============================================================================
+
+/// Extract React memoization hooks (useMemo)
+///
+/// Detects patterns like:
+/// ```javascript
+/// const value = useMemo(() => expensiveCalc(a, b), [a, b]);
+/// const filtered = useMemo(() => items.filter(predicate), [items]);
+/// ```
+pub fn extract_memo_hooks(summary: &mut SemanticSummary, root: &Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let func_name = get_node_text(&func, source);
+                if func_name == "useMemo" {
+                    extract_memo_info(summary, node, source);
+                }
+            }
+        }
+    });
+}
+
+/// Extract information from a useMemo call
+fn extract_memo_info(summary: &mut SemanticSummary, node: &Node, source: &str) {
+    // Get variable name from parent
+    let var_name = get_hook_variable_name(node, source);
+
+    // Get dependencies
+    let deps = extract_hook_deps(node, source);
+
+    let insertion = match (var_name, deps) {
+        (Some(name), Some(deps)) => format!("memoized {} on [{}]", name, truncate_deps(&deps)),
+        (Some(name), None) => format!("memoized {}", name),
+        (None, Some(deps)) => format!("memoized value on [{}]", truncate_deps(&deps)),
+        (None, None) => "memoized value".to_string(),
+    };
+
+    push_unique_insertion(&mut summary.insertions, insertion, "memo");
+}
+
+/// Extract React callback hooks (useCallback)
+///
+/// Detects patterns like:
+/// ```javascript
+/// const handleClick = useCallback(() => onClick(id), [id, onClick]);
+/// const submit = useCallback(async () => { await api.post(); }, []);
+/// ```
+pub fn extract_callback_hooks(summary: &mut SemanticSummary, root: &Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let func_name = get_node_text(&func, source);
+                if func_name == "useCallback" {
+                    extract_callback_info(summary, node, source);
+                }
+            }
+        }
+    });
+}
+
+/// Extract information from a useCallback call
+fn extract_callback_info(summary: &mut SemanticSummary, node: &Node, source: &str) {
+    // Get variable name from parent
+    let var_name = get_hook_variable_name(node, source);
+
+    // Get dependencies
+    let deps = extract_hook_deps(node, source);
+
+    let insertion = match (var_name, deps) {
+        (Some(name), Some(deps)) => {
+            format!("memoized callback {} on [{}]", name, truncate_deps(&deps))
+        }
+        (Some(name), None) => format!("memoized callback {}", name),
+        (None, Some(deps)) => format!("memoized callback on [{}]", truncate_deps(&deps)),
+        (None, None) => "memoized callback".to_string(),
+    };
+
+    push_unique_insertion(&mut summary.insertions, insertion, "callback");
+}
+
+// =============================================================================
+// Ref Hooks Extraction
+// =============================================================================
+
+/// Extract React ref hooks (useRef)
+///
+/// Detects patterns like:
+/// ```javascript
+/// const inputRef = useRef(null);           // DOM ref
+/// const timerRef = useRef<number>();       // Mutable value
+/// const countRef = useRef(0);              // Mutable counter
+/// ```
+pub fn extract_ref_hooks(summary: &mut SemanticSummary, root: &Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let func_name = get_node_text(&func, source);
+                if func_name == "useRef" {
+                    extract_ref_info(summary, node, source);
+                }
+            }
+        }
+    });
+}
+
+/// Extract information from a useRef call
+fn extract_ref_info(summary: &mut SemanticSummary, node: &Node, source: &str) {
+    // Get variable name from parent
+    let var_name = get_hook_variable_name(node, source);
+
+    // Get initializer to determine if DOM ref or mutable value
+    let init = extract_hook_initializer(node, source);
+    let is_dom_ref = init == "null" || init == "undefined";
+
+    let insertion = match var_name {
+        Some(name) if is_dom_ref => format!("ref: {}", name),
+        Some(name) => format!("mutable ref: {}", name),
+        None if is_dom_ref => "ref".to_string(),
+        None => "mutable ref".to_string(),
+    };
+
+    push_unique_insertion(&mut summary.insertions, insertion, "ref");
+}
+
+// =============================================================================
+// Shared Hook Utilities
+// =============================================================================
+
+/// Get the variable name that a hook result is assigned to
+fn get_hook_variable_name(node: &Node, source: &str) -> Option<String> {
+    // Walk up to find variable_declarator
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "variable_declarator" {
+            if let Some(name_node) = parent.child_by_field_name("name") {
+                let name = get_node_text(&name_node, source);
+                if !name.is_empty() && name != "[" {
+                    return Some(name);
+                }
+            }
+            break;
+        }
+        current = parent.parent();
+    }
+    None
+}
+
+/// Extract dependency array from a hook call (2nd argument)
+fn extract_hook_deps(node: &Node, source: &str) -> Option<String> {
+    if let Some(args) = node.child_by_field_name("arguments") {
+        let mut arg_index = 0;
+        let mut cursor = args.walk();
+        for child in args.children(&mut cursor) {
+            if child.kind() == "(" || child.kind() == ")" || child.kind() == "," {
+                continue;
+            }
+            if arg_index == 1 {
+                // Second argument is deps array
+                let deps_text = get_node_text(&child, source);
+                if deps_text.starts_with('[') {
+                    let inner = deps_text.trim_start_matches('[').trim_end_matches(']');
+                    if !inner.is_empty() {
+                        return Some(inner.to_string());
+                    }
+                }
+                break;
+            }
+            arg_index += 1;
+        }
+    }
+    None
+}
+
+/// Truncate dependency list if too long
+fn truncate_deps(deps: &str) -> String {
+    let deps = deps.trim();
+    if deps.len() > 30 {
+        let parts: Vec<&str> = deps.split(',').map(|s| s.trim()).collect();
+        if parts.len() > 3 {
+            format!("{}, {} more", parts[..2].join(", "), parts.len() - 2)
+        } else {
+            format!("{}...", &deps[..27])
+        }
+    } else {
+        deps.to_string()
     }
 }
 
@@ -314,6 +607,15 @@ pub fn count_custom_hooks(source: &str) -> usize {
 mod tests {
     use super::*;
 
+    // Helper to parse TSX source for testing
+    fn parse_tsx(source: &str) -> tree_sitter::Tree {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_typescript::LANGUAGE_TSX.into())
+            .expect("Failed to set language");
+        parser.parse(source, None).expect("Failed to parse")
+    }
+
     #[test]
     fn test_infer_type() {
         assert_eq!(infer_type("\"hello\""), "string");
@@ -345,5 +647,272 @@ mod tests {
         // so they will be counted. For a more accurate count, we'd need to
         // filter out known built-in hooks.
         assert_eq!(count_custom_hooks("useState(); useEffect();"), 2);
+    }
+
+    #[test]
+    fn test_truncate_deps() {
+        // Short deps should pass through unchanged
+        assert_eq!(truncate_deps("a, b"), "a, b");
+        assert_eq!(truncate_deps("id, name"), "id, name");
+
+        // Long deps should be truncated
+        let long_deps = "firstDep, secondDep, thirdDep, fourthDep";
+        let truncated = truncate_deps(long_deps);
+        assert!(truncated.contains("more"));
+
+        // Empty deps
+        assert_eq!(truncate_deps(""), "");
+    }
+
+    #[test]
+    fn test_extract_effect_hooks_on_mount() {
+        let source = r#"
+            function Component() {
+                useEffect(() => {
+                    console.log("mounted");
+                }, []);
+                return <div />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_effect_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("effect on mount")),
+            "Should detect effect on mount, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_effect_hooks_with_deps() {
+        let source = r#"
+            function Component({ id }) {
+                useEffect(() => {
+                    fetchData(id);
+                }, [id]);
+                return <div />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_effect_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("effect on [id]")),
+            "Should detect effect with dependency, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_effect_hooks_every_render() {
+        let source = r#"
+            function Component() {
+                useEffect(() => {
+                    console.log("render");
+                });
+                return <div />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_effect_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("effect on every render")),
+            "Should detect effect on every render, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_effect_hooks_with_cleanup() {
+        let source = r#"
+            function Component() {
+                useEffect(() => {
+                    const timer = setInterval(() => {}, 1000);
+                    return () => clearInterval(timer);
+                }, []);
+                return <div />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_effect_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("cleanup")),
+            "Should detect effect with cleanup, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_layout_effect() {
+        let source = r#"
+            function Component() {
+                useLayoutEffect(() => {
+                    measureDOM();
+                }, []);
+                return <div />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_effect_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("layout effect")),
+            "Should detect layout effect, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_memo_hooks() {
+        let source = r#"
+            function Component({ items }) {
+                const filtered = useMemo(() => items.filter(x => x.active), [items]);
+                return <div>{filtered.length}</div>;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_memo_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("memoized") && i.contains("filtered")),
+            "Should detect memoized value with name, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_callback_hooks() {
+        let source = r#"
+            function Component({ onClick, id }) {
+                const handleClick = useCallback(() => {
+                    onClick(id);
+                }, [onClick, id]);
+                return <button onClick={handleClick}>Click</button>;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_callback_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("memoized callback") && i.contains("handleClick")),
+            "Should detect memoized callback with name, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_ref_hooks_dom_ref() {
+        let source = r#"
+            function Component() {
+                const inputRef = useRef(null);
+                return <input ref={inputRef} />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_ref_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("ref:") && i.contains("inputRef")),
+            "Should detect DOM ref, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_extract_ref_hooks_mutable_ref() {
+        let source = r#"
+            function Component() {
+                const countRef = useRef(0);
+                return <div />;
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        extract_ref_hooks(&mut summary, &tree.root_node(), source);
+
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("mutable ref") && i.contains("countRef")),
+            "Should detect mutable ref, got: {:?}",
+            summary.insertions
+        );
+    }
+
+    #[test]
+    fn test_enhance_extracts_all_hooks() {
+        let source = r#"
+            import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+
+            function MyComponent({ id }) {
+                const [count, setCount] = useState(0);
+                const inputRef = useRef(null);
+
+                useEffect(() => {
+                    console.log(id);
+                }, [id]);
+
+                const doubled = useMemo(() => count * 2, [count]);
+
+                const handleClick = useCallback(() => {
+                    setCount(c => c + 1);
+                }, []);
+
+                return (
+                    <div>
+                        <input ref={inputRef} />
+                        <span>{doubled}</span>
+                        <button onClick={handleClick}>+</button>
+                    </div>
+                );
+            }
+        "#;
+        let tree = parse_tsx(source);
+        let mut summary = SemanticSummary::default();
+        enhance(&mut summary, &tree.root_node(), source);
+
+        // Check for useState
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("local count state")),
+            "Should extract useState, got: {:?}",
+            summary.insertions
+        );
+
+        // Check for useEffect
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("effect on [id]")),
+            "Should extract useEffect, got: {:?}",
+            summary.insertions
+        );
+
+        // Check for useMemo
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("memoized") && i.contains("doubled")),
+            "Should extract useMemo, got: {:?}",
+            summary.insertions
+        );
+
+        // Check for useCallback
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("memoized callback")),
+            "Should extract useCallback, got: {:?}",
+            summary.insertions
+        );
+
+        // Check for useRef
+        assert!(
+            summary.insertions.iter().any(|i| i.contains("ref") && i.contains("inputRef")),
+            "Should extract useRef, got: {:?}",
+            summary.insertions
+        );
     }
 }

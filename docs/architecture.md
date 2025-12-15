@@ -218,7 +218,7 @@ Semantic duplicate detection filters out expected boilerplate patterns.
 
 | Language | Patterns | Coverage |
 |----------|----------|----------|
-| **JavaScript/TypeScript** | 14 | ReactQuery, ReactHook, EventHandler, ApiRoute, TestSetup, TypeGuard, ConfigExport, ReduxPattern, ValidationSchema, TestMock, NextjsDataFetching, ReactWrapper, ClassicReduxReducer, ApiWrapper |
+| **JavaScript/TypeScript** | 19 | ReactQuery, ReactHook, EventHandler, ApiRoute, TestSetup, TypeGuard, ConfigExport, ReduxPattern, ValidationSchema, TestMock, NextjsDataFetching, ReactWrapper, ClassicReduxReducer, ApiWrapper, ContextProvider, SimpleContextHook, HOCWrapper, LazyComponent, SuspenseBoundary |
 | **Rust** | 13 | TraitImpl, Builder, Getter, Setter, Constructor, Conversion, Derived, ErrorFrom, Iterator, Deref, Drop, Test, Serde |
 | **C#** | 18 | ASP.NET (Controller, MinimalApi, Middleware, DI), Entity Framework (DbContext, DbSet, FluentApi, Migration), Testing (XUnit, NUnit, Moq), LINQ (Chain, Projection), Unity (Lifecycle, SerializedField, ScriptableObject), General (Property, Record) |
 
