@@ -722,9 +722,10 @@ impl McpDiffServer {
                 if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
                     continue;
                 }
-                if let Some(colon_pos) = line.find(':') {
-                    let caller = line[..colon_pos].trim().to_string();
-                    let rest = line[colon_pos + 1..].trim();
+                // Note: hash may contain colons (e.g., "locationHash:semanticHash"), so we find ": ["
+                if let Some(bracket_pos) = line.find(": [") {
+                    let caller = line[..bracket_pos].trim().to_string();
+                    let rest = line[bracket_pos + 2..].trim();
                     if rest.starts_with('[') && rest.ends_with(']') {
                         let inner = &rest[1..rest.len()-1];
                         let callee_count = if inner.is_empty() { 0 } else { inner.matches(',').count() + 1 };
@@ -783,9 +784,10 @@ impl McpDiffServer {
             }
             
             // Parse edge
-            if let Some(colon_pos) = line.find(':') {
-                let caller = line[..colon_pos].trim();
-                let rest = line[colon_pos + 1..].trim();
+            // Note: hash may contain colons (e.g., "locationHash:semanticHash"), so we find ": ["
+            if let Some(bracket_pos) = line.find(": [") {
+                let caller = line[..bracket_pos].trim();
+                let rest = line[bracket_pos + 2..].trim();
                 
                 if rest.starts_with('[') && rest.ends_with(']') {
                     total_edges += 1;

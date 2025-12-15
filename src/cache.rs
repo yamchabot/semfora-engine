@@ -624,9 +624,10 @@ impl CacheDir {
             }
 
             // Parse "hash: [call1, call2, ...]" format
-            if let Some(colon_pos) = line.find(':') {
-                let hash = line[..colon_pos].trim().to_string();
-                let rest = line[colon_pos + 1..].trim();
+            // Note: hash may contain colons (e.g., "locationHash:semanticHash"), so we find ": ["
+            if let Some(bracket_pos) = line.find(": [") {
+                let hash = line[..bracket_pos].trim().to_string();
+                let rest = line[bracket_pos + 2..].trim();
 
                 // Parse the array part
                 if rest.starts_with('[') && rest.ends_with(']') {
