@@ -15,12 +15,6 @@ on:
     branches: [main, develop]
   # Manual trigger for testing
   workflow_dispatch:
-    inputs:
-      soft_fail:
-        description: 'Soft fail mode (report but don''t fail)'
-        required: false
-        default: true
-        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -112,15 +106,8 @@ jobs:
 
       - name: Run Semantic Analysis
         id: semfora
-        run: |
-          # Determine soft fail mode
-          SOFT_FAIL="${{ github.event.inputs.soft_fail || 'true' }}"
-
-          if [ "$SOFT_FAIL" = "true" ]; then
-            semfora-ci --ci --soft-fail
-          else
-            semfora-ci --ci
-          fi
+        run: semfora-ci --ci
+        # Exits non-zero on errors, blocking the PR
 
       - name: Upload Analysis Report
         if: always()
