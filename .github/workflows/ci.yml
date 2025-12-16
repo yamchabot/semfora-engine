@@ -40,6 +40,10 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+        env:
+          # Use clang-cl on Windows to handle GCC-style flags from tree-sitter crates
+          CC_x86_64_pc_windows_msvc: ${{ matrix.os == 'windows-latest' && 'clang-cl' || '' }}
+          CXX_x86_64_pc_windows_msvc: ${{ matrix.os == 'windows-latest' && 'clang-cl' || '' }}
 
       - name: Run tests
         if: matrix.os == 'ubuntu-latest'

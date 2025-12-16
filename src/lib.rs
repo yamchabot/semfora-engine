@@ -159,3 +159,5 @@ pub use sqlite_export::{
     default_export_path, ExportPhase, ExportProgress, ExportStats, ProgressCallback,
     SqliteExporter,
 };
+
+// Test change to trigger semfora-ci workflow
