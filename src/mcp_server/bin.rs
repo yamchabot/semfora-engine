@@ -24,7 +24,7 @@ use tracing_subscriber::{self, EnvFilter};
 use semfora_engine::mcp_server::McpDiffServer;
 use semfora_engine::server::{
     ServerState, FileWatcher, GitPoller,
-    init_event_emitter, emit_event, ServerStatusEvent,
+    init_event_emitter,
 };
 
 #[tokio::main]
@@ -50,8 +50,9 @@ async fn main() -> Result<()> {
     tracing::info!("Starting semfora-engine MCP server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Repository path: {}", repo_path.display());
 
-    // Always enable event emitter for live index updates
-    init_event_emitter(true);
+    // Disable event emitter for MCP mode - stdout must be pure JSON-RPC
+    // Event emission to stdout breaks MCP protocol
+    init_event_emitter(false);
 
     // Create persistent server state for live index updates
     let server_state = Arc::new(ServerState::new(repo_path.clone()));
@@ -66,9 +67,6 @@ async fn main() -> Result<()> {
     let _poller_handle = git_poller.start(Arc::clone(&server_state))?;
 
     tracing::info!("Started FileWatcher and GitPoller for live index updates");
-
-    // Emit server started event
-    emit_event(&ServerStatusEvent::started(&repo_path.to_string_lossy()));
 
     // Create MCP server with persistent state
     let server = McpDiffServer::with_server_state(repo_path, server_state);

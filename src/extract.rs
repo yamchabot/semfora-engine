@@ -72,6 +72,9 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
             crate::lang::LangFamily::Hcl => {
                 crate::detectors::hcl::extract(&mut summary, source, tree)?;
             }
+            crate::lang::LangFamily::Dockerfile => {
+                crate::detectors::dockerfile::extract(&mut summary, source, tree)?;
+            }
         }
     }
 

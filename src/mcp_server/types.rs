@@ -681,6 +681,59 @@ pub struct ExportCallGraphSqliteRequest {
 }
 
 // ============================================================================
+// Security / CVE Pattern Detection Types
+// ============================================================================
+
+/// Request to scan for CVE vulnerability patterns in the codebase
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CVEScanRequest {
+    /// Repository path (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Minimum similarity threshold (default: 0.75)
+    /// Higher values = fewer false positives but may miss variants
+    #[schemars(description = "Minimum similarity threshold (default: 0.75, range: 0.0-1.0)")]
+    pub min_similarity: Option<f32>,
+
+    /// Filter by severity level(s): CRITICAL, HIGH, MEDIUM, LOW
+    #[schemars(description = "Filter by severity levels (e.g., ['CRITICAL', 'HIGH'])")]
+    pub severity_filter: Option<Vec<String>>,
+
+    /// Filter by CWE categories (e.g., ['CWE-89', 'CWE-79'])
+    #[schemars(description = "Filter by CWE categories (e.g., ['CWE-89', 'CWE-79'])")]
+    pub cwe_filter: Option<Vec<String>>,
+
+    /// Maximum matches to return (default: 100)
+    #[schemars(description = "Maximum matches to return (default: 100)")]
+    pub limit: Option<usize>,
+
+    /// Filter to a specific module
+    #[schemars(description = "Filter to a specific module")]
+    pub module: Option<String>,
+}
+
+/// Request to update security patterns at runtime
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UpdateSecurityPatternsRequest {
+    /// URL to fetch patterns from (defaults to SEMFORA_PATTERN_URL env or built-in default)
+    #[schemars(description = "URL to fetch patterns from. If not provided, uses SEMFORA_PATTERN_URL environment variable or the default pattern server.")]
+    pub url: Option<String>,
+
+    /// Path to a local pattern file (alternative to URL)
+    #[schemars(description = "Path to a local security_patterns.bin file. If provided, loads from file instead of HTTP.")]
+    pub file_path: Option<String>,
+
+    /// Force update even if versions match
+    #[schemars(description = "Force update even if the pattern version matches current version (default: false)")]
+    pub force: Option<bool>,
+}
+
+/// Request to get security pattern statistics
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetSecurityPatternStatsRequest {}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 

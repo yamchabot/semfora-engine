@@ -26,6 +26,7 @@ use crate::{
     test_runner::{self, TestFramework, TestRunOptions},
     server::ServerState,
     duplicate::DuplicateDetector,
+    security::{CVEMatch, CVEScanSummary, Severity, patterns::embedded::load_embedded_patterns},
     utils::truncate_to_char_boundary,
 };
 
@@ -46,6 +47,7 @@ use formatting::{
     format_merged_blocks, format_module_symbols, load_signatures,
     format_call_graph_paginated, format_call_graph_summary,
     format_duplicate_clusters_paginated, format_duplicate_matches,
+    format_cve_scan_results,
 };
 use instructions::MCP_INSTRUCTIONS;
 
@@ -1628,6 +1630,207 @@ impl McpDiffServer {
         let matches = detector.find_duplicates(target, &signatures);
 
         let output = format_duplicate_matches(&target.name, &target.file, &matches, threshold);
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    // ========================================================================
+    // Security Vulnerability Detection
+    // ========================================================================
+
+    #[tool(description = "Scan code for known CVE vulnerability patterns. Matches function signatures against pre-compiled fingerprints from NVD/GHSA data. Returns potential security issues with severity, CVE references, and remediation guidance. Uses the same 2-pass algorithm as duplicate detection for fast analysis.")]
+    async fn cve_scan(
+        &self,
+        Parameters(request): Parameters<CVEScanRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let start = std::time::Instant::now();
+
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        let cache = match CacheDir::for_repo(&repo_path) {
+            Ok(c) => c,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to access cache: {}", e
+            ))])),
+        };
+
+        // Load function signatures from index
+        let signatures = match load_signatures(&cache) {
+            Ok(sigs) => sigs,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to load signature index: {}. Run generate_index first.", e
+            ))])),
+        };
+
+        // Load the pattern database (embedded at build time)
+        let pattern_db = load_embedded_patterns();
+        if pattern_db.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "_type: cve_scan\nstatus: no_patterns\n\nNo security patterns available.\nRun semfora-security-compiler to generate patterns, then rebuild with --features embedded-patterns.\n"
+            )]));
+        }
+
+        // Filter signatures by module if specified (module is derived from file path)
+        let signatures_to_scan: Vec<_> = if let Some(ref module) = request.module {
+            signatures.iter().filter(|s| {
+                // Extract module from file path (e.g., "src/api/handlers.rs" -> "api")
+                let path = Path::new(&s.file);
+                path.components()
+                    .filter_map(|c| c.as_os_str().to_str())
+                    .any(|part| part == module)
+            }).collect()
+        } else {
+            signatures.iter().collect()
+        };
+
+        // Configure matching
+        let min_similarity = request.min_similarity.unwrap_or(0.75).clamp(0.0, 1.0);
+        let limit = request.limit.unwrap_or(100).min(500);
+        let detector = DuplicateDetector::new(min_similarity as f64);
+
+        // Parse severity filter
+        let severity_filter: Option<Vec<Severity>> = request.severity_filter.as_ref().map(|sevs| {
+            sevs.iter().filter_map(|s| match s.to_uppercase().as_str() {
+                "CRITICAL" => Some(Severity::Critical),
+                "HIGH" => Some(Severity::High),
+                "MEDIUM" => Some(Severity::Medium),
+                "LOW" => Some(Severity::Low),
+                "NONE" => Some(Severity::None),
+                _ => None,
+            }).collect()
+        });
+
+        // Run CVE pattern matching
+        let mut all_matches: Vec<CVEMatch> = Vec::new();
+        for sig in &signatures_to_scan {
+            let matches = detector.match_cve_patterns(sig, &pattern_db, min_similarity);
+            all_matches.extend(matches);
+        }
+
+        // Apply filters
+        if let Some(ref severities) = severity_filter {
+            all_matches.retain(|m| severities.contains(&m.severity));
+        }
+
+        if let Some(ref cwe_filter) = request.cwe_filter {
+            all_matches.retain(|m| {
+                m.cwe_ids.iter().any(|cwe| cwe_filter.contains(cwe))
+            });
+        }
+
+        // Sort by severity (Critical first) then by similarity (highest first)
+        all_matches.sort_by(|a, b| {
+            b.severity.cmp(&a.severity)
+                .then(b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        // Truncate to limit
+        all_matches.truncate(limit);
+
+        let scan_time_ms = start.elapsed().as_millis() as u64;
+
+        // Build summary
+        let summary = CVEScanSummary {
+            functions_scanned: signatures_to_scan.len(),
+            patterns_checked: pattern_db.len(),
+            total_matches: all_matches.len(),
+            by_severity: {
+                let mut counts = std::collections::HashMap::new();
+                for m in &all_matches {
+                    *counts.entry(m.severity).or_insert(0) += 1;
+                }
+                counts
+            },
+            scan_time_ms,
+        };
+
+        // Format output
+        let output = format_cve_scan_results(&summary, &all_matches, min_similarity);
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Update security vulnerability patterns at runtime. Fetches the latest CVE patterns from a pattern server (or loads from a local file) without requiring a rebuild. Use this to get the latest vulnerability signatures for cve_scan.")]
+    async fn update_security_patterns(
+        &self,
+        Parameters(request): Parameters<UpdateSecurityPatternsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::security::patterns::{fetch_pattern_updates, update_patterns_from_file};
+
+        let force = request.force.unwrap_or(false);
+
+        let result = if let Some(ref file_path) = request.file_path {
+            // Load from local file
+            let path = std::path::Path::new(file_path);
+            match update_patterns_from_file(path) {
+                Ok(r) => r,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to load patterns from file: {}", e
+                ))])),
+            }
+        } else {
+            // Fetch from URL
+            match fetch_pattern_updates(request.url.as_deref(), force).await {
+                Ok(r) => r,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to fetch pattern updates: {}", e
+                ))])),
+            }
+        };
+
+        let output = format!(
+            "_type: pattern_update\n\
+            updated: {}\n\
+            previous_version: {}\n\
+            current_version: {}\n\
+            pattern_count: {}\n\
+            message: {}\n",
+            result.updated,
+            result.previous_version.as_deref().unwrap_or("none"),
+            result.current_version,
+            result.pattern_count,
+            result.message,
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Get statistics about the currently loaded security patterns. Shows version, pattern count, CWE coverage, and language support.")]
+    async fn get_security_pattern_stats(
+        &self,
+        Parameters(_request): Parameters<GetSecurityPatternStatsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::security::patterns::pattern_stats;
+
+        let stats = pattern_stats();
+
+        let source_str = match stats.source {
+            crate::security::patterns::PatternSource::None => "none",
+            crate::security::patterns::PatternSource::Embedded => "embedded (build-time)",
+            crate::security::patterns::PatternSource::Runtime => "runtime (file/http)",
+        };
+
+        let output = format!(
+            "_type: pattern_stats\n\
+            loaded: {}\n\
+            version: {}\n\
+            generated_at: {}\n\
+            pattern_count: {}\n\
+            cwe_categories: {}\n\
+            languages_covered: {}\n\
+            source: {}\n\
+            \n\
+            To update patterns, use update_security_patterns tool or set SEMFORA_PATTERN_URL environment variable.\n",
+            stats.loaded,
+            stats.version.as_deref().unwrap_or("n/a"),
+            stats.generated_at.as_deref().unwrap_or("n/a"),
+            stats.pattern_count,
+            stats.cwe_count,
+            stats.language_count,
+            source_str,
+        );
+
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 

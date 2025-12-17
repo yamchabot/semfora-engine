@@ -11,6 +11,7 @@ use std::path::Path;
 
 use crate::duplicate::{DuplicateCluster, DuplicateKind, DuplicateMatch, FunctionSignature};
 use crate::schema::SCHEMA_VERSION;
+use crate::security::{CVEMatch, CVEScanSummary, Severity};
 use crate::utils::truncate_to_char_boundary;
 use crate::{encode_toon, CacheDir, Lang, MergedBlock, RipgrepSearchResult, SemanticSummary, SymbolIndexEntry};
 
@@ -682,6 +683,72 @@ pub(super) fn format_duplicate_matches(
             for diff in &m.differences {
                 output.push_str(&format!("      - {}\n", diff));
             }
+        }
+    }
+
+    output
+}
+
+// ============================================================================
+// CVE Scan Formatting
+// ============================================================================
+
+/// Format CVE scan results as compact TOON output
+pub(super) fn format_cve_scan_results(
+    summary: &CVEScanSummary,
+    matches: &[CVEMatch],
+    threshold: f32,
+) -> String {
+    let mut output = String::new();
+    output.push_str("_type: cve_scan\n");
+    output.push_str(&format!("functions_scanned: {}\n", summary.functions_scanned));
+    output.push_str(&format!("patterns_checked: {}\n", summary.patterns_checked));
+    output.push_str(&format!("similarity_threshold: {:.0}%\n", threshold * 100.0));
+    output.push_str(&format!("total_matches: {}\n", summary.total_matches));
+    output.push_str(&format!("scan_time_ms: {}\n", summary.scan_time_ms));
+
+    // Severity breakdown
+    if !summary.by_severity.is_empty() {
+        output.push_str("by_severity:\n");
+        for sev in [Severity::Critical, Severity::High, Severity::Medium, Severity::Low, Severity::None] {
+            if let Some(&count) = summary.by_severity.get(&sev) {
+                if count > 0 {
+                    output.push_str(&format!("  {}: {}\n", sev, count));
+                }
+            }
+        }
+    }
+
+    if matches.is_empty() {
+        output.push_str("\nNo CVE pattern matches found.\n");
+        return output;
+    }
+
+    output.push_str("\nmatches:\n");
+    for (i, m) in matches.iter().enumerate() {
+        output.push_str(&format!("\n  [{}] {} ({:.0}% match)\n", i + 1, m.cve_id, m.similarity * 100.0));
+        output.push_str(&format!("      severity: {}\n", m.severity));
+        if !m.cwe_ids.is_empty() {
+            output.push_str(&format!("      cwe: {}\n", m.cwe_ids.join(", ")));
+        }
+        output.push_str(&format!("      file: {}:{}\n", m.file, m.line));
+        output.push_str(&format!("      function: {}\n", m.function));
+
+        // Truncate description if too long
+        let desc = if m.description.len() > 200 {
+            format!("{}...", &m.description[..197])
+        } else {
+            m.description.clone()
+        };
+        output.push_str(&format!("      description: {}\n", desc));
+
+        if let Some(ref remediation) = m.remediation {
+            let rem = if remediation.len() > 150 {
+                format!("{}...", &remediation[..147])
+            } else {
+                remediation.clone()
+            };
+            output.push_str(&format!("      remediation: {}\n", rem));
         }
     }
 

@@ -90,13 +90,14 @@
 //!
 //! ## Infra Languages (Parser-only, structural)
 //! TODO(SEM-XX): Enhance shell.rs for PowerShell (.ps1)
-//! TODO(SEM-XX): Add Dockerfile detector (structural patterns)
+//! DONE: Dockerfile detector implemented (dockerfile.rs)
 //! TODO(SEM-XX): Add Makefile detector (structural patterns)
 
 pub mod c_family;
 pub mod common;
 pub mod config;
 pub mod csharp;
+pub mod dockerfile;
 pub mod generic;
 pub mod go;
 pub mod gradle;

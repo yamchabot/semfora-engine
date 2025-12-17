@@ -2,11 +2,12 @@
 
 use std::path::Path;
 use tree_sitter::Language;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{McpDiffError, Result};
 
 /// Supported programming languages
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Lang {
     TypeScript,
     Tsx,
@@ -36,11 +37,21 @@ pub enum Lang {
     Bash,
     /// Gradle build files (Groovy-based)
     Gradle,
+    /// Dockerfile container definitions
+    Dockerfile,
 }
 
 impl Lang {
-    /// Detect language from file path extension
+    /// Detect language from file path extension or filename
     pub fn from_path(path: &Path) -> Result<Self> {
+        // First try filename-based detection (for Dockerfile, Makefile, etc.)
+        if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+            if let Some(lang) = Self::from_filename(filename) {
+                return Ok(lang);
+            }
+        }
+
+        // Fall back to extension-based detection
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
@@ -78,9 +89,19 @@ impl Lang {
             "vue" => Ok(Self::Vue),
             "sh" | "bash" | "zsh" | "fish" => Ok(Self::Bash),
             "gradle" => Ok(Self::Gradle),
+            "dockerfile" => Ok(Self::Dockerfile),
             _ => Err(McpDiffError::UnsupportedLanguage {
                 extension: ext.to_string(),
             }),
+        }
+    }
+
+    /// Detect language from filename (for files without extensions like Dockerfile)
+    pub fn from_filename(filename: &str) -> Option<Self> {
+        match filename.to_lowercase().as_str() {
+            "dockerfile" | "containerfile" => Some(Self::Dockerfile),
+            "makefile" | "gnumakefile" => None, // Not yet supported
+            _ => None,
         }
     }
 
@@ -111,6 +132,7 @@ impl Lang {
             Self::Vue => "vue",
             Self::Bash => "bash",
             Self::Gradle => "gradle",
+            Self::Dockerfile => "dockerfile",
         }
     }
 
@@ -142,6 +164,10 @@ impl Lang {
             Self::Markdown => tree_sitter_md::LANGUAGE.into(),
             Self::Bash => tree_sitter_bash::LANGUAGE.into(),
             Self::Gradle => tree_sitter_groovy::LANGUAGE.into(),
+            // Dockerfile uses Bash grammar as placeholder until tree-sitter-dockerfile
+            // is updated to tree-sitter 0.25. The actual parsing is text-based in
+            // detectors/dockerfile.rs
+            Self::Dockerfile => tree_sitter_bash::LANGUAGE.into(),
         }
     }
 
@@ -163,6 +189,7 @@ impl Lang {
             Self::Hcl => LangFamily::Hcl,
             Self::Bash => LangFamily::Shell,
             Self::Gradle => LangFamily::Gradle,
+            Self::Dockerfile => LangFamily::Dockerfile,
         }
     }
 
@@ -215,6 +242,7 @@ impl Lang {
             Self::Vue => &["vue"],
             Self::Bash => &["sh", "bash", "zsh", "fish"],
             Self::Gradle => &["gradle"],
+            Self::Dockerfile => &["dockerfile"],
         }
     }
 
@@ -253,6 +281,8 @@ pub enum LangFamily {
     Shell,
     /// Gradle (Groovy-based)
     Gradle,
+    /// Dockerfile/Containerfile
+    Dockerfile,
 }
 
 impl LangFamily {
@@ -272,6 +302,7 @@ impl LangFamily {
             Self::Hcl => "hcl",
             Self::Shell => "shell",
             Self::Gradle => "gradle",
+            Self::Dockerfile => "dockerfile",
         }
     }
 }

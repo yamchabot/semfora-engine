@@ -18,10 +18,13 @@
 
 pub mod boilerplate;
 
+use crate::lang::Lang;
 use crate::schema::{fnv1a_hash, Call, ControlFlowChange, ControlFlowKind, StateChange, SymbolInfo};
+use crate::security::{CVEMatch, CVEPattern, PatternDatabase};
 use boilerplate::{classify_boilerplate, BoilerplateCategory, BoilerplateConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::Path;
 
 /// Reference to a symbol in the codebase
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -409,6 +412,124 @@ impl DuplicateDetector {
         }
 
         clusters
+    }
+
+    // =========================================================================
+    // CVE Pattern Matching (Security Analysis)
+    // =========================================================================
+
+    /// Match a function signature against pre-compiled CVE vulnerability patterns
+    ///
+    /// Uses the same 2-pass algorithm as duplicate detection:
+    /// 1. Coarse filter with fingerprint hamming distance (looser threshold of 16)
+    /// 2. Fine similarity with security-tuned weights (0.50 call, 0.30 control_flow, 0.20 state)
+    ///
+    /// # Arguments
+    /// * `signature` - The function signature to check
+    /// * `pattern_db` - Pre-compiled CVE pattern database
+    /// * `min_similarity` - Minimum similarity threshold (0.0-1.0), typically 0.75
+    ///
+    /// # Returns
+    /// Vector of CVE matches, sorted by severity then similarity
+    pub fn match_cve_patterns(
+        &self,
+        signature: &FunctionSignature,
+        pattern_db: &PatternDatabase,
+        min_similarity: f32,
+    ) -> Vec<CVEMatch> {
+        // Detect language from file path
+        let lang = match Lang::from_path(Path::new(&signature.file)) {
+            Ok(l) => l,
+            Err(_) => return Vec::new(), // Can't match without knowing the language
+        };
+
+        // Get patterns for this language
+        let lang_patterns = pattern_db.patterns_for_lang(lang);
+        if lang_patterns.is_empty() {
+            return Vec::new();
+        }
+
+        let mut matches = Vec::new();
+
+        // PASS A: Coarse filter using hamming distance on call fingerprint
+        // Use a looser threshold (16 bits) than duplicate detection (12 bits)
+        // to catch more potential vulnerability variants
+        let candidates: Vec<_> = lang_patterns
+            .iter()
+            .filter(|pattern| {
+                let hamming = (signature.call_fingerprint ^ pattern.call_fingerprint).count_ones();
+                hamming <= 16
+            })
+            .collect();
+
+        // PASS B: Fine similarity with security-tuned weights
+        for pattern in candidates {
+            let similarity = self.compute_security_similarity(signature, pattern);
+
+            // Threshold adjusted by pattern confidence
+            let adjusted_threshold = min_similarity * pattern.confidence;
+
+            if similarity >= adjusted_threshold {
+                matches.push(CVEMatch {
+                    cve_id: pattern.cve_id.clone(),
+                    cwe_ids: pattern.cwe_ids.clone(),
+                    similarity,
+                    severity: pattern.severity,
+                    description: pattern.description.clone(),
+                    remediation: pattern.remediation.clone(),
+                    file: signature.file.clone(),
+                    function: signature.name.clone(),
+                    line: 0, // Will be populated by caller if needed
+                });
+            }
+        }
+
+        // Sort by severity (highest first) then similarity (highest first)
+        matches.sort_by(|a, b| {
+            b.severity
+                .cmp(&a.severity)
+                .then(b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        matches
+    }
+
+    /// Compute security-tuned similarity between a function and a CVE pattern
+    ///
+    /// Uses different weights than duplicate detection:
+    /// - Call similarity: 0.50 (most important for API matching)
+    /// - Control flow: 0.30 (vulnerability patterns often have specific control flow)
+    /// - State patterns: 0.20 (variable patterns can indicate vulnerability)
+    fn compute_security_similarity(&self, sig: &FunctionSignature, pattern: &CVEPattern) -> f32 {
+        // Call similarity (Jaccard between business_calls and vulnerable_calls)
+        let call_sim = jaccard_similarity(&sig.business_calls, &pattern.vulnerable_calls) as f32;
+
+        // Control flow similarity (fingerprint comparison)
+        let control_sim =
+            fingerprint_similarity(sig.control_flow_fingerprint, pattern.control_flow_fingerprint)
+                as f32;
+
+        // State similarity (fingerprint comparison)
+        let state_sim =
+            fingerprint_similarity(sig.state_fingerprint, pattern.state_fingerprint) as f32;
+
+        // Security-weighted combination (calls most important for API matching)
+        call_sim * 0.50 + control_sim * 0.30 + state_sim * 0.20
+    }
+
+    /// Match all functions in a set against CVE patterns
+    ///
+    /// Convenience method that scans an entire codebase.
+    pub fn scan_all_cve_patterns(
+        &self,
+        signatures: &[FunctionSignature],
+        pattern_db: &PatternDatabase,
+        min_similarity: f32,
+    ) -> Vec<CVEMatch> {
+        signatures
+            .iter()
+            .flat_map(|sig| self.match_cve_patterns(sig, pattern_db, min_similarity))
+            .collect()
     }
 
     /// Phase A: Coarse filter with early exit conditions
