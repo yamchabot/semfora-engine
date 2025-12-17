@@ -280,6 +280,36 @@ pub struct Cli {
     /// Include boilerplate functions in duplicate detection
     #[arg(long)]
     pub include_boilerplate: bool,
+
+    // ============================================
+    // Commit Preparation Options
+    // ============================================
+
+    /// Prepare information for writing a commit message
+    /// Shows git context, staged/unstaged changes with semantic analysis
+    /// This NEVER commits - only provides information
+    #[arg(long)]
+    pub prep_commit: bool,
+
+    /// Only show staged changes (default: shows both staged and unstaged)
+    #[arg(long, requires = "prep_commit")]
+    pub staged_only: bool,
+
+    /// Include complexity metrics (cognitive, cyclomatic, max nesting)
+    #[arg(long, requires = "prep_commit")]
+    pub show_complexity: bool,
+
+    /// Include all detailed metrics (complexity + fan-out, LOC, state mutations, I/O)
+    #[arg(long, requires = "prep_commit")]
+    pub show_all_metrics: bool,
+
+    /// Skip auto-refresh of the semantic index
+    #[arg(long, requires = "prep_commit")]
+    pub no_auto_refresh: bool,
+
+    /// Hide diff statistics (insertions/deletions per file)
+    #[arg(long, requires = "prep_commit")]
+    pub no_diff_stats: bool,
 }
 
 /// Token analysis output mode

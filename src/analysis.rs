@@ -434,7 +434,9 @@ pub fn format_analysis_report(analysis: &RepoAnalysis) -> String {
 }
 
 /// Build SymbolComplexity from a SemanticSummary
-fn symbol_complexity_from_summary(summary: &SemanticSummary, fan_in: usize) -> SymbolComplexity {
+///
+/// Use `fan_in = 0` if you don't have call graph data available.
+pub fn symbol_complexity_from_summary(summary: &SemanticSummary, fan_in: usize) -> SymbolComplexity {
     let loc = match (summary.start_line, summary.end_line) {
         (Some(s), Some(e)) => e.saturating_sub(s) + 1,
         _ => 0,

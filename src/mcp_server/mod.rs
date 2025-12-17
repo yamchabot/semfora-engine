@@ -48,6 +48,8 @@ use formatting::{
     format_call_graph_paginated, format_call_graph_summary,
     format_duplicate_clusters_paginated, format_duplicate_matches,
     format_cve_scan_results,
+    // Prep-commit formatting
+    format_prep_commit, GitContext, AnalyzedFile, SymbolMetrics, FileDiffStats,
 };
 use instructions::MCP_INSTRUCTIONS;
 
@@ -1829,6 +1831,301 @@ impl McpDiffServer {
             stats.cwe_count,
             stats.language_count,
             source_str,
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    // ========================================================================
+    // Commit Preparation Tools
+    // ========================================================================
+
+    #[tool(description = "Prepare information for writing a commit message. Gathers git context, analyzes staged and unstaged changes semantically, and returns a compact summary with optional complexity metrics. **Use before committing** to understand what you're about to commit. This tool NEVER commits - it only provides information.")]
+    async fn prep_commit(
+        &self,
+        Parameters(request): Parameters<PrepCommitRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        use std::process::Command;
+
+        let repo_path = match &request.path {
+            Some(p) => self.resolve_path(p).await,
+            None => self.get_working_dir().await,
+        };
+
+        // Verify it's a git repo
+        if !crate::git::is_git_repo(Some(&repo_path)) {
+            return Ok(CallToolResult::error(vec![Content::text("Not a git repository")]));
+        }
+
+        // Extract options with defaults
+        let include_complexity = request.include_complexity.unwrap_or(false);
+        let include_all_metrics = request.include_all_metrics.unwrap_or(false);
+        let staged_only = request.staged_only.unwrap_or(false);
+        let auto_refresh = request.auto_refresh_index.unwrap_or(true);
+        let show_diff_stats = request.show_diff_stats.unwrap_or(true);
+
+        // Auto-refresh index if requested
+        if auto_refresh {
+            if let Ok(cache) = CacheDir::for_repo(&repo_path) {
+                if cache.exists() {
+                    let staleness = check_cache_staleness_detailed(&cache, 3600);
+                    if staleness.is_stale {
+                        // Silently refresh the index
+                        let _ = generate_index_internal(&repo_path, 10, &[]);
+                    }
+                }
+            }
+        }
+
+        // Get git context
+        let branch = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(&repo_path)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let remote = Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(&repo_path)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+        let commit_info = Command::new("git")
+            .args(["log", "-1", "--format=%h|%s"])
+            .current_dir(&repo_path)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+        let (last_commit_hash, last_commit_message) = if let Some(info) = commit_info {
+            let parts: Vec<&str> = info.splitn(2, '|').collect();
+            if parts.len() >= 2 {
+                (Some(parts[0].to_string()), Some(parts[1].to_string()))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        let git_context = GitContext {
+            branch,
+            remote,
+            last_commit_hash,
+            last_commit_message,
+        };
+
+        // Get staged changes
+        let staged_changes = match crate::git::get_staged_changes(Some(&repo_path)) {
+            Ok(files) => files,
+            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to get staged changes: {}", e
+            ))])),
+        };
+
+        // Get unstaged changes (unless staged_only)
+        let unstaged_changes = if staged_only {
+            Vec::new()
+        } else {
+            match crate::git::get_unstaged_changes(Some(&repo_path)) {
+                Ok(files) => files,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to get unstaged changes: {}", e
+                ))])),
+            }
+        };
+
+        // If no changes at all, return early
+        if staged_changes.is_empty() && unstaged_changes.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "_type: prep_commit\n_note: No changes to commit.\n\nstaged_changes: (none)\nunstaged_changes: (none)\n"
+            )]));
+        }
+
+        // Helper to analyze a list of changed files
+        let analyze_files_list = |changes: &[crate::git::ChangedFile]| -> Vec<AnalyzedFile> {
+            changes.iter().map(|changed_file| {
+                let file_path = repo_path.join(&changed_file.path);
+                let change_type_str = format!("{:?}", changed_file.change_type);
+
+                // Get diff stats if requested
+                let diff_stats = if show_diff_stats {
+                    // Get diff stats for this specific file
+                    let stat_output = Command::new("git")
+                        .args(["diff", "--numstat", "--cached", "--", &changed_file.path])
+                        .current_dir(&repo_path)
+                        .output()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+                    // If no cached stat, try unstaged
+                    let stat_output = stat_output.or_else(|| {
+                        Command::new("git")
+                            .args(["diff", "--numstat", "--", &changed_file.path])
+                            .current_dir(&repo_path)
+                            .output()
+                            .ok()
+                            .filter(|o| o.status.success())
+                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    });
+
+                    stat_output.and_then(|stat| {
+                        let parts: Vec<&str> = stat.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            let insertions = parts[0].parse().unwrap_or(0);
+                            let deletions = parts[1].parse().unwrap_or(0);
+                            Some(FileDiffStats { insertions, deletions })
+                        } else {
+                            None
+                        }
+                    })
+                } else {
+                    None
+                };
+
+                // Skip deleted files - they have no symbols
+                if matches!(changed_file.change_type, crate::git::ChangeType::Deleted) {
+                    return AnalyzedFile {
+                        path: changed_file.path.clone(),
+                        change_type: change_type_str,
+                        diff_stats,
+                        symbols: Vec::new(),
+                        error: Some("file deleted".to_string()),
+                    };
+                }
+
+                // Check if file exists
+                if !file_path.exists() {
+                    return AnalyzedFile {
+                        path: changed_file.path.clone(),
+                        change_type: change_type_str,
+                        diff_stats,
+                        symbols: Vec::new(),
+                        error: Some("file not found".to_string()),
+                    };
+                }
+
+                // Check if it's a supported language
+                let lang = match Lang::from_path(&file_path) {
+                    Ok(l) => l,
+                    Err(_) => {
+                        return AnalyzedFile {
+                            path: changed_file.path.clone(),
+                            change_type: change_type_str,
+                            diff_stats,
+                            symbols: Vec::new(),
+                            error: Some("unsupported language".to_string()),
+                        };
+                    }
+                };
+
+                // Parse and extract symbols
+                let source = match fs::read_to_string(&file_path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return AnalyzedFile {
+                            path: changed_file.path.clone(),
+                            change_type: change_type_str,
+                            diff_stats,
+                            symbols: Vec::new(),
+                            error: Some(format!("read error: {}", e)),
+                        };
+                    }
+                };
+
+                let summary = match parse_and_extract(&file_path, &source, lang) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return AnalyzedFile {
+                            path: changed_file.path.clone(),
+                            change_type: change_type_str,
+                            diff_stats,
+                            symbols: Vec::new(),
+                            error: Some(format!("parse error: {}", e)),
+                        };
+                    }
+                };
+
+                // Create a single symbol entry for the file-level summary
+                let lines = format!(
+                    "{}-{}",
+                    summary.start_line.unwrap_or(1),
+                    summary.end_line.unwrap_or(1)
+                );
+
+                let (cognitive, cyclomatic, max_nesting, fan_out, loc, state_mutations, io_operations) =
+                    if include_complexity || include_all_metrics {
+                        // Pass 0 for fan_in since we don't have call graph data
+                        let complexity = crate::analysis::symbol_complexity_from_summary(&summary, 0);
+                        (
+                            Some(complexity.cognitive as usize),
+                            Some(complexity.cyclomatic as usize),
+                            Some(complexity.max_nesting as usize),
+                            if include_all_metrics { Some(complexity.fan_out as usize) } else { None },
+                            if include_all_metrics { Some(complexity.loc as usize) } else { None },
+                            if include_all_metrics { Some(complexity.state_mutations as usize) } else { None },
+                            if include_all_metrics { Some(complexity.io_operations as usize) } else { None },
+                        )
+                    } else {
+                        (None, None, None, None, None, None, None)
+                    };
+
+                // Get symbol name and kind from the summary
+                let symbol_name = summary.symbol.clone().unwrap_or_else(|| {
+                    // Use file stem as fallback name
+                    std::path::Path::new(&changed_file.path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+                let symbol_kind = summary
+                    .symbol_kind
+                    .map(|k| format!("{:?}", k).to_lowercase())
+                    .unwrap_or_else(|| "file".to_string());
+
+                let symbols = vec![SymbolMetrics {
+                    name: symbol_name,
+                    kind: symbol_kind,
+                    lines,
+                    cognitive,
+                    cyclomatic,
+                    max_nesting,
+                    fan_out,
+                    loc,
+                    state_mutations,
+                    io_operations,
+                }];
+
+                AnalyzedFile {
+                    path: changed_file.path.clone(),
+                    change_type: change_type_str,
+                    diff_stats,
+                    symbols,
+                    error: None,
+                }
+            }).collect()
+        };
+
+        // Analyze staged and unstaged files
+        let staged_files = analyze_files_list(&staged_changes);
+        let unstaged_files = analyze_files_list(&unstaged_changes);
+
+        // Format output
+        let output = format_prep_commit(
+            &git_context,
+            &staged_files,
+            &unstaged_files,
+            include_complexity,
+            include_all_metrics,
+            show_diff_stats,
         );
 
         Ok(CallToolResult::success(vec![Content::text(output)]))

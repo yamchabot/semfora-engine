@@ -754,3 +754,201 @@ pub(super) fn format_cve_scan_results(
 
     output
 }
+
+// ============================================================================
+// Commit Preparation Formatting
+// ============================================================================
+
+/// Statistics for a file's diff
+pub struct FileDiffStats {
+    pub insertions: usize,
+    pub deletions: usize,
+}
+
+/// Complexity metrics for a symbol
+pub struct SymbolMetrics {
+    pub name: String,
+    pub kind: String,
+    pub lines: String,
+    pub cognitive: Option<usize>,
+    pub cyclomatic: Option<usize>,
+    pub max_nesting: Option<usize>,
+    pub fan_out: Option<usize>,
+    pub loc: Option<usize>,
+    pub state_mutations: Option<usize>,
+    pub io_operations: Option<usize>,
+}
+
+/// Analyzed file for prep-commit output
+pub struct AnalyzedFile {
+    pub path: String,
+    pub change_type: String,
+    pub diff_stats: Option<FileDiffStats>,
+    pub symbols: Vec<SymbolMetrics>,
+    pub error: Option<String>,
+}
+
+/// Context for git state
+pub struct GitContext {
+    pub branch: String,
+    pub remote: Option<String>,
+    pub last_commit_hash: Option<String>,
+    pub last_commit_message: Option<String>,
+}
+
+/// Format prep-commit output as compact TOON
+pub(super) fn format_prep_commit(
+    git_context: &GitContext,
+    staged_files: &[AnalyzedFile],
+    unstaged_files: &[AnalyzedFile],
+    include_complexity: bool,
+    include_all_metrics: bool,
+    show_diff_stats: bool,
+) -> String {
+    let mut output = String::new();
+    output.push_str("_type: prep_commit\n");
+    output.push_str("_note: Information for commit message. This tool DOES NOT commit.\n\n");
+
+    // Git context section
+    output.push_str("git_context:\n");
+    output.push_str(&format!("  branch: \"{}\"\n", git_context.branch));
+    if let Some(ref remote) = git_context.remote {
+        output.push_str(&format!("  remote: \"{}\"\n", remote));
+    }
+    if let Some(ref hash) = git_context.last_commit_hash {
+        output.push_str(&format!("  last_commit: \"{}\"\n", hash));
+    }
+    if let Some(ref msg) = git_context.last_commit_message {
+        // Truncate message
+        let truncated = if msg.len() > 60 {
+            format!("{}...", truncate_to_char_boundary(msg, 57))
+        } else {
+            msg.clone()
+        };
+        output.push_str(&format!("  last_message: \"{}\"\n", truncated));
+    }
+    output.push('\n');
+
+    // Summary counts
+    let staged_symbol_count: usize = staged_files.iter().map(|f| f.symbols.len()).sum();
+    let unstaged_symbol_count: usize = unstaged_files.iter().map(|f| f.symbols.len()).sum();
+
+    output.push_str("summary:\n");
+    output.push_str(&format!("  staged_files: {}\n", staged_files.len()));
+    output.push_str(&format!("  staged_symbols: {}\n", staged_symbol_count));
+    output.push_str(&format!("  unstaged_files: {}\n", unstaged_files.len()));
+    output.push_str(&format!("  unstaged_symbols: {}\n", unstaged_symbol_count));
+
+    // Total diff stats if enabled
+    if show_diff_stats {
+        let staged_insertions: usize = staged_files.iter()
+            .filter_map(|f| f.diff_stats.as_ref())
+            .map(|s| s.insertions)
+            .sum();
+        let staged_deletions: usize = staged_files.iter()
+            .filter_map(|f| f.diff_stats.as_ref())
+            .map(|s| s.deletions)
+            .sum();
+        output.push_str(&format!("  staged_changes: +{} -{}\n", staged_insertions, staged_deletions));
+    }
+    output.push('\n');
+
+    // Staged changes section
+    if !staged_files.is_empty() {
+        output.push_str(&format!("staged_changes[{}]:\n", staged_files.len()));
+        format_file_list(&mut output, staged_files, include_complexity, include_all_metrics, show_diff_stats);
+        output.push('\n');
+    } else {
+        output.push_str("staged_changes: (none)\n\n");
+    }
+
+    // Unstaged changes section
+    if !unstaged_files.is_empty() {
+        output.push_str(&format!("unstaged_changes[{}]:\n", unstaged_files.len()));
+        format_file_list(&mut output, unstaged_files, include_complexity, include_all_metrics, show_diff_stats);
+    } else {
+        output.push_str("unstaged_changes: (none)\n");
+    }
+
+    output
+}
+
+/// Helper to format a list of analyzed files
+fn format_file_list(
+    output: &mut String,
+    files: &[AnalyzedFile],
+    include_complexity: bool,
+    include_all_metrics: bool,
+    show_diff_stats: bool,
+) {
+    for file in files {
+        // File header with change type and optional diff stats
+        let mut header = format!("  {} [{}]", file.path, file.change_type);
+        if show_diff_stats {
+            if let Some(ref stats) = file.diff_stats {
+                header.push_str(&format!(" (+{} -{})", stats.insertions, stats.deletions));
+            }
+        }
+        output.push_str(&header);
+        output.push('\n');
+
+        // Handle errors
+        if let Some(ref err) = file.error {
+            output.push_str(&format!("    ({})\n", err));
+            continue;
+        }
+
+        // Symbols
+        if file.symbols.is_empty() {
+            output.push_str("    symbols: (none detected)\n");
+            continue;
+        }
+
+        output.push_str(&format!("    symbols[{}]:\n", file.symbols.len()));
+        for sym in &file.symbols {
+            // Basic info: name (kind) lines
+            output.push_str(&format!("      - {} ({}) L{}\n", sym.name, sym.kind, sym.lines));
+
+            // Complexity metrics if enabled
+            if include_complexity || include_all_metrics {
+                let mut metrics = Vec::new();
+                if let Some(cog) = sym.cognitive {
+                    metrics.push(format!("cognitive={}", cog));
+                }
+                if let Some(cyc) = sym.cyclomatic {
+                    metrics.push(format!("cyclomatic={}", cyc));
+                }
+                if let Some(nest) = sym.max_nesting {
+                    metrics.push(format!("nesting={}", nest));
+                }
+                if !metrics.is_empty() {
+                    output.push_str(&format!("        complexity: {}\n", metrics.join(", ")));
+                }
+            }
+
+            // All metrics if requested
+            if include_all_metrics {
+                let mut metrics = Vec::new();
+                if let Some(fo) = sym.fan_out {
+                    metrics.push(format!("fan_out={}", fo));
+                }
+                if let Some(loc) = sym.loc {
+                    metrics.push(format!("loc={}", loc));
+                }
+                if let Some(sm) = sym.state_mutations {
+                    if sm > 0 {
+                        metrics.push(format!("mutations={}", sm));
+                    }
+                }
+                if let Some(io) = sym.io_operations {
+                    if io > 0 {
+                        metrics.push(format!("io_ops={}", io));
+                    }
+                }
+                if !metrics.is_empty() {
+                    output.push_str(&format!("        metrics: {}\n", metrics.join(", ")));
+                }
+            }
+        }
+    }
+}

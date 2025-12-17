@@ -734,6 +734,46 @@ pub struct UpdateSecurityPatternsRequest {
 pub struct GetSecurityPatternStatsRequest {}
 
 // ============================================================================
+// Commit Preparation Types
+// ============================================================================
+
+/// Request to prepare commit information with semantic analysis.
+///
+/// This tool gathers all information needed to write a meaningful commit message:
+/// - Git context (branch, last commit)
+/// - Staged and unstaged changes with semantic analysis
+/// - Optional complexity metrics for changed symbols
+///
+/// **Use before committing** to get a comprehensive view of changes.
+/// This tool NEVER commits - it only provides information.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PrepCommitRequest {
+    /// Path to the repository root (defaults to current directory)
+    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+    pub path: Option<String>,
+
+    /// Include complexity metrics (cognitive, cyclomatic, max nesting) for changed symbols
+    #[schemars(description = "Include complexity metrics (cognitive, cyclomatic, max nesting) for changed symbols (default: false)")]
+    pub include_complexity: Option<bool>,
+
+    /// Include all detailed metrics (complexity + fan-out, LOC, state mutations, I/O ops)
+    #[schemars(description = "Include all detailed metrics (complexity + fan-out, LOC, state mutations, I/O ops) (default: false)")]
+    pub include_all_metrics: Option<bool>,
+
+    /// Only show staged changes (default: false, shows both staged and unstaged)
+    #[schemars(description = "Only show staged changes, ignoring unstaged modifications (default: false, shows both)")]
+    pub staged_only: Option<bool>,
+
+    /// Auto-refresh the index if stale before analysis
+    #[schemars(description = "Auto-refresh the semantic index if stale before analysis (default: true)")]
+    pub auto_refresh_index: Option<bool>,
+
+    /// Show diff statistics (insertions/deletions per file)
+    #[schemars(description = "Show diff statistics (insertions/deletions per file) (default: true)")]
+    pub show_diff_stats: Option<bool>,
+}
+
+// ============================================================================
 // Re-exports
 // ============================================================================
 
