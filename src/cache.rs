@@ -791,6 +791,12 @@ impl CacheDir {
         self.bm25_index_path().exists()
     }
 
+    /// Path to the module registry SQLite database
+    /// Used for conflict-aware module naming at scale
+    pub fn module_registry_path(&self) -> PathBuf {
+        self.root.join("module_registry.sqlite")
+    }
+
     /// Update symbol index for a single file (incremental update)
     ///
     /// This removes all existing entries for the file and adds new ones.

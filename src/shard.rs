@@ -6,7 +6,7 @@
 //! - symbols/{hash}.toon - Individual symbol details
 //! - graphs/*.toon - Dependency and call graphs
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -19,15 +19,241 @@ use crate::bm25::{Bm25Document, Bm25Index, extract_terms_from_symbol};
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
 use crate::duplicate::FunctionSignature;
 use crate::error::Result;
+use crate::module_registry::ModuleRegistrySqlite;
 use crate::schema::{RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind, SCHEMA_VERSION};
-use crate::toon::{encode_toon, generate_repo_overview, is_meaningful_call};
+use crate::toon::{encode_toon, generate_repo_overview_with_modules, is_meaningful_call};
+
+// ============================================================================
+// Module Registry - Conflict-Aware Module Name Stripping
+// ============================================================================
+
+/// Registry that maps full module paths to optimally shortened names.
+///
+/// The algorithm iteratively strips the first path component from ALL module
+/// names until doing so would create a duplicate (conflict).
+///
+/// Example:
+/// ```text
+/// Input:  src.game.player, src.game.enemy, src.map.player
+/// Strip 1: game.player, game.enemy, map.player (no conflict, accept)
+/// Strip 2: player, enemy, player (conflict! stop)
+/// Result: game.player, game.enemy, map.player
+/// ```
+#[derive(Debug, Clone)]
+pub struct ModuleRegistry {
+    /// Full module path → shortened name
+    full_to_short: HashMap<String, String>,
+
+    /// Shortened name → full module path (for conflict detection)
+    short_to_full: HashMap<String, String>,
+
+    /// Current global strip depth applied to all modules
+    strip_depth: usize,
+}
+
+impl ModuleRegistry {
+    /// Create a new empty registry
+    pub fn new() -> Self {
+        Self {
+            full_to_short: HashMap::new(),
+            short_to_full: HashMap::new(),
+            strip_depth: 0,
+        }
+    }
+
+    /// Build a registry from a list of full module paths
+    pub fn from_full_paths(full_paths: &[String]) -> Self {
+        let (short_names, strip_depth) = compute_optimal_names(full_paths);
+
+        let mut registry = Self {
+            full_to_short: HashMap::new(),
+            short_to_full: HashMap::new(),
+            strip_depth,
+        };
+
+        for (full, short) in full_paths.iter().zip(short_names.iter()) {
+            registry.full_to_short.insert(full.clone(), short.clone());
+            registry.short_to_full.insert(short.clone(), full.clone());
+        }
+
+        registry
+    }
+
+    /// Get the shortened name for a full module path
+    pub fn get_short(&self, full_path: &str) -> Option<&String> {
+        self.full_to_short.get(full_path)
+    }
+
+    /// Get the full path for a shortened name
+    #[allow(dead_code)]
+    pub fn get_full(&self, short_name: &str) -> Option<&String> {
+        self.short_to_full.get(short_name)
+    }
+
+    /// Get the current strip depth
+    #[allow(dead_code)]
+    pub fn strip_depth(&self) -> usize {
+        self.strip_depth
+    }
+
+    /// Check if a shortened name already exists (would cause conflict)
+    #[allow(dead_code)]
+    pub fn has_conflict(&self, short_name: &str) -> bool {
+        self.short_to_full.contains_key(short_name)
+    }
+
+    /// Get all shortened module names
+    pub fn short_names(&self) -> impl Iterator<Item = &String> {
+        self.short_to_full.keys()
+    }
+
+    /// Number of modules in the registry
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.full_to_short.len()
+    }
+
+    /// Check if registry is empty
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.full_to_short.is_empty()
+    }
+}
+
+impl Default for ModuleRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Compute optimal shortened names for a list of full module paths.
+///
+/// Returns the shortened names (same order as input) and the strip depth used.
+///
+/// Algorithm: Iteratively strip the first component from ALL names until
+/// doing so would create a duplicate.
+fn compute_optimal_names(full_paths: &[String]) -> (Vec<String>, usize) {
+    if full_paths.is_empty() {
+        return (Vec::new(), 0);
+    }
+
+    let mut current_names: Vec<String> = full_paths.to_vec();
+    let mut strip_depth = 0;
+
+    loop {
+        // Try stripping one more level from each name
+        let stripped: Vec<Option<String>> = current_names
+            .iter()
+            .map(|name| strip_first_component(name))
+            .collect();
+
+        // If any name can't be stripped (single component), stop
+        if stripped.iter().any(|s| s.is_none()) {
+            break;
+        }
+
+        let stripped: Vec<String> = stripped.into_iter().flatten().collect();
+
+        // Check for conflicts using HashSet
+        let unique: HashSet<&String> = stripped.iter().collect();
+        if unique.len() < stripped.len() {
+            // Conflict detected - don't strip further
+            break;
+        }
+
+        // No conflict - accept this stripping level
+        current_names = stripped;
+        strip_depth += 1;
+    }
+
+    (current_names, strip_depth)
+}
+
+/// Strip the first component from a dotted module path.
+///
+/// Returns None if the path has only one component.
+///
+/// Examples:
+/// - "src.game.player" -> Some("game.player")
+/// - "player" -> None
+fn strip_first_component(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name.split('.').collect();
+    if parts.len() <= 1 {
+        return None;
+    }
+    Some(parts[1..].join("."))
+}
+
+/// Strip the first n components from a dotted module path.
+///
+/// Returns the original name if n is 0 or greater than component count.
+#[allow(dead_code)]
+fn strip_n_components(name: &str, n: usize) -> String {
+    if n == 0 {
+        return name.to_string();
+    }
+    let parts: Vec<&str> = name.split('.').collect();
+    if n >= parts.len() {
+        return name.to_string();
+    }
+    parts[n..].join(".")
+}
+
+/// Compute the full module path from a file path.
+///
+/// This returns the raw dotted path based on directory structure,
+/// WITHOUT any hardcoded marker stripping. The conflict-aware algorithm
+/// will determine optimal stripping.
+///
+/// Example: "/home/user/project/src/game/player.rs" -> "src.game.player"
+pub fn compute_full_module_path(file_path: &str) -> String {
+    let path = std::path::Path::new(file_path);
+
+    // Get the parent directory path
+    let parent = match path.parent() {
+        Some(p) => p,
+        None => return "root".to_string(),
+    };
+
+    // Convert path to components, filtering out empty and common root paths
+    let components: Vec<&str> = parent
+        .components()
+        .filter_map(|c| {
+            match c {
+                std::path::Component::Normal(s) => s.to_str(),
+                _ => None,
+            }
+        })
+        .collect();
+
+    if components.is_empty() {
+        // File is in root directory - use filename without extension
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("root");
+
+        // Skip generic names
+        if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
+            return "root".to_string();
+        }
+        return stem.to_string();
+    }
+
+    // Join components with dots
+    components.join(".")
+}
 
 /// Write sharded IR output for a repository
 pub struct ShardWriter {
     /// Cache directory manager
     cache: CacheDir,
 
-    /// Summaries organized by module
+    /// Repository root path (for computing relative module paths)
+    repo_root: String,
+
+    /// Summaries organized by FULL module path (before optimal stripping)
+    /// Keys are raw dotted paths like "src.game.player"
     modules: HashMap<String, Vec<SemanticSummary>>,
 
     /// All summaries for graph building
@@ -38,6 +264,9 @@ pub struct ShardWriter {
 
     /// Indexing progress
     progress: IndexingStatus,
+
+    /// Module name registry (computed at write time)
+    module_registry: Option<ModuleRegistry>,
 }
 
 impl ShardWriter {
@@ -46,12 +275,19 @@ impl ShardWriter {
         let cache = CacheDir::for_repo(repo_path)?;
         cache.init()?;
 
+        let repo_root = repo_path
+            .to_string_lossy()
+            .trim_end_matches('/')
+            .to_string();
+
         Ok(Self {
             cache,
+            repo_root,
             modules: HashMap::new(),
             all_summaries: Vec::new(),
             overview: None,
             progress: IndexingStatus::default(),
+            module_registry: None,
         })
     }
 
@@ -62,18 +298,20 @@ impl ShardWriter {
 
         Ok(Self {
             cache,
+            repo_root: String::new(), // Will use extract_module_name fallback
             modules: HashMap::new(),
             all_summaries: Vec::new(),
             overview: None,
             progress: IndexingStatus::default(),
+            module_registry: None,
         })
     }
 
     /// Add summaries to be sharded
     pub fn add_summaries(&mut self, summaries: Vec<SemanticSummary>) {
-        // Organize by module
+        // Organize by full module path (relative to repo root)
         for summary in &summaries {
-            let module_name = extract_module_name(&summary.file);
+            let module_name = self.compute_module_path(&summary.file);
             self.modules
                 .entry(module_name)
                 .or_insert_with(Vec::new)
@@ -83,14 +321,140 @@ impl ShardWriter {
         self.all_summaries.extend(summaries);
     }
 
+    /// Compute the full module path for a file (relative to repo root).
+    ///
+    /// This returns the raw dotted path WITHOUT hardcoded marker stripping.
+    /// The conflict-aware algorithm will determine optimal stripping at write time.
+    fn compute_module_path(&self, file_path: &str) -> String {
+        // Strip repo root prefix if present
+        let relative = if !self.repo_root.is_empty() && file_path.starts_with(&self.repo_root) {
+            file_path[self.repo_root.len()..].trim_start_matches('/')
+        } else {
+            file_path
+        };
+
+        let path = std::path::Path::new(relative);
+
+        // Get parent directory (module path is based on directory structure)
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => {
+                // File in root - use filename without extension
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("root");
+
+                // Skip generic names
+                if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
+                    return "root".to_string();
+                }
+                return stem.to_string();
+            }
+        };
+
+        // Convert path components to dotted notation
+        let components: Vec<&str> = parent
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(s) => s.to_str(),
+                _ => None,
+            })
+            .collect();
+
+        if components.is_empty() {
+            return "root".to_string();
+        }
+
+        components.join(".")
+    }
+
+    /// Compute the module registry with optimal names.
+    ///
+    /// This builds a registry that maps full module paths to optimally
+    /// shortened names using conflict-aware stripping.
+    fn compute_module_registry(&mut self) {
+        let full_paths: Vec<String> = self.modules.keys().cloned().collect();
+        self.module_registry = Some(ModuleRegistry::from_full_paths(&full_paths));
+    }
+
+    /// Persist the module registry to SQLite for incremental indexing support.
+    ///
+    /// The SQLite file is stored in the cache directory alongside other index files.
+    /// This enables O(1) lookups during future incremental indexing operations.
+    fn persist_module_registry(&self) -> Result<()> {
+        let Some(ref registry) = self.module_registry else {
+            return Ok(()); // Nothing to persist
+        };
+
+        let mut sqlite_reg = ModuleRegistrySqlite::open(&self.cache)?;
+
+        // Build entries: (full_path, short_name, file_path)
+        let entries: Vec<(String, String, String)> = self
+            .modules
+            .iter()
+            .map(|(full_path, summaries)| {
+                let short_name = registry
+                    .get_short(full_path)
+                    .cloned()
+                    .unwrap_or_else(|| full_path.clone());
+                let file_path = summaries
+                    .first()
+                    .map(|s| s.file.clone())
+                    .unwrap_or_default();
+                (full_path.clone(), short_name, file_path)
+            })
+            .collect();
+
+        sqlite_reg.bulk_insert(&entries, registry.strip_depth())?;
+
+        Ok(())
+    }
+
+    /// Get the optimal (shortened) name for a full module path.
+    ///
+    /// Falls back to the full path if no registry is available.
+    fn get_optimal_module_name(&self, full_path: &str) -> String {
+        if let Some(ref registry) = self.module_registry {
+            registry
+                .get_short(full_path)
+                .cloned()
+                .unwrap_or_else(|| full_path.to_string())
+        } else {
+            full_path.to_string()
+        }
+    }
+
+    /// Create a mapping from file paths to optimal module names.
+    ///
+    /// This is used for consistent module naming across overview and shards.
+    fn build_file_to_module_map(&self) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+
+        for (full_module_path, summaries) in &self.modules {
+            let optimal_name = self.get_optimal_module_name(full_module_path);
+            for summary in summaries {
+                map.insert(summary.file.clone(), optimal_name.clone());
+            }
+        }
+
+        map
+    }
+
     /// Generate and write all shards
     pub fn write_all(&mut self, dir_path: &str) -> Result<ShardStats> {
         let mut stats = ShardStats::default();
 
+        // Compute optimal module names using conflict-aware stripping
+        self.compute_module_registry();
+
+        // Persist registry to SQLite (Phase 2 - enables incremental indexing)
+        self.persist_module_registry()?;
+
         // Generate overview first (fast, gives agents something to work with)
         self.write_repo_overview(dir_path, &mut stats)?;
 
-        // Write module shards
+        // Write module shards (using optimal names from registry)
         self.write_module_shards(&mut stats)?;
 
         // Write symbol shards
@@ -113,7 +477,14 @@ impl ShardWriter {
 
     /// Write the repository overview
     fn write_repo_overview(&mut self, dir_path: &str, stats: &mut ShardStats) -> Result<()> {
-        let overview = generate_repo_overview(&self.all_summaries, dir_path);
+        // Build file-to-module mapping for consistent naming with module shards
+        let file_to_module = self.build_file_to_module_map();
+
+        let overview = generate_repo_overview_with_modules(
+            &self.all_summaries,
+            dir_path,
+            Some(&file_to_module),
+        );
         self.overview = Some(overview.clone());
 
         // Create TOON output with metadata
@@ -131,10 +502,15 @@ impl ShardWriter {
     }
 
     /// Write per-module shards
+    ///
+    /// Uses the module registry to get optimal (shortened) names for shards.
     fn write_module_shards(&self, stats: &mut ShardStats) -> Result<()> {
-        for (module_name, summaries) in &self.modules {
-            let toon = encode_module_shard(module_name, summaries, &self.cache.repo_root);
-            let path = self.cache.module_path(module_name);
+        for (full_module_path, summaries) in &self.modules {
+            // Get the optimal shortened name from the registry
+            let optimal_name = self.get_optimal_module_name(full_module_path);
+
+            let toon = encode_module_shard(&optimal_name, summaries, &self.cache.repo_root);
+            let path = self.cache.module_path(&optimal_name);
 
             let mut file = fs::File::create(&path)?;
             file.write_all(toon.as_bytes())?;
@@ -1438,5 +1814,200 @@ mod tests {
         };
 
         assert_eq!(stats.total_bytes(), 1100);
+    }
+
+    // ========================================================================
+    // Conflict-Aware Module Name Stripping Tests
+    // ========================================================================
+
+    #[test]
+    fn test_strip_first_component() {
+        // Normal stripping
+        assert_eq!(strip_first_component("src.game.player"), Some("game.player".to_string()));
+        assert_eq!(strip_first_component("game.player"), Some("player".to_string()));
+        assert_eq!(strip_first_component("a.b.c.d"), Some("b.c.d".to_string()));
+
+        // Single component can't be stripped
+        assert_eq!(strip_first_component("player"), None);
+        assert_eq!(strip_first_component("root"), None);
+
+        // Empty string
+        assert_eq!(strip_first_component(""), None);
+    }
+
+    #[test]
+    fn test_strip_n_components() {
+        // Strip 0 returns original
+        assert_eq!(strip_n_components("src.game.player", 0), "src.game.player");
+
+        // Strip 1
+        assert_eq!(strip_n_components("src.game.player", 1), "game.player");
+
+        // Strip 2
+        assert_eq!(strip_n_components("src.game.player", 2), "player");
+
+        // Strip more than available returns original (no panic)
+        assert_eq!(strip_n_components("src.game.player", 5), "src.game.player");
+
+        // Single component
+        assert_eq!(strip_n_components("root", 0), "root");
+        assert_eq!(strip_n_components("root", 1), "root");
+    }
+
+    #[test]
+    fn test_compute_optimal_names_no_conflict() {
+        // All unique after full stripping - algorithm strips as much as possible
+        let paths = vec![
+            "src.game.player".to_string(),
+            "src.game.enemy".to_string(),
+            "src.utils.format".to_string(),
+        ];
+
+        let (result, depth) = compute_optimal_names(&paths);
+
+        // Strips all the way to single final components since no conflicts
+        // src.game.player -> game.player -> player (unique, keep stripping)
+        assert_eq!(depth, 2);
+        assert_eq!(result, vec!["player", "enemy", "format"]);
+    }
+
+    #[test]
+    fn test_compute_optimal_names_with_conflict() {
+        // Conflict at final level
+        let paths = vec![
+            "src.game.player".to_string(),
+            "src.game.enemy".to_string(),
+            "src.map.player".to_string(), // Conflicts with game.player at "player" level
+        ];
+
+        let (result, depth) = compute_optimal_names(&paths);
+
+        // Should strip "src." but stop before stripping "game."/"map." due to conflict
+        assert_eq!(depth, 1);
+        assert_eq!(result, vec!["game.player", "game.enemy", "map.player"]);
+    }
+
+    #[test]
+    fn test_compute_optimal_names_immediate_conflict() {
+        // Conflict at first strip level
+        let paths = vec![
+            "src.player".to_string(),
+            "lib.player".to_string(), // Would conflict if we strip src./lib.
+        ];
+
+        let (result, depth) = compute_optimal_names(&paths);
+
+        // Can't strip anything - immediate conflict
+        assert_eq!(depth, 0);
+        assert_eq!(result, vec!["src.player", "lib.player"]);
+    }
+
+    #[test]
+    fn test_compute_optimal_names_single_component_stops() {
+        // Mixed depths - single component stops stripping for all
+        let paths = vec![
+            "main".to_string(),        // Single component
+            "src.game.player".to_string(),
+        ];
+
+        let (result, depth) = compute_optimal_names(&paths);
+
+        // Can't strip because "main" is single component
+        assert_eq!(depth, 0);
+        assert_eq!(result, vec!["main", "src.game.player"]);
+    }
+
+    #[test]
+    fn test_compute_optimal_names_empty() {
+        let paths: Vec<String> = vec![];
+        let (result, depth) = compute_optimal_names(&paths);
+
+        assert_eq!(depth, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_compute_optimal_names_deep_strip() {
+        // All modules share deep common prefix
+        let paths = vec![
+            "home.user.project.src.api.users".to_string(),
+            "home.user.project.src.api.auth".to_string(),
+            "home.user.project.src.utils.helpers".to_string(),
+        ];
+
+        let (result, depth) = compute_optimal_names(&paths);
+
+        // Strips all the way to final single component since all are unique
+        // home.user.project.src.api.users -> ... -> users
+        assert_eq!(depth, 5);
+        assert_eq!(result, vec!["users", "auth", "helpers"]);
+    }
+
+    #[test]
+    fn test_module_registry_basic() {
+        // Use paths that will have conflicts to test partial stripping
+        let paths = vec![
+            "src.game.player".to_string(),
+            "src.game.enemy".to_string(),
+            "src.map.player".to_string(), // Conflicts with game.player at final level
+        ];
+
+        let registry = ModuleRegistry::from_full_paths(&paths);
+
+        // With conflict, stops at game.player/map.player level
+        assert_eq!(registry.get_short("src.game.player"), Some(&"game.player".to_string()));
+        assert_eq!(registry.get_short("src.game.enemy"), Some(&"game.enemy".to_string()));
+        assert_eq!(registry.get_short("src.map.player"), Some(&"map.player".to_string()));
+
+        // Reverse lookup
+        assert_eq!(registry.get_full("game.player"), Some(&"src.game.player".to_string()));
+
+        // Non-existent
+        assert_eq!(registry.get_short("nonexistent"), None);
+
+        // Stats
+        assert_eq!(registry.len(), 3);
+        assert!(!registry.is_empty());
+    }
+
+    #[test]
+    fn test_module_registry_conflict_detection() {
+        let paths = vec![
+            "src.game.player".to_string(),
+            "src.map.player".to_string(),
+        ];
+
+        let registry = ModuleRegistry::from_full_paths(&paths);
+
+        // Both should be preserved with parent prefix
+        assert_eq!(registry.get_short("src.game.player"), Some(&"game.player".to_string()));
+        assert_eq!(registry.get_short("src.map.player"), Some(&"map.player".to_string()));
+
+        // "player" alone would conflict
+        assert!(registry.has_conflict("game.player"));
+        assert!(registry.has_conflict("map.player"));
+        assert!(!registry.has_conflict("nonexistent"));
+    }
+
+    #[test]
+    fn test_compute_full_module_path() {
+        // Basic path
+        assert_eq!(
+            compute_full_module_path("src/game/player.rs"),
+            "src.game"
+        );
+
+        // Deeper path
+        assert_eq!(
+            compute_full_module_path("src/server/api/handlers/users.ts"),
+            "src.server.api.handlers"
+        );
+
+        // Root file with generic name
+        assert_eq!(compute_full_module_path("main.rs"), "root");
+        assert_eq!(compute_full_module_path("index.ts"), "root");
+
+        // Root file with specific name
+        assert_eq!(compute_full_module_path("utils.ts"), "utils");
     }
 }

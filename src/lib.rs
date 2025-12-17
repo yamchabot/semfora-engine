@@ -55,6 +55,7 @@ pub mod git;
 pub mod installer;
 pub mod lang;
 pub mod mcp_server;
+pub mod module_registry;
 pub mod overlay;
 pub mod ripgrep;
 pub mod risk;

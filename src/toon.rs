@@ -193,6 +193,18 @@ pub fn filter_meaningful_calls(calls: &[crate::schema::Call]) -> Vec<crate::sche
 
 /// Generate a repository overview from analyzed summaries
 pub fn generate_repo_overview(summaries: &[SemanticSummary], dir_path: &str) -> RepoOverview {
+    generate_repo_overview_with_modules(summaries, dir_path, None)
+}
+
+/// Generate a repository overview with an optional file-to-module mapping.
+///
+/// When `file_to_module` is provided, it's used instead of `extract_module_name`
+/// for consistent naming with module shards (conflict-aware stripping).
+pub fn generate_repo_overview_with_modules(
+    summaries: &[SemanticSummary],
+    dir_path: &str,
+    file_to_module: Option<&HashMap<String, String>>,
+) -> RepoOverview {
     let mut overview = RepoOverview::default();
 
     // Detect framework
@@ -204,8 +216,8 @@ pub fn generate_repo_overview(summaries: &[SemanticSummary], dir_path: &str) -> 
     // Detect package manager
     overview.package_manager = detect_package_manager(summaries);
 
-    // Build module groups
-    overview.modules = build_module_groups(summaries, dir_path);
+    // Build module groups (using provided mapping if available)
+    overview.modules = build_module_groups_with_map(summaries, dir_path, file_to_module);
 
     // Identify entry points
     overview.entry_points = identify_entry_points(summaries);
@@ -369,13 +381,31 @@ fn get_module_purpose(name: &str) -> String {
     }
 }
 
-fn build_module_groups(summaries: &[SemanticSummary], _dir_path: &str) -> Vec<ModuleGroup> {
+fn build_module_groups(summaries: &[SemanticSummary], dir_path: &str) -> Vec<ModuleGroup> {
+    build_module_groups_with_map(summaries, dir_path, None)
+}
+
+/// Build module groups with an optional file-to-module mapping.
+///
+/// When `file_to_module` is provided, uses it for module names instead of `extract_module_name`.
+/// This ensures consistency with conflict-aware module name stripping.
+fn build_module_groups_with_map(
+    summaries: &[SemanticSummary],
+    _dir_path: &str,
+    file_to_module: Option<&HashMap<String, String>>,
+) -> Vec<ModuleGroup> {
     let mut groups: HashMap<String, Vec<&SemanticSummary>> = HashMap::new();
 
     for s in summaries {
-        // Use extract_module_name to match actual module shard naming
-        // This ensures overview module names match what you can query
-        let module = extract_module_name(&s.file);
+        // Use provided mapping if available, otherwise fall back to extract_module_name
+        let module = if let Some(mapping) = file_to_module {
+            mapping
+                .get(&s.file)
+                .cloned()
+                .unwrap_or_else(|| extract_module_name(&s.file))
+        } else {
+            extract_module_name(&s.file)
+        };
         groups.entry(module).or_default().push(s);
     }
 
