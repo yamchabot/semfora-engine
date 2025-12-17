@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "Semantic code analyzer with TOON output"
 license = "MIT"
+repository = "https://github.com/Semfora-AI/semfora-engine"
+homepage = "https://github.com/Semfora-AI/semfora-engine"
+readme = "README.md"
+keywords = ["semantic-analysis", "code-analysis", "mcp", "ai", "tree-sitter"]
+categories = ["development-tools", "command-line-utilities"]
 
 [[bin]]
 name = "semfora-engine"
