@@ -14,6 +14,7 @@ use serde_json::{json, Map, Value};
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
 use crate::schema::{ModuleGroup, RepoOverview, RepoStats, RiskLevel, SemanticSummary, SymbolKind};
+use crate::shard::extract_module_name;
 use crate::utils::truncate_to_char_boundary;
 
 
@@ -348,121 +349,6 @@ fn detect_package_manager(summaries: &[SemanticSummary]) -> Option<String> {
     None
 }
 
-/// Categorize a file by its role based on path and language
-fn categorize_file(relative_path: &str, language: &str) -> String {
-    let path_lower = relative_path.to_lowercase();
-
-    // Test files and fixtures (any language)
-    if path_lower.contains("test")
-        || path_lower.contains("spec")
-        || path_lower.contains("fixture")
-        || path_lower.contains("__test__")
-        || path_lower.contains("__tests__")
-    {
-        return "tests".to_string();
-    }
-
-    // Documentation
-    if path_lower.starts_with("docs/") || path_lower.starts_with("doc/") {
-        return "docs".to_string();
-    }
-
-    // Config files at root level
-    if !relative_path.contains('/')
-        || path_lower.starts_with('.')
-        || path_lower.ends_with(".toml")
-        || path_lower.ends_with(".json")
-        || path_lower.ends_with(".yaml")
-        || path_lower.ends_with(".yml")
-    {
-        // But not if it's source code
-        if !matches!(
-            language,
-            "rust" | "go" | "python" | "typescript" | "javascript" | "tsx" | "jsx"
-        ) {
-            return "config".to_string();
-        }
-    }
-
-    // API routes (any language)
-    if path_lower.contains("/api/") || path_lower.contains("/routes/") {
-        return "api".to_string();
-    }
-
-    // Database (any language)
-    if path_lower.contains("/db/")
-        || path_lower.contains("/database/")
-        || path_lower.contains("/migrations/")
-        || path_lower.contains("/schema")
-    {
-        return "database".to_string();
-    }
-
-    // Server/service implementations
-    if path_lower.contains("server") || path_lower.contains("service") {
-        return "server".to_string();
-    }
-
-    // Language-specific entry points
-    if relative_path.ends_with("main.rs")
-        || relative_path.ends_with("main.go")
-        || relative_path.ends_with("main.py")
-        || relative_path.ends_with("index.ts")
-        || relative_path.ends_with("index.js")
-    {
-        return "entry".to_string();
-    }
-
-    // Library roots
-    if relative_path.ends_with("lib.rs") || relative_path.ends_with("mod.rs") {
-        return "library".to_string();
-    }
-
-    // UI components (JS/TS)
-    if path_lower.contains("/components/") {
-        return "components".to_string();
-    }
-
-    // Pages (Next.js, etc.)
-    if path_lower.contains("/pages/") || path_lower.contains("/app/") {
-        return "pages".to_string();
-    }
-
-    // Utilities/helpers
-    if path_lower.contains("/utils/")
-        || path_lower.contains("/helpers/")
-        || path_lower.contains("/lib/")
-    {
-        return "lib".to_string();
-    }
-
-    // For src/ files, try to extract module name from path
-    if relative_path.starts_with("src/") {
-        let parts: Vec<&str> = relative_path.split('/').collect();
-        if parts.len() >= 2 {
-            // Get the first directory or file under src/
-            let module_part = parts[1];
-            // Remove extension for files like src/foo.rs -> "foo"
-            let module_name = module_part
-                .trim_end_matches(".rs")
-                .trim_end_matches(".go")
-                .trim_end_matches(".py")
-                .trim_end_matches(".ts")
-                .trim_end_matches(".tsx")
-                .trim_end_matches(".js")
-                .trim_end_matches(".jsx");
-
-            // If it's a directory (parts > 2), use the dir name
-            // If it's a file (parts == 2), use the filename without extension
-            if !module_name.is_empty() && module_name != "mod" && module_name != "index" {
-                return module_name.to_string();
-            }
-        }
-    }
-
-    "other".to_string()
-}
-
 /// Get a human-readable purpose for a module group
 fn get_module_purpose(name: &str) -> String {
     match name {
@@ -483,19 +369,13 @@ fn get_module_purpose(name: &str) -> String {
     }
 }
 
-fn build_module_groups(summaries: &[SemanticSummary], dir_path: &str) -> Vec<ModuleGroup> {
+fn build_module_groups(summaries: &[SemanticSummary], _dir_path: &str) -> Vec<ModuleGroup> {
     let mut groups: HashMap<String, Vec<&SemanticSummary>> = HashMap::new();
 
     for s in summaries {
-        // Get relative path
-        let relative = s
-            .file
-            .strip_prefix(dir_path)
-            .unwrap_or(&s.file)
-            .trim_start_matches('/');
-
-        // Categorize by role (language-agnostic where possible)
-        let module = categorize_file(relative, &s.language);
+        // Use extract_module_name to match actual module shard naming
+        // This ensures overview module names match what you can query
+        let module = extract_module_name(&s.file);
         groups.entry(module).or_default().push(s);
     }
 
