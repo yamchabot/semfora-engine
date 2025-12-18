@@ -34,6 +34,8 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 
 ### Code Review
 1. `analyze_diff(base_ref: "main")` → changes
+   - For large PRs (50+ files): use `summary_only: true` first (~300 tokens)
+   - Then paginate: `limit: 20, offset: 0` to review in batches
 2. For risky: `get_callers(hash)` → impact
 **Skip get_overview** - diff independent!
 
@@ -44,6 +46,8 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 | get_context | ~200 | Always first |
 | get_overview | ~1-2k | Only for audits/module names |
 | search | ~500-1k | Auto-refreshes index |
+| analyze_diff(summary_only) | ~300 | Quick PR overview |
+| analyze_diff(paginated) | ~2-5k/page | Use limit/offset for large diffs |
 | get_callgraph(summary) | ~300 | Coupling overview |
 | validate | ~1-2k | Requires scope |
 | get_callers | ~500 | Before any changes |
