@@ -2,6 +2,11 @@
 /target
 /dist
 
+# Benchmark history and output
+/target/perf-history/
+/benchmark_output/
+/benchmark_results/
+
 # Semfora cache
 .semfora_index/
 
