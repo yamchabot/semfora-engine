@@ -57,6 +57,8 @@ use formatting::{
     format_call_graph_paginated, format_call_graph_summary,
     format_duplicate_clusters_paginated, format_duplicate_matches,
     format_cve_scan_results,
+    // Diff formatting with pagination
+    format_diff_output_paginated, format_diff_summary,
     // Prep-commit formatting
     format_prep_commit, GitContext, AnalyzedFile, SymbolMetrics, FileDiffStats,
 };
@@ -386,7 +388,7 @@ impl McpDiffServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "**Use for code reviews** - analyzes changes between git branches or commits semantically. Shows new/modified symbols, changed dependencies, and risk assessment for each file. Use target_ref='WORKING' to review uncommitted changes before committing.")]
+    #[tool(description = "**Use for code reviews** - analyzes changes between git branches or commits semantically. Shows new/modified symbols, changed dependencies, and risk assessment for each file. Use target_ref='WORKING' to review uncommitted changes before committing. Supports pagination (limit/offset) for large diffs and summary_only mode for quick overview.")]
     async fn analyze_diff(
         &self,
         Parameters(request): Parameters<AnalyzeDiffRequest>,
@@ -402,6 +404,11 @@ impl McpDiffServer {
 
         let base_ref = &request.base_ref;
         let target_ref = request.target_ref.as_deref().unwrap_or("HEAD");
+
+        // Extract pagination options with defaults
+        let limit = request.limit.unwrap_or(20).min(100); // Default 20, max 100
+        let offset = request.offset.unwrap_or(0);
+        let summary_only = request.summary_only.unwrap_or(false);
 
         // Handle special case for uncommitted changes
         let (changed_files, display_target) = if target_ref.eq_ignore_ascii_case("WORKING") {
@@ -428,10 +435,20 @@ impl McpDiffServer {
         };
 
         if changed_files.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text("No files changed.\n")]));
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "_type: analyze_diff\nbase: \"{}\"\ntarget: \"{}\"\ntotal_files: 0\n_note: No files changed.\n",
+                base_ref,
+                display_target
+            ))]));
         }
 
-        let output = format_diff_output(&working_dir, base_ref, display_target, &changed_files);
+        // Choose output format based on options
+        let output = if summary_only {
+            format_diff_summary(&working_dir, base_ref, display_target, &changed_files)
+        } else {
+            format_diff_output_paginated(&working_dir, base_ref, display_target, &changed_files, offset, limit)
+        };
+
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 

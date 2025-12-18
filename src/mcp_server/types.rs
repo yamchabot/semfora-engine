@@ -58,6 +58,18 @@ pub struct AnalyzeDiffRequest {
     /// Working directory (defaults to current directory)
     #[schemars(description = "Working directory for git operations (defaults to current directory)")]
     pub working_dir: Option<String>,
+
+    /// Maximum files to return per page (default: 20, max: 100)
+    #[schemars(description = "Maximum files to return per page (default: 20, max: 100)")]
+    pub limit: Option<usize>,
+
+    /// Skip first N files for pagination (default: 0)
+    #[schemars(description = "Skip first N files for pagination (default: 0)")]
+    pub offset: Option<usize>,
+
+    /// Return summary statistics only without per-file details (default: false)
+    #[schemars(description = "Return only summary statistics (file counts, risk breakdown, top modules) without per-file details. Use for large diffs to get overview first.")]
+    pub summary_only: Option<bool>,
 }
 
 /// Request to get supported languages
