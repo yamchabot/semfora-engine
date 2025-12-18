@@ -186,6 +186,50 @@ Exports call graph to SQLite database for visualization with semfora-graph explo
 The file will be written to: <path>
 Proceed? (This is an expensive operation)"
 
+## Subagent Strategy for Complex Analysis
+
+When facing large exploration tasks (codebase audits, architecture analysis, multi-module tracing),
+**spawn a subagent with semfora-engine tools** instead of using the built-in Explore agent.
+
+### Why Subagents with Semfora?
+- Built-in Explore uses Glob/Grep/Read (23+ calls, 56k+ tokens, 1+ minute)
+- Semfora subagent uses semantic tools (10-15 calls, 18k tokens, faster)
+- **70% token reduction** for the same analysis quality
+
+### When to Spawn a Semfora Subagent
+Use the Task tool with `subagent_type: "general-purpose"` when:
+1. User asks to "understand", "explore", or "audit" a codebase
+2. Task requires analyzing multiple modules or tracing call flows
+3. Task would otherwise trigger the Explore agent
+
+### Subagent Invocation Pattern
+```
+Task(
+  subagent_type: "general-purpose",
+  prompt: "Use semfora-engine MCP tools to analyze [task].
+           Start with get_context, then get_overview, then search/validate as needed.
+           Return findings with file paths and line numbers.",
+  description: "Analyze codebase with Semfora"
+)
+```
+
+### DO: Spawn subagent for exploration
+```
+User: "Help me understand the authentication flow"
+-> Spawn general-purpose subagent with semfora tools
+-> Returns semantic analysis in ~18k tokens
+```
+
+### DON'T: Let Explore agent run
+```
+User: "Help me understand the authentication flow"
+-> Explore agent with Glob/Grep/Read
+-> 23 tool calls, 56k tokens, 1+ minute
+```
+
+**IMPORTANT**: If semfora-engine tools are available, ALWAYS prefer spawning a subagent
+with these tools over using the built-in Explore agent for codebase analysis tasks.
+
 ## Remember
 - Start with `get_context` (~200 tokens vs reading git status)
 - Note module names from `get_overview` - don't guess them
@@ -194,4 +238,5 @@ Proceed? (This is an expensive operation)"
 - Use `get_file` before multiple source reads
 - Use batch operations: `get_symbol(hashes: [...])` instead of multiple calls
 - `validate` needs a scope (symbol_hash, file_path, or module) - no project-wide
-- Never use direct file reads when MCP tools available"#;
+- Never use direct file reads when MCP tools available
+- **Spawn subagents with semfora tools for complex exploration** (not Explore agent)"#;

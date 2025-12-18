@@ -608,74 +608,17 @@ impl McpDiffServer {
 
         // File+line mode: find symbol at specific location
         if let (Some(file), Some(line)) = (&request.file, request.line) {
-            // Load the repo overview to search for the symbol
-            let overview_path = cache.repo_overview_path();
-            if !overview_path.exists() {
-                return Ok(CallToolResult::error(vec![Content::text(
-                    "Index not found. Run index tool first."
-                )]));
-            }
-
-            // Normalize the file path for comparison
-            let file_normalized = if file.starts_with('/') || file.starts_with("./") {
-                file.trim_start_matches("./").to_string()
-            } else {
-                file.clone()
+            let entry = match find_symbol_by_location(&cache, file, line) {
+                Ok(e) => e,
+                Err(e) => return Ok(CallToolResult::error(vec![Content::text(e)])),
             };
-
-            // Search through module shards to find symbol at location
-            let modules_dir = cache.modules_dir();
-            if modules_dir.exists() {
-                for entry in fs::read_dir(&modules_dir).into_iter().flatten().flatten() {
-                    if entry.path().extension().map_or(false, |e| e == "toon") {
-                        if let Ok(content) = fs::read_to_string(entry.path()) {
-                            // Parse module content to find symbols in the target file at the target line
-                            for symbol_block in content.split("\n---\n") {
-                                let mut found_file = None;
-                                let mut found_hash = None;
-                                let mut start_line = 0usize;
-                                let mut end_line = 0usize;
-
-                                for block_line in symbol_block.lines() {
-                                    if block_line.starts_with("file: ") {
-                                        found_file = Some(block_line.trim_start_matches("file: ").to_string());
-                                    } else if block_line.starts_with("hash: ") {
-                                        found_hash = Some(block_line.trim_start_matches("hash: ").to_string());
-                                    } else if block_line.starts_with("lines: ") {
-                                        let lines_str = block_line.trim_start_matches("lines: ");
-                                        if let Some((start, end)) = lines_str.split_once('-') {
-                                            start_line = start.parse().unwrap_or(0);
-                                            end_line = end.parse().unwrap_or(0);
-                                        }
-                                    }
-                                }
-
-                                // Check if this symbol matches the file and contains the line
-                                if let (Some(f), Some(h)) = (found_file, found_hash) {
-                                    if (f.ends_with(&file_normalized) || file_normalized.ends_with(&f))
-                                        && line >= start_line && line <= end_line
-                                    {
-                                        // Found the symbol! Load its full details
-                                        let symbol_path = cache.symbol_path(&h);
-                                        if symbol_path.exists() {
-                                            return match fs::read_to_string(&symbol_path) {
-                                                Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
-                                                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                                                    "Failed to read symbol: {}", e
-                                                ))])),
-                                            };
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No symbol found at {}:{}", file, line
-            ))]));
+            let symbol_path = cache.symbol_path(&entry.hash);
+            return match fs::read_to_string(&symbol_path) {
+                Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
+                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to read symbol: {}", e
+                ))])),
+            };
         }
 
         // Single symbol mode
