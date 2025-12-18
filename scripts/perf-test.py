@@ -121,16 +121,16 @@ def get_system_context() -> BenchmarkContext:
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=PROJECT_DIR, stderr=subprocess.DEVNULL
         ).decode().strip()
-    except:
-        pass
+    except Exception:
+        pass  # Git info is optional context
 
     rust_version = ""
     try:
         rust_version = subprocess.check_output(
             ["rustc", "--version"], stderr=subprocess.DEVNULL
         ).decode().strip()
-    except:
-        pass
+    except Exception:
+        pass  # Rust version is optional context
 
     engine_version = ""
     try:
@@ -140,8 +140,8 @@ def get_system_context() -> BenchmarkContext:
         )
         if result.returncode == 0:
             engine_version = result.stdout.strip()
-    except:
-        pass
+    except Exception:
+        pass  # Engine version is optional context
 
     memory_gb = 0.0
     try:
@@ -150,8 +150,8 @@ def get_system_context() -> BenchmarkContext:
                 if line.startswith("MemTotal:"):
                     memory_gb = int(line.split()[1]) / 1024 / 1024
                     break
-    except:
-        pass
+    except Exception:
+        pass  # Memory info unavailable on some platforms
 
     return BenchmarkContext(
         date=datetime.now().isoformat(),
@@ -206,8 +206,8 @@ def count_source_files(path: Path) -> int:
             for f in files:
                 if Path(f).suffix.lower() in extensions:
                     count += 1
-    except:
-        pass
+    except Exception:
+        pass  # Return partial count on error
     return count
 
 def get_index_size(path: Path) -> int:
@@ -220,8 +220,8 @@ def get_index_size(path: Path) -> int:
         for f in index_path.rglob("*"):
             if f.is_file():
                 total += f.stat().st_size
-    except:
-        pass
+    except Exception:
+        pass  # Return partial size on error
     return total
 
 def clear_cache(repo_path: Path) -> bool:
@@ -232,7 +232,7 @@ def clear_cache(repo_path: Path) -> bool:
             capture_output=True, timeout=30, cwd=str(repo_path)
         )
         return True
-    except:
+    except Exception:
         return False
 
 def run_with_timing(cmd: list[str], timeout: int = 300, cwd: Path = None) -> tuple[float, bool, str]:
@@ -260,8 +260,8 @@ def get_memory_usage_mb() -> float:
             for line in f:
                 if line.startswith("VmRSS:"):
                     return int(line.split()[1]) / 1024
-    except:
-        pass
+    except Exception:
+        pass  # /proc unavailable on some platforms
     return 0.0
 
 def print_progress(msg: str, color: str = "blue"):
@@ -326,8 +326,8 @@ def benchmark_search(args: tuple[str, Path, str, str, int]) -> BenchmarkResult:
                     result_counts.append(len(data))
                 elif isinstance(data, dict) and "matches" in data:
                     result_counts.append(len(data["matches"]))
-            except:
-                pass
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass  # Result count is optional metadata
 
     if not times:
         return BenchmarkResult(
@@ -396,8 +396,8 @@ def benchmark_get_call_graph(repo_name: str, repo_path: Path, iterations: int = 
                     edge_counts.append(data["edge_count"])
                 elif "edges" in data:
                     edge_counts.append(len(data["edges"]))
-            except:
-                pass
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass  # Edge count is optional metadata
 
     if not times:
         return BenchmarkResult(name=f"call_graph/{repo_name}", real_time=0, error="Failed")
@@ -523,8 +523,8 @@ def benchmark_query_module(repo_name: str, repo_path: Path, iterations: int = 10
             data = json.loads(output)
             if "modules" in data and data["modules"]:
                 module_name = data["modules"][0].get("name", "src")
-        except:
-            pass
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass  # Use default module name on parse error
 
     for _ in range(iterations):
         # query module <NAME> (operates on current dir)
@@ -564,7 +564,8 @@ def run_indexing_benchmarks(repos: list[tuple[str, Path]], parallel: bool = True
         result = benchmark_index_repo((name, path, True))
         results.append(result)
         status = "✓" if not result.error else "✗"
-        size_str = f", {result.metadata.get('index_size_kb', 0):.0f}KB" if 'index_size_kb' in result.metadata else ""
+        index_size = result.metadata.get('index_size_kb')
+        size_str = f", {index_size:.0f}KB" if index_size is not None else ""
         print(f"  {status} {name}: {result.real_time:.2f}s ({result.items_per_second:.0f} files/s{size_str})")
 
     seq_total = time.perf_counter() - seq_start
@@ -745,13 +746,13 @@ def run_stress_test(repos: list[tuple[str, Path]], num_queries: int = 100) -> li
     def random_query(_):
         name, path = random.choice(repos)
         pattern = random.choice(SEARCH_PATTERNS)
-        mode = random.choice(["symbols", "semantic"])
-        cmd = [str(ENGINE_BIN), "search", pattern, str(path), "--mode", mode, "--limit", "20"]
+        flag = random.choice(["--symbols", "--related"])
+        cmd = [str(ENGINE_BIN), "search", pattern, flag, "--limit", "20"]
         start = time.perf_counter()
         try:
-            subprocess.run(cmd, capture_output=True, timeout=30)
+            subprocess.run(cmd, capture_output=True, timeout=30, cwd=path)
             return time.perf_counter() - start, True
-        except:
+        except Exception:
             return time.perf_counter() - start, False
 
     start_time = time.perf_counter()
@@ -781,7 +782,7 @@ def run_stress_test(repos: list[tuple[str, Path]], num_queries: int = 100) -> li
             "avg_latency_ms": round(avg_latency * 1000, 2),
             "min_latency_ms": round(min(successful) * 1000, 2) if successful else 0,
             "max_latency_ms": round(max(successful) * 1000, 2) if successful else 0,
-            "p95_latency_ms": round(sorted(successful)[int(len(successful) * 0.95)] * 1000, 2) if len(successful) > 20 else 0,
+            "p95_latency_ms": round(sorted(successful)[int(len(successful) * 0.95)] * 1000, 2) if len(successful) >= 1 else 0,
             "success_count": len(successful),
             "failure_count": failed
         }
@@ -876,10 +877,13 @@ def compare_reports(current: BenchmarkReport, baseline: BenchmarkReport) -> str:
             continue
 
         change_pct = ((curr.real_time - base.real_time) / base.real_time) * 100
+        abs_change = abs(curr.real_time - base.real_time)
 
-        if change_pct > 10:  # More than 10% slower
+        # Require both >10% change AND >10ms absolute change to avoid false positives
+        # on very fast operations where tiny differences appear as large percentages
+        if change_pct > 10 and abs_change > 0.01:  # More than 10% slower AND >10ms
             regressions.append((curr.name, base.real_time, curr.real_time, change_pct))
-        elif change_pct < -10:  # More than 10% faster
+        elif change_pct < -10 and abs_change > 0.01:  # More than 10% faster AND >10ms
             improvements.append((curr.name, base.real_time, curr.real_time, change_pct))
         else:
             unchanged.append((curr.name, base.real_time, curr.real_time, change_pct))
@@ -1054,8 +1058,8 @@ def load_baseline() -> Optional[BenchmarkReport]:
         context = BenchmarkContext(**data["context"])
         benchmarks = [BenchmarkResult(**b) for b in data["benchmarks"]]
         return BenchmarkReport(context=context, benchmarks=benchmarks)
-    except:
-        return None
+    except Exception:
+        return None  # Baseline is optional, ignore corrupt files
 
 def main():
     parser = argparse.ArgumentParser(description="Semfora Performance Test Suite")
