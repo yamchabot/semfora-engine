@@ -12,49 +12,11 @@ permissions:
   contents: write
 
 jobs:
-  # Run all tests before building release artifacts
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-test-
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Run Clippy
-        # Note: --all-features is not used because embedded-patterns feature requires
-        # SECURITY_PATTERNS_PATH to be set at compile time with a pre-built patterns file
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Run all tests
-        # Note: --benches is excluded because criterion benchmarks require at least
-        # 10 samples and fail when run as tests
-        run: cargo test --release --lib --bins --tests --examples
-        env:
-          RUST_BACKTRACE: 1
+  # Note: Tests are NOT run here - CI workflow must pass before merging to main,
+  # and releases are only created from main. Running tests again would be redundant.
 
   build:
     name: Build (${{ matrix.artifact }})
-    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -68,7 +30,8 @@ jobs:
             target: aarch64-apple-darwin
             artifact: darwin-arm64
             ext: tar.gz
-          - os: macos-13
+          # Cross-compile x86_64 from ARM macOS (macos-13 Intel runners are retired)
+          - os: macos-latest
             target: x86_64-apple-darwin
             artifact: darwin-x86_64
             ext: tar.gz
