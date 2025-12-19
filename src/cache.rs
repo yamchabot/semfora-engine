@@ -6,8 +6,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::SystemTime;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::SystemTime;
 
 use rayon::prelude::*;
 
@@ -25,7 +25,7 @@ pub fn normalize_kind(kind: &str) -> &str {
     match kind {
         "fn" | "func" | "method" => "function",
         "struct" | "record" => "class", // C# structs/records stored as class
-        "interface" => "trait",          // Stored as trait in index
+        "interface" => "trait",         // Stored as trait in index
         other => other,
     }
 }
@@ -244,7 +244,9 @@ impl CacheDir {
     /// Create a cache directory for a repository
     pub fn for_repo(repo_path: &Path) -> Result<Self> {
         let repo_root = fs_utils::normalize_path(
-            &repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf()),
+            &repo_path
+                .canonicalize()
+                .unwrap_or_else(|_| repo_path.to_path_buf()),
         );
         let repo_hash = compute_repo_hash(&repo_root);
         let cache_base = get_cache_base_dir();
@@ -261,7 +263,9 @@ impl CacheDir {
     /// This ensures each worktree gets its own separate cache even if they share the same git repo
     pub fn for_worktree(worktree_path: &Path) -> Result<Self> {
         let repo_root = fs_utils::normalize_path(
-            &worktree_path.canonicalize().unwrap_or_else(|_| worktree_path.to_path_buf()),
+            &worktree_path
+                .canonicalize()
+                .unwrap_or_else(|_| worktree_path.to_path_buf()),
         );
         // Use path-based hash for worktrees (not git remote URL)
         let repo_hash = format!("{:016x}", fnv1a_hash(&repo_root.to_string_lossy()));
@@ -307,7 +311,8 @@ impl CacheDir {
 
     /// Path to a specific module file
     pub fn module_path(&self, module_name: &str) -> PathBuf {
-        self.modules_dir().join(format!("{}.toon", sanitize_filename(module_name)))
+        self.modules_dir()
+            .join(format!("{}.toon", sanitize_filename(module_name)))
     }
 
     /// Path to symbols directory
@@ -431,14 +436,13 @@ impl CacheDir {
 
     /// Compute hash of current git status output
     pub fn compute_status_hash(&self) -> Option<String> {
-        git::git_command_optional(&["status", "--porcelain"], Some(&self.repo_root))
-            .map(|output| {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                output.hash(&mut hasher);
-                format!("{:016x}", hasher.finish())
-            })
+        git::git_command_optional(&["status", "--porcelain"], Some(&self.repo_root)).map(|output| {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            output.hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        })
     }
 
     /// Quick staleness check (~5ms) using git SHA comparison
@@ -458,7 +462,7 @@ impl CacheDir {
         // 3. Check if SHAs differ (indicates new commits)
         let sha_mismatch = match (&indexed_sha, &current_sha) {
             (Some(indexed), Some(current)) => indexed != current,
-            (None, _) => true, // No index exists
+            (None, _) => true,  // No index exists
             (_, None) => false, // Not a git repo, can't do SHA check
         };
 
@@ -468,10 +472,9 @@ impl CacheDir {
         // 4a. Files changed between indexed SHA and current HEAD
         if sha_mismatch {
             if let (Some(indexed), Some(_)) = (&indexed_sha, &current_sha) {
-                if let Ok(diff_output) = git::git_command(
-                    &["diff", "--name-only", indexed],
-                    Some(&self.repo_root),
-                ) {
+                if let Ok(diff_output) =
+                    git::git_command(&["diff", "--name-only", indexed], Some(&self.repo_root))
+                {
                     for line in diff_output.lines() {
                         if !line.is_empty() {
                             changed_files.push(self.repo_root.join(line));
@@ -491,10 +494,9 @@ impl CacheDir {
         };
 
         if !status_hash_matches {
-            if let Ok(status_output) = git::git_command(
-                &["status", "--porcelain"],
-                Some(&self.repo_root),
-            ) {
+            if let Ok(status_output) =
+                git::git_command(&["status", "--porcelain"], Some(&self.repo_root))
+            {
                 for line in status_output.lines() {
                     if line.len() > 3 {
                         let file_path = line[3..].trim();
@@ -538,7 +540,10 @@ impl CacheDir {
     /// Check if cached layers exist
     pub fn has_cached_layers(&self) -> bool {
         self.layers_dir().exists()
-            && self.layer_dir(LayerKind::Base).map(|p| p.exists()).unwrap_or(false)
+            && self
+                .layer_dir(LayerKind::Base)
+                .map(|p| p.exists())
+                .unwrap_or(false)
     }
 
     /// Initialize layer directories
@@ -624,7 +629,11 @@ impl CacheDir {
         // Format: caller_hash: [callee1, callee2, ...]
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+            if line.is_empty()
+                || line.starts_with("_type:")
+                || line.starts_with("schema_version:")
+                || line.starts_with("edges:")
+            {
                 continue;
             }
 
@@ -656,7 +665,10 @@ impl CacheDir {
     /// Load all SemanticSummaries for a module
     ///
     /// Parses the module's TOON shard and reconstructs SemanticSummary objects.
-    pub fn load_module_summaries(&self, module_name: &str) -> Result<Vec<crate::schema::SemanticSummary>> {
+    pub fn load_module_summaries(
+        &self,
+        module_name: &str,
+    ) -> Result<Vec<crate::schema::SemanticSummary>> {
         let path = self.module_path(module_name);
         if !path.exists() {
             return Err(crate::McpDiffError::FileNotFound {
@@ -683,7 +695,10 @@ impl CacheDir {
             }
 
             // Skip header lines
-            if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("module:") {
+            if line.starts_with("_type:")
+                || line.starts_with("schema_version:")
+                || line.starts_with("module:")
+            {
                 continue;
             }
 
@@ -704,7 +719,8 @@ impl CacheDir {
                             });
                         }
                         "symbol_kind" => {
-                            summary.symbol_kind = Some(crate::schema::SymbolKind::from_str(value.trim_matches('"')));
+                            summary.symbol_kind =
+                                Some(crate::schema::SymbolKind::from_str(value.trim_matches('"')));
                         }
                         "lines" => {
                             // Parse "start-end" format
@@ -728,10 +744,14 @@ impl CacheDir {
                                 for kind_str in inner.split(',') {
                                     let kind = kind_str.trim().trim_matches('"');
                                     if !kind.is_empty() {
-                                        summary.control_flow_changes.push(crate::schema::ControlFlowChange {
-                                            kind: crate::schema::ControlFlowKind::from_str(kind),
-                                            ..Default::default()
-                                        });
+                                        summary.control_flow_changes.push(
+                                            crate::schema::ControlFlowChange {
+                                                kind: crate::schema::ControlFlowKind::from_str(
+                                                    kind,
+                                                ),
+                                                ..Default::default()
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -814,7 +834,11 @@ impl CacheDir {
         use std::io::{BufRead, Write};
 
         let index_path = self.symbol_index_path();
-        tracing::debug!("[CACHE] update_symbol_index_for_file: file_path={}, cache={}", file_path, index_path.display());
+        tracing::debug!(
+            "[CACHE] update_symbol_index_for_file: file_path={}, cache={}",
+            file_path,
+            index_path.display()
+        );
 
         // Read existing entries, filtering out the ones for this file
         let mut entries: Vec<SymbolIndexEntry> = if index_path.exists() {
@@ -838,8 +862,13 @@ impl CacheDir {
                     keep
                 })
                 .collect();
-            tracing::debug!("[CACHE] Filtered {} -> {} entries (removed {} for {})",
-                before_count, filtered.len(), before_count - filtered.len(), file_path);
+            tracing::debug!(
+                "[CACHE] Filtered {} -> {} entries (removed {} for {})",
+                before_count,
+                filtered.len(),
+                before_count - filtered.len(),
+                file_path
+            );
             filtered
         } else {
             Vec::new()
@@ -1086,7 +1115,9 @@ impl CacheDir {
         Ok(matches
             .into_iter()
             .map(|m| RipgrepSearchResult {
-                file: m.file.strip_prefix(&self.repo_root)
+                file: m
+                    .file
+                    .strip_prefix(&self.repo_root)
                     .unwrap_or(&m.file)
                     .to_string_lossy()
                     .to_string(),
@@ -1146,23 +1177,36 @@ impl CacheDir {
     fn infer_file_types_from_kind(kind: Option<&str>) -> Option<Vec<String>> {
         match kind {
             Some("component") => Some(vec![
-                "tsx".to_string(), "jsx".to_string(), "vue".to_string(), "svelte".to_string()
+                "tsx".to_string(),
+                "jsx".to_string(),
+                "vue".to_string(),
+                "svelte".to_string(),
             ]),
             Some("fn") | Some("function") | Some("method") => None, // Functions exist in all languages
-            Some("struct") => Some(vec![
-                "rs".to_string(), "go".to_string(), "cs".to_string()
-            ]),
+            Some("struct") => Some(vec!["rs".to_string(), "go".to_string(), "cs".to_string()]),
             Some("trait") => Some(vec!["rs".to_string()]),
             Some("enum") => Some(vec![
-                "rs".to_string(), "ts".to_string(), "cs".to_string(), "java".to_string(), "kt".to_string()
+                "rs".to_string(),
+                "ts".to_string(),
+                "cs".to_string(),
+                "java".to_string(),
+                "kt".to_string(),
             ]),
             Some("class") => Some(vec![
-                "py".to_string(), "ts".to_string(), "tsx".to_string(),
-                "java".to_string(), "kt".to_string(), "cs".to_string()
+                "py".to_string(),
+                "ts".to_string(),
+                "tsx".to_string(),
+                "java".to_string(),
+                "kt".to_string(),
+                "cs".to_string(),
             ]),
             Some("interface") => Some(vec![
-                "ts".to_string(), "tsx".to_string(), "java".to_string(),
-                "kt".to_string(), "cs".to_string(), "go".to_string()
+                "ts".to_string(),
+                "tsx".to_string(),
+                "java".to_string(),
+                "kt".to_string(),
+                "cs".to_string(),
+                "go".to_string(),
             ]),
             _ => None,
         }
@@ -1232,7 +1276,7 @@ impl CacheDir {
         // Search only in these specific files using ripgrep
         let searcher = RipgrepSearcher::new();
         let mut options = SearchOptions::new(query)
-            .with_limit(limit * 2)  // Get more results since we'll filter
+            .with_limit(limit * 2) // Get more results since we'll filter
             .case_insensitive();
 
         if let Some(types) = file_types {
@@ -1250,7 +1294,9 @@ impl CacheDir {
         Ok(matches
             .into_iter()
             .filter_map(|m| {
-                let rel_path = m.file.strip_prefix(&self.repo_root)
+                let rel_path = m
+                    .file
+                    .strip_prefix(&self.repo_root)
                     .unwrap_or(&m.file)
                     .to_string_lossy()
                     .to_string();
@@ -1287,9 +1333,11 @@ impl CacheDir {
 
         let kind = match overlay.meta.kind {
             Some(k) => k,
-            None => return Err(crate::McpDiffError::ExtractionFailure {
-                message: "Cannot save overlay with unknown layer kind".to_string(),
-            }),
+            None => {
+                return Err(crate::McpDiffError::ExtractionFailure {
+                    message: "Cannot save overlay with unknown layer kind".to_string(),
+                })
+            }
         };
 
         let layer_dir = match self.layer_dir(kind) {
@@ -1317,7 +1365,10 @@ impl CacheDir {
         {
             let mut file = fs::File::create(&symbols_temp)?;
             for (hash, state) in &overlay.symbols {
-                let entry = SymbolEntry { hash: hash.clone(), state: state.clone() };
+                let entry = SymbolEntry {
+                    hash: hash.clone(),
+                    state: state.clone(),
+                };
                 let json = serde_json::to_string(&entry).map_err(|e| {
                     crate::McpDiffError::ExtractionFailure {
                         message: format!("Failed to serialize symbol {}: {}", hash, e),
@@ -1385,10 +1436,8 @@ impl CacheDir {
         let meta_path = layer_dir.join("meta.json");
         let meta: crate::overlay::LayerMeta = if meta_path.exists() {
             let json = fs::read_to_string(&meta_path)?;
-            serde_json::from_str(&json).map_err(|e| {
-                crate::McpDiffError::ExtractionFailure {
-                    message: format!("Failed to deserialize {} layer meta: {}", kind, e),
-                }
+            serde_json::from_str(&json).map_err(|e| crate::McpDiffError::ExtractionFailure {
+                message: format!("Failed to deserialize {} layer meta: {}", kind, e),
             })?
         } else {
             crate::overlay::LayerMeta::new(kind)
@@ -1438,11 +1487,12 @@ impl CacheDir {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let file_move: crate::overlay::FileMove = serde_json::from_str(&line).map_err(|e| {
-                    crate::McpDiffError::ExtractionFailure {
-                        message: format!("Failed to deserialize file move: {}", e),
-                    }
-                })?;
+                let file_move: crate::overlay::FileMove =
+                    serde_json::from_str(&line).map_err(|e| {
+                        crate::McpDiffError::ExtractionFailure {
+                            message: format!("Failed to deserialize file move: {}", e),
+                        }
+                    })?;
                 moves.push(file_move);
             }
         }
@@ -1506,8 +1556,12 @@ impl CacheDir {
             None => return Ok(None),
         };
 
-        let branch = self.load_layer(LayerKind::Branch)?.unwrap_or_else(|| Overlay::new(LayerKind::Branch));
-        let working = self.load_layer(LayerKind::Working)?.unwrap_or_else(|| Overlay::new(LayerKind::Working));
+        let branch = self
+            .load_layer(LayerKind::Branch)?
+            .unwrap_or_else(|| Overlay::new(LayerKind::Branch));
+        let working = self
+            .load_layer(LayerKind::Working)?
+            .unwrap_or_else(|| Overlay::new(LayerKind::Working));
         let ai = Overlay::new(LayerKind::AI); // AI is always fresh
 
         Ok(Some(LayeredIndex {
@@ -1580,7 +1634,8 @@ impl CacheDir {
         // Check if merge-base has changed (rebase scenario)
         if let Some(stored_merge_base) = &overlay.meta.merge_base_sha {
             let base_branch = git::detect_base_branch(Some(&self.repo_root))?;
-            let current_merge_base = git::get_merge_base("HEAD", &base_branch, Some(&self.repo_root))?;
+            let current_merge_base =
+                git::get_merge_base("HEAD", &base_branch, Some(&self.repo_root))?;
             if stored_merge_base != &current_merge_base {
                 return Ok(true);
             }
@@ -1662,15 +1717,21 @@ impl CacheDir {
         use crate::extract::extract;
         use crate::lang::Lang;
         use crate::schema::SemanticSummary;
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashSet;
 
-        tracing::info!("[CACHE] Starting graph regeneration for {}", self.root.display());
+        tracing::info!(
+            "[CACHE] Starting graph regeneration for {}",
+            self.root.display()
+        );
 
         // Get unique files from symbol index
         let entries = self.load_all_symbol_entries()?;
         let unique_files: HashSet<String> = entries.iter().map(|e| e.file.clone()).collect();
 
-        tracing::info!("[CACHE] Found {} unique files to process", unique_files.len());
+        tracing::info!(
+            "[CACHE] Found {} unique files to process",
+            unique_files.len()
+        );
 
         // Re-parse each file to get semantic summaries
         let mut summaries: Vec<SemanticSummary> = Vec::new();
@@ -1760,10 +1821,10 @@ impl CacheDir {
     }
 
     /// Build and write all graphs from summaries
-    fn build_and_write_graphs(&self, summaries: &[crate::schema::SemanticSummary]) -> Result<(usize, usize, usize)> {
-        use crate::schema::SCHEMA_VERSION;
-        use std::collections::HashMap;
-
+    fn build_and_write_graphs(
+        &self,
+        summaries: &[crate::schema::SemanticSummary],
+    ) -> Result<(usize, usize, usize)> {
         // Ensure graphs directory exists
         let graphs_dir = self.graphs_dir();
         std::fs::create_dir_all(&graphs_dir)?;
@@ -1792,7 +1853,11 @@ impl CacheDir {
         let module_graph_content = Self::encode_module_graph(&module_graph);
         std::fs::write(self.module_graph_path(), &module_graph_content)?;
 
-        Ok((call_graph_entries, import_graph_entries, module_graph_entries))
+        Ok((
+            call_graph_entries,
+            import_graph_entries,
+            module_graph_entries,
+        ))
     }
 
     /// Build a lookup map from symbol name to their hashes for call resolution
@@ -1816,10 +1881,7 @@ impl CacheDir {
             // Index from symbols array
             for symbol in &summary.symbols {
                 let hash = compute_symbol_hash(symbol, &summary.file);
-                lookup
-                    .entry(symbol.name.clone())
-                    .or_default()
-                    .push(hash);
+                lookup.entry(symbol.name.clone()).or_default().push(hash);
             }
         }
 
@@ -1875,7 +1937,12 @@ impl CacheDir {
             .map(|summary| {
                 let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
                 if total > 100 && (current % 500 == 0 || current == total) {
-                    eprintln!("  Call graph progress: {}/{} ({:.1}%)", current, total, (current as f64 / total as f64) * 100.0);
+                    eprintln!(
+                        "  Call graph progress: {}/{} ({:.1}%)",
+                        current,
+                        total,
+                        (current as f64 / total as f64) * 100.0
+                    );
                 }
 
                 let mut entries: Vec<(String, Vec<String>)> = Vec::new();
@@ -1902,8 +1969,11 @@ impl CacheDir {
                     // Extract function calls from state_changes initializers
                     for state in &symbol.state_changes {
                         if !state.initializer.is_empty() {
-                            if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
-                                let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                            if let Some(call_name) =
+                                Self::extract_call_from_initializer(&state.initializer)
+                            {
+                                let resolved =
+                                    Self::resolve_call_to_hash(&call_name, &symbol_lookup);
                                 if !calls.contains(&resolved) {
                                     calls.push(resolved);
                                 }
@@ -1935,8 +2005,11 @@ impl CacheDir {
 
                     for state in &summary.state_changes {
                         if !state.initializer.is_empty() {
-                            if let Some(call_name) = Self::extract_call_from_initializer(&state.initializer) {
-                                let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup);
+                            if let Some(call_name) =
+                                Self::extract_call_from_initializer(&state.initializer)
+                            {
+                                let resolved =
+                                    Self::resolve_call_to_hash(&call_name, &symbol_lookup);
                                 if !calls.contains(&resolved) {
                                     calls.push(resolved);
                                 }
@@ -1945,10 +2018,19 @@ impl CacheDir {
                     }
 
                     for dep in &summary.added_dependencies {
-                        if !dep.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                        if !dep
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false)
                             && !dep.contains("::")
                         {
-                            if dep.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                            if dep
+                                .chars()
+                                .next()
+                                .map(|c| c.is_lowercase())
+                                .unwrap_or(false)
+                            {
                                 let resolved = Self::resolve_call_to_hash(dep, &symbol_lookup);
                                 if !calls.contains(&resolved) {
                                     calls.push(resolved);
@@ -1990,7 +2072,7 @@ impl CacheDir {
 
         let symbols_count = total_symbols_from_vec.load(Ordering::Relaxed);
         let calls_count = total_calls_from_symbols.load(Ordering::Relaxed);
-        
+
         tracing::info!(
             "[CALL_GRAPH] Summary: {} symbols from Vec<SymbolInfo>, {} calls from symbols, {} graph entries",
             symbols_count,
@@ -2033,7 +2115,12 @@ impl CacheDir {
                 .trim();
 
             // Skip type constructors
-            if call_part.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            if call_part
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
                 if call_part == "new" || call_part == "default" {
                     if let Some(type_part) = before_paren.rsplit("::").nth(1) {
                         return Some(format!("{}::{}", type_part.trim(), call_part));
@@ -2048,9 +2135,27 @@ impl CacheDir {
 
             // Skip common noise
             let noise = [
-                "iter", "map", "filter", "collect", "clone", "to_string", "len",
-                "is_empty", "unwrap", "unwrap_or", "ok", "err", "as_ref", "as_str",
-                "into", "from", "push", "pop", "get", "insert", "remove",
+                "iter",
+                "map",
+                "filter",
+                "collect",
+                "clone",
+                "to_string",
+                "len",
+                "is_empty",
+                "unwrap",
+                "unwrap_or",
+                "ok",
+                "err",
+                "as_ref",
+                "as_str",
+                "into",
+                "from",
+                "push",
+                "pop",
+                "get",
+                "insert",
+                "remove",
             ];
             if noise.contains(&call_part) {
                 return None;
@@ -2153,9 +2258,7 @@ impl CacheDir {
         }
 
         // File is directly in src/ - use filename without extension
-        let stem = path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("root");
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("root");
 
         // Skip generic names
         if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
@@ -2175,7 +2278,11 @@ impl CacheDir {
         lines.push(format!("edges: {}", graph.len()));
 
         for (symbol_hash, calls) in graph {
-            let calls_str = calls.iter().map(|c| format!("\"{}\"", c)).collect::<Vec<_>>().join(",");
+            let calls_str = calls
+                .iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect::<Vec<_>>()
+                .join(",");
             lines.push(format!("{}: [{}]", symbol_hash, calls_str));
         }
 
@@ -2192,7 +2299,11 @@ impl CacheDir {
         lines.push(format!("files: {}", graph.len()));
 
         for (file, imports) in graph {
-            let imports_str = imports.iter().map(|i| format!("\"{}\"", i)).collect::<Vec<_>>().join(",");
+            let imports_str = imports
+                .iter()
+                .map(|i| format!("\"{}\"", i))
+                .collect::<Vec<_>>()
+                .join(",");
             lines.push(format!("\"{}\": [{}]", file, imports_str));
         }
 
@@ -2209,7 +2320,11 @@ impl CacheDir {
         lines.push(format!("modules: {}", graph.len()));
 
         for (module, deps) in graph {
-            let deps_str = deps.iter().map(|d| format!("\"{}\"", d)).collect::<Vec<_>>().join(",");
+            let deps_str = deps
+                .iter()
+                .map(|d| format!("\"{}\"", d))
+                .collect::<Vec<_>>()
+                .join(",");
             lines.push(format!("\"{}\": [{}]", module, deps_str));
         }
 
@@ -2606,7 +2721,9 @@ mod tests {
         // Test layer file paths
         assert_eq!(
             cache.layer_symbols_path(LayerKind::Base),
-            Some(PathBuf::from("/tmp/semfora/abc123/layers/base/symbols.jsonl"))
+            Some(PathBuf::from(
+                "/tmp/semfora/abc123/layers/base/symbols.jsonl"
+            ))
         );
         assert_eq!(
             cache.layer_deleted_path(LayerKind::Base),
@@ -2650,14 +2767,31 @@ mod tests {
 
         // Verify the directory and files exist
         let layer_dir = cache.layer_dir(LayerKind::Base).unwrap();
-        assert!(layer_dir.exists(), "Layer directory should exist after save");
-        assert!(layer_dir.join("symbols.jsonl").exists(), "symbols.jsonl should exist");
-        assert!(layer_dir.join("deleted.txt").exists(), "deleted.txt should exist");
-        assert!(layer_dir.join("moves.jsonl").exists(), "moves.jsonl should exist");
-        assert!(layer_dir.join("meta.json").exists(), "meta.json should exist");
+        assert!(
+            layer_dir.exists(),
+            "Layer directory should exist after save"
+        );
+        assert!(
+            layer_dir.join("symbols.jsonl").exists(),
+            "symbols.jsonl should exist"
+        );
+        assert!(
+            layer_dir.join("deleted.txt").exists(),
+            "deleted.txt should exist"
+        );
+        assert!(
+            layer_dir.join("moves.jsonl").exists(),
+            "moves.jsonl should exist"
+        );
+        assert!(
+            layer_dir.join("meta.json").exists(),
+            "meta.json should exist"
+        );
 
         // Load the layer back
-        let loaded = cache.load_layer(LayerKind::Base).expect("Failed to load layer");
+        let loaded = cache
+            .load_layer(LayerKind::Base)
+            .expect("Failed to load layer");
         assert!(loaded.is_some(), "Should load the saved layer");
 
         let loaded_overlay = loaded.unwrap();
@@ -2679,14 +2813,18 @@ mod tests {
         let overlay = Overlay::new(LayerKind::AI);
 
         // Attempting to save AI layer should succeed but not create a file
-        cache.save_layer(&overlay).expect("Save should succeed for AI layer");
+        cache
+            .save_layer(&overlay)
+            .expect("Save should succeed for AI layer");
 
         // The layers directory shouldn't have any ai.json file
         let ai_path = cache.layers_dir().join("ai.json");
         assert!(!ai_path.exists(), "AI layer should not be persisted");
 
         // Loading AI layer should return None
-        let loaded = cache.load_layer(LayerKind::AI).expect("Load should succeed");
+        let loaded = cache
+            .load_layer(LayerKind::AI)
+            .expect("Load should succeed");
         assert!(loaded.is_none(), "Loading AI layer should return None");
     }
 
@@ -2707,7 +2845,9 @@ mod tests {
         index.branch.meta.indexed_sha = Some("branch_sha".to_string());
 
         // Save the index
-        cache.save_layered_index(&index).expect("Failed to save layered index");
+        cache
+            .save_layered_index(&index)
+            .expect("Failed to save layered index");
 
         // Verify meta file exists
         assert!(cache.layer_meta_path().exists(), "Meta file should exist");
@@ -2716,12 +2856,20 @@ mod tests {
         assert!(cache.has_cached_layers(), "Should detect cached layers");
 
         // Load the index back
-        let loaded = cache.load_layered_index().expect("Failed to load layered index");
+        let loaded = cache
+            .load_layered_index()
+            .expect("Failed to load layered index");
         assert!(loaded.is_some(), "Should load the saved index");
 
         let loaded_index = loaded.unwrap();
-        assert_eq!(loaded_index.base.meta.indexed_sha, Some("base_sha".to_string()));
-        assert_eq!(loaded_index.branch.meta.indexed_sha, Some("branch_sha".to_string()));
+        assert_eq!(
+            loaded_index.base.meta.indexed_sha,
+            Some("base_sha".to_string())
+        );
+        assert_eq!(
+            loaded_index.branch.meta.indexed_sha,
+            Some("branch_sha".to_string())
+        );
         // AI layer should be fresh (empty)
         assert!(loaded_index.ai.meta.indexed_sha.is_none());
     }
@@ -2747,7 +2895,10 @@ mod tests {
 
         // Verify layers are gone
         assert!(!cache.has_cached_layers(), "Layers should be cleared");
-        assert!(!cache.layers_dir().exists(), "Layers directory should be removed");
+        assert!(
+            !cache.layers_dir().exists(),
+            "Layers directory should be removed"
+        );
     }
 
     #[test]
@@ -2762,7 +2913,9 @@ mod tests {
         };
 
         // Loading a layer that doesn't exist should return None
-        let result = cache.load_layer(LayerKind::Base).expect("Load should not error");
+        let result = cache
+            .load_layer(LayerKind::Base)
+            .expect("Load should not error");
         assert!(result.is_none(), "Should return None for missing layer");
     }
 
@@ -2822,9 +2975,9 @@ mod tests {
     /// Verifies layers persist correctly and reload with same data
     #[test]
     fn test_layer_persist_reload() {
-        use tempfile::TempDir;
         use crate::overlay::SymbolState;
-        use crate::schema::{SymbolInfo, SymbolKind, RiskLevel};
+        use crate::schema::{RiskLevel, SymbolInfo, SymbolKind};
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let cache = CacheDir {
@@ -2861,7 +3014,8 @@ mod tests {
         cache.save_layer(&overlay).expect("Failed to save");
 
         // Reload
-        let loaded = cache.load_layer(LayerKind::Base)
+        let loaded = cache
+            .load_layer(LayerKind::Base)
             .expect("Failed to load")
             .expect("Should have layer");
 
@@ -2913,7 +3067,10 @@ mod tests {
     /// Verifies schema version is 2.1 for two-part hash support
     #[test]
     fn test_schema_version_bump() {
-        assert_eq!(SCHEMA_VERSION, "2.1", "Schema version should be 2.1 for two-part hash support");
+        assert_eq!(
+            SCHEMA_VERSION, "2.1",
+            "Schema version should be 2.1 for two-part hash support"
+        );
     }
 
     /// TDD: test_meta_json_structure
@@ -2980,13 +3137,19 @@ mod tests {
 
         // Should return error when loading
         let result = cache.load_layer(LayerKind::Base);
-        assert!(result.is_err(), "Should fail to load layer with corrupted symbols.jsonl");
-        
+        assert!(
+            result.is_err(),
+            "Should fail to load layer with corrupted symbols.jsonl"
+        );
+
         // Verify it's a deserialization error
         match result {
             Err(crate::McpDiffError::ExtractionFailure { message }) => {
-                assert!(message.contains("deserialize") || message.contains("symbol entry"), 
-                    "Error should indicate symbol deserialization issue: {}", message);
+                assert!(
+                    message.contains("deserialize") || message.contains("symbol entry"),
+                    "Error should indicate symbol deserialization issue: {}",
+                    message
+                );
             }
             Err(e) => panic!("Expected ExtractionFailure error, got: {:?}", e),
             Ok(_) => panic!("Should have failed"),
@@ -3017,17 +3180,27 @@ mod tests {
         fs::write(layer_dir.join("symbols.jsonl"), "").expect("Write symbols");
         fs::write(layer_dir.join("deleted.txt"), "").expect("Write deleted");
         // Write corrupted moves.jsonl (truncated JSON array simulating interrupted write)
-        fs::write(layer_dir.join("moves.jsonl"), "{\"from_path\":\"old.rs\",\"to_path\":\"new.rs\",\"moved_at\":\n").expect("Write corrupted moves");
+        fs::write(
+            layer_dir.join("moves.jsonl"),
+            "{\"from_path\":\"old.rs\",\"to_path\":\"new.rs\",\"moved_at\":\n",
+        )
+        .expect("Write corrupted moves");
 
         // Should return error when loading
         let result = cache.load_layer(LayerKind::Base);
-        assert!(result.is_err(), "Should fail to load layer with corrupted moves.jsonl");
-        
+        assert!(
+            result.is_err(),
+            "Should fail to load layer with corrupted moves.jsonl"
+        );
+
         // Verify it's a deserialization error
         match result {
             Err(crate::McpDiffError::ExtractionFailure { message }) => {
-                assert!(message.contains("deserialize") || message.contains("file move"), 
-                    "Error should indicate file move deserialization issue: {}", message);
+                assert!(
+                    message.contains("deserialize") || message.contains("file move"),
+                    "Error should indicate file move deserialization issue: {}",
+                    message
+                );
             }
             Err(e) => panic!("Expected ExtractionFailure error, got: {:?}", e),
             Ok(_) => panic!("Should have failed"),
@@ -3060,12 +3233,18 @@ mod tests {
 
         // Should succeed - missing files are treated as empty
         let result = cache.load_layer(LayerKind::Base);
-        assert!(result.is_ok(), "Should handle missing symbols.jsonl gracefully");
-        
+        assert!(
+            result.is_ok(),
+            "Should handle missing symbols.jsonl gracefully"
+        );
+
         let overlay = result.unwrap();
         assert!(overlay.is_some(), "Should return an overlay");
         let overlay = overlay.unwrap();
-        assert!(overlay.symbols.is_empty(), "Symbols should be empty when file is missing");
+        assert!(
+            overlay.symbols.is_empty(),
+            "Symbols should be empty when file is missing"
+        );
     }
 
     #[test]
@@ -3094,12 +3273,18 @@ mod tests {
 
         // Should succeed - missing files are treated as empty
         let result = cache.load_layer(LayerKind::Base);
-        assert!(result.is_ok(), "Should handle missing moves.jsonl gracefully");
-        
+        assert!(
+            result.is_ok(),
+            "Should handle missing moves.jsonl gracefully"
+        );
+
         let overlay = result.unwrap();
         assert!(overlay.is_some(), "Should return an overlay");
         let overlay = overlay.unwrap();
-        assert!(overlay.moves.is_empty(), "Moves should be empty when file is missing");
+        assert!(
+            overlay.moves.is_empty(),
+            "Moves should be empty when file is missing"
+        );
     }
 
     #[test]
@@ -3129,8 +3314,11 @@ mod tests {
 
         // Should succeed with empty collections
         let result = cache.load_layer(LayerKind::Base);
-        assert!(result.is_ok(), "Should handle empty symbols.jsonl gracefully");
-        
+        assert!(
+            result.is_ok(),
+            "Should handle empty symbols.jsonl gracefully"
+        );
+
         let overlay = result.unwrap();
         assert!(overlay.is_some(), "Should return an overlay");
         let overlay = overlay.unwrap();
@@ -3167,7 +3355,7 @@ mod tests {
         // Should succeed with empty moves
         let result = cache.load_layer(LayerKind::Base);
         assert!(result.is_ok(), "Should handle empty moves.jsonl gracefully");
-        
+
         let overlay = result.unwrap();
         assert!(overlay.is_some(), "Should return an overlay");
         let overlay = overlay.unwrap();
@@ -3204,7 +3392,10 @@ mod tests {
 
         // Should return error when reading invalid UTF-8
         let result = cache.load_layer(LayerKind::Base);
-        assert!(result.is_err(), "Should fail to load layer with invalid UTF-8");
+        assert!(
+            result.is_err(),
+            "Should fail to load layer with invalid UTF-8"
+        );
     }
 
     #[test]
@@ -3245,17 +3436,21 @@ mod tests {
         // Should handle blank lines gracefully
         let result = cache.load_layer(LayerKind::Base);
         assert!(result.is_ok(), "Should handle blank lines in symbols.jsonl");
-        
+
         let loaded = result.unwrap();
         assert!(loaded.is_some(), "Should load the overlay");
         let loaded_overlay = loaded.unwrap();
-        assert_eq!(loaded_overlay.symbols.len(), 1, "Should have one symbol despite blank lines");
+        assert_eq!(
+            loaded_overlay.symbols.len(),
+            1,
+            "Should have one symbol despite blank lines"
+        );
     }
 
     #[test]
     fn test_load_layer_moves_with_blank_lines() {
-        use tempfile::TempDir;
         use std::path::PathBuf;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let cache = CacheDir {
@@ -3283,11 +3478,15 @@ mod tests {
         // Should handle blank lines gracefully
         let result = cache.load_layer(LayerKind::Base);
         assert!(result.is_ok(), "Should handle blank lines in moves.jsonl");
-        
+
         let loaded = result.unwrap();
         assert!(loaded.is_some(), "Should load the overlay");
         let loaded_overlay = loaded.unwrap();
-        assert_eq!(loaded_overlay.moves.len(), 1, "Should have one move despite blank lines");
+        assert_eq!(
+            loaded_overlay.moves.len(),
+            1,
+            "Should have one move despite blank lines"
+        );
     }
 
     /// TDD: test_test_file_exclusion_default
@@ -3420,7 +3619,10 @@ mod tests {
         // Should not be stale if no files are tracked
         let result = cache.is_working_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Layer with no tracked files should not be stale");
+        assert!(
+            !result.unwrap(),
+            "Layer with no tracked files should not be stale"
+        );
     }
 
     /// Test is_working_layer_stale when tracked file is deleted
@@ -3437,10 +3639,9 @@ mod tests {
 
         // Create overlay tracking a non-existent file
         let mut overlay = Overlay::new(LayerKind::Working);
-        overlay.symbols_by_file.insert(
-            PathBuf::from("nonexistent.rs"),
-            Vec::new(),
-        );
+        overlay
+            .symbols_by_file
+            .insert(PathBuf::from("nonexistent.rs"), Vec::new());
 
         // Should be stale when file is missing
         let result = cache.is_working_layer_stale(&overlay);
@@ -3467,22 +3668,24 @@ mod tests {
         // Create overlay with a very old update time (before file was modified)
         let mut overlay = Overlay::new(LayerKind::Working);
         overlay.meta.updated_at = 1; // Very old timestamp
-        overlay.symbols_by_file.insert(
-            PathBuf::from("test.rs"),
-            Vec::new(),
-        );
+        overlay
+            .symbols_by_file
+            .insert(PathBuf::from("test.rs"), Vec::new());
 
         // Should be stale because file mtime > overlay update time
         let result = cache.is_working_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Layer should be stale when file modified after cache");
+        assert!(
+            result.unwrap(),
+            "Layer should be stale when file modified after cache"
+        );
     }
 
     /// Test is_working_layer_stale when tracked file is NOT modified
     #[test]
     fn test_is_working_layer_stale_unmodified_file() {
-        use tempfile::TempDir;
         use std::time::{SystemTime, UNIX_EPOCH};
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let cache = CacheDir {
@@ -3504,15 +3707,17 @@ mod tests {
         // Set to future time to ensure overlay is newer than the file
         const FUTURE_OFFSET_SECONDS: u64 = 1000;
         overlay.meta.updated_at = now + FUTURE_OFFSET_SECONDS;
-        overlay.symbols_by_file.insert(
-            PathBuf::from("test.rs"),
-            Vec::new(),
-        );
+        overlay
+            .symbols_by_file
+            .insert(PathBuf::from("test.rs"), Vec::new());
 
         // Should NOT be stale because overlay was updated after file modification
         let result = cache.is_working_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Layer should not be stale when updated after file");
+        assert!(
+            !result.unwrap(),
+            "Layer should not be stale when updated after file"
+        );
     }
 
     /// Test is_layer_stale dispatching for different layer kinds
@@ -3552,7 +3757,10 @@ mod tests {
         // Should be stale
         let result = cache.is_layered_index_stale();
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Index should be stale when no cache exists");
+        assert!(
+            result.unwrap(),
+            "Index should be stale when no cache exists"
+        );
     }
 
     /// Test is_layered_index_stale when base layer is stale
@@ -3574,7 +3782,10 @@ mod tests {
         // Base layer has no indexed_sha, so it's stale
         let result = cache.is_layered_index_stale();
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Index should be stale when base layer is stale");
+        assert!(
+            result.unwrap(),
+            "Index should be stale when base layer is stale"
+        );
     }
 
     // ========================================================================
@@ -3584,11 +3795,11 @@ mod tests {
     /// Test is_base_layer_stale with actual git repo - HEAD changes
     #[test]
     fn test_is_base_layer_stale_head_changed() {
-        use tempfile::TempDir;
         use std::process::Command;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Initialize a git repository with main as default branch
         Command::new("git")
             .args(&["init", "-b", "main"])
@@ -3644,7 +3855,10 @@ mod tests {
         // Should NOT be stale - SHA matches
         let result = cache.is_base_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Layer should not be stale when SHA matches");
+        assert!(
+            !result.unwrap(),
+            "Layer should not be stale when SHA matches"
+        );
 
         // Create a new commit
         std::fs::write(temp_dir.path().join("test.txt"), "modified").expect("Failed to write file");
@@ -3669,11 +3883,11 @@ mod tests {
     /// Test is_branch_layer_stale with actual git repo - branch HEAD moves
     #[test]
     fn test_is_branch_layer_stale_head_moved() {
-        use tempfile::TempDir;
         use std::process::Command;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Initialize a git repository with main as default branch
         Command::new("git")
             .args(&["init", "-b", "main"])
@@ -3736,10 +3950,14 @@ mod tests {
         // Should NOT be stale - SHA matches
         let result = cache.is_branch_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Layer should not be stale when SHA matches");
+        assert!(
+            !result.unwrap(),
+            "Layer should not be stale when SHA matches"
+        );
 
         // Create a new commit on branch
-        std::fs::write(temp_dir.path().join("feature.txt"), "feature").expect("Failed to write file");
+        std::fs::write(temp_dir.path().join("feature.txt"), "feature")
+            .expect("Failed to write file");
         Command::new("git")
             .args(&["add", "feature.txt"])
             .current_dir(temp_dir.path())
@@ -3755,17 +3973,20 @@ mod tests {
         // Now HEAD has moved, layer should be stale
         let result = cache.is_branch_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Layer should be stale when branch HEAD has moved");
+        assert!(
+            result.unwrap(),
+            "Layer should be stale when branch HEAD has moved"
+        );
     }
 
     /// Test is_branch_layer_stale with actual git repo - merge base changes (rebase)
     #[test]
     fn test_is_branch_layer_stale_merge_base_changed() {
-        use tempfile::TempDir;
         use std::process::Command;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Initialize a git repository with main as default branch
         Command::new("git")
             .args(&["init", "-b", "main"])
@@ -3816,7 +4037,8 @@ mod tests {
             .expect("Failed to create branch");
 
         // Make a commit on feature
-        std::fs::write(temp_dir.path().join("feature.txt"), "feature").expect("Failed to write file");
+        std::fs::write(temp_dir.path().join("feature.txt"), "feature")
+            .expect("Failed to write file");
         Command::new("git")
             .args(&["add", "feature.txt"])
             .current_dir(temp_dir.path())
@@ -3843,7 +4065,10 @@ mod tests {
             .output()
             .expect("Failed to get merge-base");
         let current_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert_eq!(initial_merge_base, current_merge_base, "Merge base should still be initial commit");
+        assert_eq!(
+            initial_merge_base, current_merge_base,
+            "Merge base should still be initial commit"
+        );
 
         // Switch to main and add another commit
         Command::new("git")
@@ -3852,7 +4077,8 @@ mod tests {
             .output()
             .expect("Failed to checkout main");
 
-        std::fs::write(temp_dir.path().join("main.txt"), "main progress").expect("Failed to write file");
+        std::fs::write(temp_dir.path().join("main.txt"), "main progress")
+            .expect("Failed to write file");
         Command::new("git")
             .args(&["add", "main.txt"])
             .current_dir(temp_dir.path())
@@ -3898,12 +4124,18 @@ mod tests {
             .output()
             .expect("Failed to get merge-base");
         let actual_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert_eq!(initial_merge_base, actual_merge_base, "Merge base should still be initial commit after main moves");
+        assert_eq!(
+            initial_merge_base, actual_merge_base,
+            "Merge base should still be initial commit after main moves"
+        );
 
         let result = cache.is_branch_layer_stale(&overlay);
         assert!(result.is_ok());
         // Merge-base is still the same, so should NOT be stale
-        assert!(!result.unwrap(), "Layer should not be stale when merge-base hasn't changed");
+        assert!(
+            !result.unwrap(),
+            "Layer should not be stale when merge-base hasn't changed"
+        );
 
         // Now rebase onto main - this will change the merge-base
         let _rebase_result = Command::new("git")
@@ -3928,22 +4160,28 @@ mod tests {
             .output()
             .expect("Failed to get merge-base");
         let new_merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert_eq!(new_main_sha, new_merge_base, "After rebase, merge-base should be the new main HEAD");
+        assert_eq!(
+            new_main_sha, new_merge_base,
+            "After rebase, merge-base should be the new main HEAD"
+        );
 
         // The layer should be stale because HEAD changed (from original feature_sha to rebased_sha)
         let result = cache.is_branch_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Layer should be stale after rebase (HEAD changed)");
+        assert!(
+            result.unwrap(),
+            "Layer should be stale after rebase (HEAD changed)"
+        );
     }
 
     /// Test edge case: missing git reference
     #[test]
     fn test_is_base_layer_stale_missing_git_ref() {
-        use tempfile::TempDir;
         use std::process::Command;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Initialize a git repository with main as default branch
         Command::new("git")
             .args(&["init", "-b", "main"])
@@ -3978,11 +4216,11 @@ mod tests {
     /// Test edge case: detached HEAD
     #[test]
     fn test_is_branch_layer_stale_detached_head() {
-        use tempfile::TempDir;
         use std::process::Command;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Initialize a git repository with main as default branch
         Command::new("git")
             .args(&["init", "-b", "main"])
@@ -4045,7 +4283,10 @@ mod tests {
         // Even in detached HEAD state, if SHA matches, it shouldn't be stale
         let result = cache.is_branch_layer_stale(&overlay);
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Layer should not be stale in detached HEAD if SHA matches");
+        assert!(
+            !result.unwrap(),
+            "Layer should not be stale in detached HEAD if SHA matches"
+        );
     }
 
     // ========================================================================
@@ -4063,12 +4304,14 @@ mod tests {
         fs::write(
             temp_dir.path().join("main.rs"),
             "fn main() {\n    println!(\"Hello, world!\");\n}\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         fs::write(
             temp_dir.path().join("lib.rs"),
             "pub fn greet(name: &str) -> String {\n    format!(\"Hello, {}!\", name)\n}\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create a CacheDir pointing to this repo (no index exists)
         let cache = CacheDir {
@@ -4086,14 +4329,25 @@ mod tests {
 
         let result = result.unwrap();
         assert!(result.fallback_used, "Should use fallback (ripgrep)");
-        assert!(result.indexed_results.is_none(), "Should not have indexed results");
-        assert!(result.ripgrep_results.is_some(), "Should have ripgrep results");
+        assert!(
+            result.indexed_results.is_none(),
+            "Should not have indexed results"
+        );
+        assert!(
+            result.ripgrep_results.is_some(),
+            "Should have ripgrep results"
+        );
 
         let ripgrep_results = result.ripgrep_results.unwrap();
-        assert!(!ripgrep_results.is_empty(), "Should find matches with ripgrep");
+        assert!(
+            !ripgrep_results.is_empty(),
+            "Should find matches with ripgrep"
+        );
 
         // Verify we found the main function
-        let found_main = ripgrep_results.iter().any(|r| r.content.contains("fn main"));
+        let found_main = ripgrep_results
+            .iter()
+            .any(|r| r.content.contains("fn main"));
         assert!(found_main, "Should find 'fn main' in ripgrep results");
     }
 
@@ -4119,7 +4373,8 @@ mod tests {
                 strict: bool,
             }
             "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let cache = CacheDir {
             root: temp_dir.path().join(".semfora"),
@@ -4129,7 +4384,7 @@ mod tests {
 
         // Test regex pattern search
         let result = cache.search_symbols_with_fallback(
-            r"fn validate_\w+",  // Regex pattern
+            r"fn validate_\w+", // Regex pattern
             None,
             None,
             None,
@@ -4143,7 +4398,9 @@ mod tests {
         let results = result.ripgrep_results.unwrap();
         // Should find both validate_email and validate_password
         let found_email = results.iter().any(|r| r.content.contains("validate_email"));
-        let found_password = results.iter().any(|r| r.content.contains("validate_password"));
+        let found_password = results
+            .iter()
+            .any(|r| r.content.contains("validate_password"));
         assert!(found_email, "Should find validate_email with regex");
         assert!(found_password, "Should find validate_password with regex");
     }
@@ -4158,17 +4415,20 @@ mod tests {
         fs::write(
             temp_dir.path().join("api.rs"),
             "// API module\nfn handle_request() {}\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         fs::write(
             temp_dir.path().join("utils.rs"),
             "// Utility functions\nfn helper() {}\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         fs::write(
             temp_dir.path().join("config.yaml"),
             "# Configuration\napi_key: secret\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let cache = CacheDir {
             root: temp_dir.path().join(".semfora"),
@@ -4185,11 +4445,7 @@ mod tests {
         assert!(!results.is_empty(), "Should find API references");
 
         // Test with file type filter - only .rs files
-        let result_rs_only = cache.search_with_ripgrep(
-            "API",
-            Some(vec!["rs".to_string()]),
-            20,
-        );
+        let result_rs_only = cache.search_with_ripgrep("API", Some(vec!["rs".to_string()]), 20);
         assert!(result_rs_only.is_ok());
 
         let rs_results = result_rs_only.unwrap();
@@ -4271,10 +4527,15 @@ mod tests {
         };
 
         // Search working overlay for a term that only exists in uncommitted file
-        let results = cache.search_working_overlay("SEARCHABLE", None, 20).unwrap();
+        let results = cache
+            .search_working_overlay("SEARCHABLE", None, 20)
+            .unwrap();
 
         // Should find results only in uncommitted file
-        assert!(!results.is_empty(), "Should find results in uncommitted file");
+        assert!(
+            !results.is_empty(),
+            "Should find results in uncommitted file"
+        );
         for r in &results {
             assert!(
                 r.file == "uncommitted.rs" || r.file.ends_with("uncommitted.rs"),
@@ -4284,7 +4545,9 @@ mod tests {
         }
 
         // Search for term only in committed file - should return empty
-        let committed_results = cache.search_working_overlay("committed_function", None, 20).unwrap();
+        let committed_results = cache
+            .search_working_overlay("committed_function", None, 20)
+            .unwrap();
         assert!(
             committed_results.is_empty(),
             "Should NOT find results in committed files when using working overlay"
@@ -4299,7 +4562,7 @@ mod tests {
     #[test]
     fn test_compute_symbol_hash_consistency() {
         use crate::overlay::compute_symbol_hash;
-        use crate::schema::{SymbolInfo, SymbolKind, Argument};
+        use crate::schema::{Argument, SymbolInfo, SymbolKind};
 
         let symbol = SymbolInfo {
             name: "testFunction".to_string(),
@@ -4309,9 +4572,11 @@ mod tests {
             is_exported: true,
             is_default_export: false,
             hash: None,
-            arguments: vec![
-                Argument { name: "arg1".to_string(), arg_type: Some("string".to_string()), default_value: None },
-            ],
+            arguments: vec![Argument {
+                name: "arg1".to_string(),
+                arg_type: Some("string".to_string()),
+                default_value: None,
+            }],
             props: Vec::new(),
             return_type: Some("void".to_string()),
             calls: Vec::new(),
@@ -4324,11 +4589,17 @@ mod tests {
         let hash1 = compute_symbol_hash(&symbol, "/path/to/file.ts");
         let hash2 = compute_symbol_hash(&symbol, "/path/to/file.ts");
 
-        assert_eq!(hash1, hash2, "Same symbol and path should produce same hash");
+        assert_eq!(
+            hash1, hash2,
+            "Same symbol and path should produce same hash"
+        );
 
         // Different path should produce different hash (due to namespace)
         let hash3 = compute_symbol_hash(&symbol, "/different/path/file.ts");
-        assert_ne!(hash1, hash3, "Different paths should produce different hashes");
+        assert_ne!(
+            hash1, hash3,
+            "Different paths should produce different hashes"
+        );
     }
 
     /// Test that extract() populates summary.symbols
@@ -4350,7 +4621,9 @@ export default App;
 "#;
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Lang::TypeScript.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Lang::TypeScript.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let path = std::path::Path::new("/test/App.tsx");
@@ -4365,7 +4638,10 @@ export default App;
 
         // App should be in there (it's exported)
         let app_symbol = summary.symbols.iter().find(|s| s.name == "App");
-        assert!(app_symbol.is_some(), "Should find exported App component in symbols");
+        assert!(
+            app_symbol.is_some(),
+            "Should find exported App component in symbols"
+        );
     }
 
     /// Test that call graph hash matches symbol index hash
@@ -4391,7 +4667,9 @@ export default App;
 "#;
 
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Lang::TypeScript.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Lang::TypeScript.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let file_path = "/test/project/src/App.tsx";
@@ -4431,9 +4709,9 @@ export default App;
     /// Test regenerate_graphs produces matching hashes
     #[test]
     fn test_regenerate_graphs_hash_consistency() {
-        use tempfile::TempDir;
-        use std::fs;
         use crate::overlay::compute_symbol_hash;
+        use std::fs;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().unwrap();
         let src_dir = temp_dir.path().join("src");
@@ -4465,9 +4743,13 @@ export { formatName, processData };
         // First, manually create symbol_index to simulate what sync.rs does
         // Parse the file
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&crate::lang::Lang::TypeScript.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&crate::lang::Lang::TypeScript.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(ts_source, None).unwrap();
-        let summary = crate::extract::extract(&ts_file, ts_source, &tree, crate::lang::Lang::TypeScript).unwrap();
+        let summary =
+            crate::extract::extract(&ts_file, ts_source, &tree, crate::lang::Lang::TypeScript)
+                .unwrap();
 
         // Create symbol index entries the way sync.rs does
         let mut symbol_entries = Vec::new();
@@ -4497,10 +4779,17 @@ export { formatName, processData };
 
         // Now regenerate graphs
         let result = cache.regenerate_graphs();
-        assert!(result.is_ok(), "regenerate_graphs should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "regenerate_graphs should succeed: {:?}",
+            result.err()
+        );
 
         let stats = result.unwrap();
-        assert!(stats.files_processed > 0, "Should process at least one file");
+        assert!(
+            stats.files_processed > 0,
+            "Should process at least one file"
+        );
 
         // Load the generated call graph
         let call_graph_path = cache.call_graph_path();
@@ -4512,7 +4801,11 @@ export { formatName, processData };
         // Format: "file_hash:semantic_hash: [callees]" - split on ": [" to get the full hash
         let call_graph_hashes: Vec<String> = call_graph_content
             .lines()
-            .filter(|line| !line.starts_with("_type:") && !line.starts_with("schema_version:") && !line.starts_with("edges:"))
+            .filter(|line| {
+                !line.starts_with("_type:")
+                    && !line.starts_with("schema_version:")
+                    && !line.starts_with("edges:")
+            })
             .filter_map(|line| {
                 // Split on ": [" to separate hash from array
                 if let Some(bracket_pos) = line.find(": [") {
@@ -4525,10 +4818,8 @@ export { formatName, processData };
             .collect();
 
         // Load symbol index hashes
-        let symbol_index_hashes: std::collections::HashSet<String> = symbol_entries
-            .iter()
-            .map(|e| e.hash.clone())
-            .collect();
+        let symbol_index_hashes: std::collections::HashSet<String> =
+            symbol_entries.iter().map(|e| e.hash.clone()).collect();
 
         // Every hash in call_graph should exist in symbol_index
         for cg_hash in &call_graph_hashes {

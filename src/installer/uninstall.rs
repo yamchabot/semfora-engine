@@ -57,7 +57,11 @@ pub fn run_interactive_uninstall() -> Result<(), McpDiffError> {
     let configured: Vec<(&str, &std::path::Path)> = detected
         .iter()
         .filter_map(|(client, status)| {
-            if let ClientStatus::Found { path, has_semfora: true } = status {
+            if let ClientStatus::Found {
+                path,
+                has_semfora: true,
+            } = status
+            {
                 Some((client.display_name(), path.as_path()))
             } else {
                 None
@@ -171,13 +175,21 @@ pub fn execute_uninstall(
 
     match options.target {
         UninstallTarget::Mcp => {
-            uninstall_mcp_configs(&platform, clients_to_remove, options.specific_client.as_deref())?;
+            uninstall_mcp_configs(
+                &platform,
+                clients_to_remove,
+                options.specific_client.as_deref(),
+            )?;
         }
         UninstallTarget::Engine => {
             uninstall_engine(&platform, options.keep_cache)?;
         }
         UninstallTarget::All => {
-            uninstall_mcp_configs(&platform, clients_to_remove, options.specific_client.as_deref())?;
+            uninstall_mcp_configs(
+                &platform,
+                clients_to_remove,
+                options.specific_client.as_deref(),
+            )?;
             uninstall_engine(&platform, options.keep_cache)?;
         }
     }
@@ -197,10 +209,9 @@ fn uninstall_mcp_configs(
         // Check if we should process this client
         let should_process = match (clients_to_remove, specific_client) {
             (_, Some(specific)) => client.name() == specific || client.display_name() == specific,
-            (Some(list), _) => {
-                list.iter()
-                    .any(|n| n == client.name() || n == client.display_name())
-            }
+            (Some(list), _) => list
+                .iter()
+                .any(|n| n == client.name() || n == client.display_name()),
             (None, None) => true,
         };
 
@@ -209,7 +220,10 @@ fn uninstall_mcp_configs(
         }
 
         // Check if client has semfora configured
-        if let ClientStatus::Found { has_semfora: true, .. } = client.detect(platform) {
+        if let ClientStatus::Found {
+            has_semfora: true, ..
+        } = client.detect(platform)
+        {
             match client.unconfigure(platform) {
                 Ok(()) => {
                     println!(
@@ -248,11 +262,7 @@ fn uninstall_engine(platform: &Platform, keep_cache: bool) -> Result<(), McpDiff
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "  {} Failed to remove cache: {}",
-                    style("✗").red(),
-                    e
-                );
+                eprintln!("  {} Failed to remove cache: {}", style("✗").red(), e);
             }
         }
     }
@@ -268,11 +278,7 @@ fn uninstall_engine(platform: &Platform, keep_cache: bool) -> Result<(), McpDiff
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "  {} Failed to remove config: {}",
-                    style("✗").red(),
-                    e
-                );
+                eprintln!("  {} Failed to remove config: {}", style("✗").red(), e);
             }
         }
     }

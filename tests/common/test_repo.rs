@@ -3,6 +3,8 @@
 //! Provides language-specific builders and pre-configured repo structures
 //! for testing symbol extraction, visibility detection, call graphs, and more.
 
+#![allow(clippy::map_clone)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -43,8 +45,8 @@ impl TestRepo {
 
     /// Run semfora-engine CLI command and return output
     pub fn run_cli(&self, args: &[&str]) -> std::io::Result<Output> {
-        let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target/release/semfora-engine");
+        let binary =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/semfora-engine");
 
         Command::new(&binary)
             .current_dir(self.path())
@@ -127,8 +129,16 @@ impl TestRepo {
         self.add_ts_function("src/index.ts", "main", "console.log('main');")
             .add_ts_function("src/api/users.ts", "getUsers", "return db.query('users');")
             .add_ts_function("src/api/posts.ts", "getPosts", "return db.query('posts');")
-            .add_ts_function("src/utils/format.ts", "formatDate", "return date.toISOString();")
-            .add_ts_function("src/utils/validate.ts", "validateEmail", "return email.includes('@');")
+            .add_ts_function(
+                "src/utils/format.ts",
+                "formatDate",
+                "return date.toISOString();",
+            )
+            .add_ts_function(
+                "src/utils/validate.ts",
+                "validateEmail",
+                "return email.includes('@');",
+            )
     }
 
     /// Create a deep nested structure (like nopCommerce)
@@ -149,14 +159,21 @@ impl TestRepo {
             "src/Libraries/Data/Mapping/ProductMap.cs",
             "public class ProductMap { }",
         )
-        .add_file("src/Program.cs", "public class Program { public static void Main() {} }")
+        .add_file(
+            "src/Program.cs",
+            "public class Program { public static void Main() {} }",
+        )
     }
 
     /// Create a monorepo structure
     pub fn with_monorepo_layout(&self) -> &Self {
         self.add_ts_function("packages/core/src/utils.ts", "coreUtil", "return 'core';")
             .add_ts_function("packages/core/src/types.ts", "CoreType", "")
-            .add_ts_function("packages/api/src/handlers.ts", "apiHandler", "return fetch('/api');")
+            .add_ts_function(
+                "packages/api/src/handlers.ts",
+                "apiHandler",
+                "return fetch('/api');",
+            )
             .add_ts_function("packages/api/src/routes.ts", "setupRoutes", "app.get('/');")
             .add_ts_function("packages/web/src/App.tsx", "App", "return <div>App</div>;")
     }
@@ -186,7 +203,9 @@ impl TestRepo {
 
     /// Create a repo with complex call graph
     pub fn with_complex_callgraph(&self) -> &Self {
-        self.add_file("src/service.ts", r#"
+        self.add_file(
+            "src/service.ts",
+            r#"
 export function fetchUsers() {
     return apiClient.get('/users');
 }
@@ -208,12 +227,15 @@ export function main() {
 function saveToCache(data: any) {
     cache.set('users', data);
 }
-"#)
+"#,
+        )
     }
 
     /// Create a repo with security issues (for CVE testing)
     pub fn with_security_issues(&self) -> &Self {
-        self.add_file("src/vulnerable.ts", r#"
+        self.add_file(
+            "src/vulnerable.ts",
+            r#"
 // SQL injection vulnerability
 export function getUser(id: string) {
     return db.query(`SELECT * FROM users WHERE id = '${id}'`);
@@ -228,7 +250,8 @@ export function runCommand(cmd: string) {
 export function readFile(filename: string) {
     return fs.readFileSync('/data/' + filename);
 }
-"#)
+"#,
+        )
     }
 
     // ========================================================================
@@ -588,7 +611,13 @@ def _internal_helper() -> None:
     // ========================================================================
 
     /// Add a Go file with exported and unexported symbols
-    pub fn add_go_function(&self, relative_path: &str, pkg: &str, exported_fn: &str, body: &str) -> &Self {
+    pub fn add_go_function(
+        &self,
+        relative_path: &str,
+        pkg: &str,
+        exported_fn: &str,
+        body: &str,
+    ) -> &Self {
         let content = format!(
             r#"package {pkg}
 
@@ -1069,7 +1098,12 @@ fi
     // ========================================================================
 
     /// Add a Terraform module
-    pub fn add_terraform_module(&self, relative_path: &str, resource_type: &str, name: &str) -> &Self {
+    pub fn add_terraform_module(
+        &self,
+        relative_path: &str,
+        resource_type: &str,
+        name: &str,
+    ) -> &Self {
         let content = format!(
             r#"# {name} Terraform module
 

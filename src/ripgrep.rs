@@ -284,11 +284,7 @@ impl RipgrepSearcher {
     /// Search and merge adjacent blocks
     ///
     /// Adjacent matches within `merge_threshold` lines are combined into blocks.
-    pub fn search_merged(
-        &self,
-        root: &Path,
-        options: &SearchOptions,
-    ) -> Result<Vec<MergedBlock>> {
+    pub fn search_merged(&self, root: &Path, options: &SearchOptions) -> Result<Vec<MergedBlock>> {
         let matches = self.search(root, options)?;
         Ok(self.merge_matches(matches, options.merge_threshold))
     }
@@ -333,19 +329,15 @@ impl RipgrepSearcher {
         let mut builder = grep_regex::RegexMatcherBuilder::new();
         builder.case_insensitive(options.case_insensitive);
 
-        builder.build(&options.pattern).map_err(|e| {
-            McpDiffError::QueryError {
+        builder
+            .build(&options.pattern)
+            .map_err(|e| McpDiffError::QueryError {
                 message: format!("Invalid regex pattern: {}", e),
-            }
-        })
+            })
     }
 
     /// Build a file walker from options
-    fn build_walker(
-        &self,
-        root: &Path,
-        options: &SearchOptions,
-    ) -> Result<ignore::Walk> {
+    fn build_walker(&self, root: &Path, options: &SearchOptions) -> Result<ignore::Walk> {
         let mut builder = WalkBuilder::new(root);
 
         // Respect .gitignore
@@ -858,7 +850,10 @@ fn beta() {}
 
         let blocks = searcher.merge_matches(matches, 3);
 
-        assert!(blocks.is_empty(), "Empty matches should produce empty blocks");
+        assert!(
+            blocks.is_empty(),
+            "Empty matches should produce empty blocks"
+        );
     }
 
     #[test]
@@ -941,6 +936,9 @@ fn beta() {}
 
         assert_eq!(matches.len(), 1);
         // "fn" starts at column 5 (after 4 spaces)
-        assert_eq!(matches[0].column, 5, "Column should account for leading spaces");
+        assert_eq!(
+            matches[0].column, 5,
+            "Column should account for leading spaces"
+        );
     }
 }

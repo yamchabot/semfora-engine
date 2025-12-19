@@ -1,17 +1,22 @@
 //! Helper functions for the MCP server
 //!
 
-use std::fs;
+#![allow(dead_code)]
+
 use crate::utils::truncate_to_char_boundary;
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 use rayon::prelude::*;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::SystemTime;
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{extract, extract_module_name, Lang, McpDiffError, SemanticSummary, CacheDir, ShardWriter, SymbolIndexEntry};
 use crate::duplicate::{DuplicateDetector, FunctionSignature};
+use crate::{
+    extract, extract_module_name, CacheDir, Lang, McpDiffError, SemanticSummary, ShardWriter,
+    SymbolIndexEntry,
+};
 
 // ============================================================================
 // Staleness Info Struct
@@ -383,7 +388,8 @@ pub fn generate_index_internal(
 
     // Write all shards
     let dir_str = dir_path.display().to_string();
-    let stats = shard_writer.write_all(&dir_str)
+    let stats = shard_writer
+        .write_all(&dir_str)
         .map_err(|e| format!("Failed to write shards: {}", e))?;
 
     // Set the indexed SHA and status hash for staleness tracking
@@ -470,7 +476,10 @@ pub fn partial_reindex(
     let mut new_by_module: HashMap<String, Vec<SemanticSummary>> = HashMap::new();
     for summary in &new_summaries {
         let module = extract_module_name(&summary.file);
-        new_by_module.entry(module).or_default().push(summary.clone());
+        new_by_module
+            .entry(module)
+            .or_default()
+            .push(summary.clone());
     }
 
     // Track which files were changed (for removing old entries)
@@ -481,10 +490,7 @@ pub fn partial_reindex(
         .collect();
 
     // Also track modules that might have files removed (deleted files)
-    let deleted_files: Vec<&PathBuf> = changed_files
-        .iter()
-        .filter(|f| !f.exists())
-        .collect();
+    let deleted_files: Vec<&PathBuf> = changed_files.iter().filter(|f| !f.exists()).collect();
 
     for deleted in &deleted_files {
         if let Some(path_str) = deleted.to_str() {
@@ -565,10 +571,7 @@ pub fn partial_reindex(
 }
 
 /// Update symbol shards for the given summaries
-fn update_symbol_shards(
-    cache: &CacheDir,
-    summaries: &[SemanticSummary],
-) -> Result<(), String> {
+fn update_symbol_shards(cache: &CacheDir, summaries: &[SemanticSummary]) -> Result<(), String> {
     use crate::schema::SymbolId;
 
     for summary in summaries {
@@ -578,7 +581,8 @@ fn update_symbol_shards(
         if !summary.symbols.is_empty() {
             for symbol_info in &summary.symbols {
                 let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
-                let toon = crate::shard::encode_symbol_shard_from_info(summary, symbol_info, &symbol_id);
+                let toon =
+                    crate::shard::encode_symbol_shard_from_info(summary, symbol_info, &symbol_id);
                 let path = cache.symbol_path(&symbol_id.hash);
 
                 if let Err(e) = fs::write(&path, toon) {
@@ -661,8 +665,8 @@ pub fn ensure_fresh_index(
     let threshold = max_stale_files.unwrap_or(DEFAULT_MAX_STALE_FILES);
 
     // Get or create cache directory
-    let cache = CacheDir::for_repo(repo_path)
-        .map_err(|e| format!("Failed to access cache: {}", e))?;
+    let cache =
+        CacheDir::for_repo(repo_path).map_err(|e| format!("Failed to access cache: {}", e))?;
 
     // Check if index exists at all
     let overview_path = cache.repo_overview_path();
@@ -797,7 +801,10 @@ pub fn filter_repo_overview(content: &str, max_modules: usize, exclude_test_dirs
         if line.starts_with("modules[") && line.ends_with(':') {
             in_modules = true;
             // Parse original count from "modules[30]..." format
-            if let Some(count_str) = line.strip_prefix("modules[").and_then(|s| s.split(']').next()) {
+            if let Some(count_str) = line
+                .strip_prefix("modules[")
+                .and_then(|s| s.split(']').next())
+            {
                 total_modules = count_str.parse().unwrap_or(0);
             }
             continue;
@@ -821,30 +828,40 @@ pub fn filter_repo_overview(content: &str, max_modules: usize, exclude_test_dirs
                 in_modules = false;
 
                 // Apply limit
-                let final_modules: Vec<&str> = if max_modules > 0 && modules_collected.len() > max_modules {
-                    modules_collected.iter().take(max_modules).copied().collect()
-                } else {
-                    modules_collected.clone()
-                };
+                let final_modules: Vec<&str> =
+                    if max_modules > 0 && modules_collected.len() > max_modules {
+                        modules_collected
+                            .iter()
+                            .take(max_modules)
+                            .copied()
+                            .collect()
+                    } else {
+                        modules_collected.clone()
+                    };
 
                 // Write modules header with actual count
-                let header_parts: Vec<&str> = lines.iter()
+                let header_parts: Vec<&str> = lines
+                    .iter()
                     .find(|l| l.starts_with("modules["))
                     .map(|l| l.split(']').collect::<Vec<_>>())
                     .unwrap_or_default();
 
                 if header_parts.len() >= 2 {
                     // Show filtered count and note total
-                    if excluded_count > 0 || (max_modules > 0 && modules_collected.len() > max_modules) {
+                    if excluded_count > 0
+                        || (max_modules > 0 && modules_collected.len() > max_modules)
+                    {
                         let showing = final_modules.len();
                         output.push_str(&format!(
                             "modules[{}/{}]{}\n",
-                            showing,
-                            total_modules,
-                            header_parts[1]
+                            showing, total_modules, header_parts[1]
                         ));
                     } else {
-                        output.push_str(&format!("modules[{}]{}\n", final_modules.len(), header_parts[1]));
+                        output.push_str(&format!(
+                            "modules[{}]{}\n",
+                            final_modules.len(),
+                            header_parts[1]
+                        ));
                     }
                 }
 
@@ -870,7 +887,11 @@ pub fn filter_repo_overview(content: &str, max_modules: usize, exclude_test_dirs
     // Handle case where file ends during modules section
     if in_modules && !modules_collected.is_empty() {
         let final_modules: Vec<&str> = if max_modules > 0 && modules_collected.len() > max_modules {
-            modules_collected.iter().take(max_modules).copied().collect()
+            modules_collected
+                .iter()
+                .take(max_modules)
+                .copied()
+                .collect()
         } else {
             modules_collected.clone()
         };
@@ -980,14 +1001,13 @@ pub struct SymbolValidationResult {
 }
 
 /// Find a symbol by hash in the index
-pub fn find_symbol_by_hash(
-    cache: &CacheDir,
-    hash: &str,
-) -> Result<SymbolIndexEntry, String> {
-    let entries = cache.load_all_symbol_entries()
+pub fn find_symbol_by_hash(cache: &CacheDir, hash: &str) -> Result<SymbolIndexEntry, String> {
+    let entries = cache
+        .load_all_symbol_entries()
         .map_err(|e| format!("Failed to load symbol index: {}", e))?;
 
-    entries.into_iter()
+    entries
+        .into_iter()
         .find(|e| e.hash == hash)
         .ok_or_else(|| format!("Symbol {} not found in index", hash))
 }
@@ -998,10 +1018,12 @@ pub fn find_symbol_by_location(
     file_path: &str,
     line: usize,
 ) -> Result<SymbolIndexEntry, String> {
-    let entries = cache.load_all_symbol_entries()
+    let entries = cache
+        .load_all_symbol_entries()
         .map_err(|e| format!("Failed to load symbol index: {}", e))?;
 
-    entries.into_iter()
+    entries
+        .into_iter()
         .find(|e| {
             // Check if file matches
             if !e.file.ends_with(file_path) && !file_path.ends_with(&e.file) {
@@ -1023,7 +1045,10 @@ pub fn assess_complexity(entry: &SymbolIndexEntry) -> Vec<String> {
     let mut concerns = Vec::new();
 
     if entry.cognitive_complexity > 15 {
-        concerns.push("High cognitive complexity (>15) - consider breaking into smaller functions".to_string());
+        concerns.push(
+            "High cognitive complexity (>15) - consider breaking into smaller functions"
+                .to_string(),
+        );
     } else if entry.cognitive_complexity > 10 {
         concerns.push("Moderate cognitive complexity (>10) - may be hard to maintain".to_string());
     }
@@ -1078,8 +1103,8 @@ pub fn load_function_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignatur
         return Ok(Vec::new());
     }
 
-    let content = fs::read_to_string(&sig_path)
-        .map_err(|e| format!("Failed to read signatures: {}", e))?;
+    let content =
+        fs::read_to_string(&sig_path).map_err(|e| format!("Failed to read signatures: {}", e))?;
 
     let mut signatures = Vec::new();
     for line in content.lines() {
@@ -1110,7 +1135,10 @@ pub fn build_reverse_call_graph(cache: &CacheDir) -> HashMap<String, Vec<String>
 
     for line in content.lines() {
         // Skip metadata lines
-        if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+        if line.starts_with("_type:")
+            || line.starts_with("schema_version:")
+            || line.starts_with("edges:")
+        {
             continue;
         }
 
@@ -1119,12 +1147,15 @@ pub fn build_reverse_call_graph(cache: &CacheDir) -> HashMap<String, Vec<String>
             let rest = line[colon_pos + 1..].trim();
 
             if rest.starts_with('[') && rest.ends_with(']') {
-                let inner = &rest[1..rest.len()-1];
+                let inner = &rest[1..rest.len() - 1];
                 for callee in inner.split(',').filter(|s| !s.is_empty()) {
                     let callee = callee.trim().trim_matches('"').to_string();
                     // Skip external calls
                     if !callee.starts_with("ext:") {
-                        reverse_graph.entry(callee).or_default().push(caller.clone());
+                        reverse_graph
+                            .entry(callee)
+                            .or_default()
+                            .push(caller.clone());
                     }
                 }
             }
@@ -1147,9 +1178,11 @@ pub fn find_symbol_callers(
     let reverse_graph = build_reverse_call_graph(cache);
 
     // Load symbol names for resolution
-    let symbol_names: HashMap<String, (String, String)> = cache.load_all_symbol_entries()
+    let symbol_names: HashMap<String, (String, String)> = cache
+        .load_all_symbol_entries()
         .map(|entries| {
-            entries.into_iter()
+            entries
+                .into_iter()
                 .map(|e| (e.hash.clone(), (e.symbol.clone(), e.risk.clone())))
                 .collect()
         })
@@ -1195,13 +1228,15 @@ pub fn generate_validation_suggestions(
     if let Some(dup) = duplicates.first() {
         suggestions.push(format!(
             "{:.0}% similar to {} - consider consolidation",
-            dup.similarity * 100.0, dup.name
+            dup.similarity * 100.0,
+            dup.name
         ));
     }
 
     // Add high impact radius suggestion
     if callers.len() > 10 {
-        suggestions.push("High impact radius (>10 callers) - changes require careful testing".to_string());
+        suggestions
+            .push("High impact radius (>10 callers) - changes require careful testing".to_string());
     }
 
     suggestions
@@ -1264,14 +1299,22 @@ pub fn format_validation_result(result: &SymbolValidationResult) -> String {
     } else {
         output.push_str(&format!("  count: {}\n", result.duplicates.len()));
         for dup in &result.duplicates {
-            output.push_str(&format!("  - {} ({}) [{:.0}%]\n", dup.name, dup.file, dup.similarity * 100.0));
+            output.push_str(&format!(
+                "  - {} ({}) [{:.0}%]\n",
+                dup.name,
+                dup.file,
+                dup.similarity * 100.0
+            ));
         }
     }
 
     output.push_str("\ncallers:\n");
     output.push_str(&format!("  direct: {}\n", result.callers.len()));
     if !result.high_risk_callers.is_empty() {
-        output.push_str(&format!("  high_risk_callers: [{}]\n", result.high_risk_callers.join(", ")));
+        output.push_str(&format!(
+            "  high_risk_callers: [{}]\n",
+            result.high_risk_callers.join(", ")
+        ));
     }
     if !result.callers.is_empty() {
         output.push_str("  list:\n");
@@ -1301,7 +1344,8 @@ pub fn validate_symbols_batch(
     entries: &[SymbolIndexEntry],
     duplicate_threshold: f64,
 ) -> Vec<SymbolValidationResult> {
-    entries.iter()
+    entries
+        .iter()
         .map(|entry| validate_single_symbol(cache, entry, duplicate_threshold))
         .collect()
 }
@@ -1319,35 +1363,51 @@ pub fn format_batch_validation_results(
     output.push_str(&format!("total_symbols: {}\n", results.len()));
 
     // Calculate summary stats
-    let high_complexity: Vec<_> = results.iter()
+    let high_complexity: Vec<_> = results
+        .iter()
         .filter(|r| r.cognitive_complexity > 15)
         .collect();
-    let moderate_complexity: Vec<_> = results.iter()
+    let moderate_complexity: Vec<_> = results
+        .iter()
         .filter(|r| r.cognitive_complexity > 10 && r.cognitive_complexity <= 15)
         .collect();
-    let deep_nesting: Vec<_> = results.iter()
-        .filter(|r| r.max_nesting > 4)
-        .collect();
-    let with_duplicates: Vec<_> = results.iter()
+    let deep_nesting: Vec<_> = results.iter().filter(|r| r.max_nesting > 4).collect();
+    let with_duplicates: Vec<_> = results
+        .iter()
         .filter(|r| !r.duplicates.is_empty())
         .collect();
-    let high_impact: Vec<_> = results.iter()
-        .filter(|r| r.callers.len() > 10)
-        .collect();
+    let high_impact: Vec<_> = results.iter().filter(|r| r.callers.len() > 10).collect();
 
     output.push_str("\nsummary:\n");
-    output.push_str(&format!("  high_complexity: {} (>15 cognitive)\n", high_complexity.len()));
-    output.push_str(&format!("  moderate_complexity: {} (10-15 cognitive)\n", moderate_complexity.len()));
-    output.push_str(&format!("  deep_nesting: {} (>4 levels)\n", deep_nesting.len()));
-    output.push_str(&format!("  potential_duplicates: {}\n", with_duplicates.len()));
-    output.push_str(&format!("  high_impact: {} (>10 callers)\n", high_impact.len()));
+    output.push_str(&format!(
+        "  high_complexity: {} (>15 cognitive)\n",
+        high_complexity.len()
+    ));
+    output.push_str(&format!(
+        "  moderate_complexity: {} (10-15 cognitive)\n",
+        moderate_complexity.len()
+    ));
+    output.push_str(&format!(
+        "  deep_nesting: {} (>4 levels)\n",
+        deep_nesting.len()
+    ));
+    output.push_str(&format!(
+        "  potential_duplicates: {}\n",
+        with_duplicates.len()
+    ));
+    output.push_str(&format!(
+        "  high_impact: {} (>10 callers)\n",
+        high_impact.len()
+    ));
 
     // List symbols needing attention (high complexity first)
     if !high_complexity.is_empty() {
         output.push_str("\nhigh_complexity_symbols:\n");
         for r in high_complexity.iter().take(10) {
-            output.push_str(&format!("  - {} (cc:{}, nest:{}) {}\n",
-                r.symbol, r.cognitive_complexity, r.max_nesting, r.file));
+            output.push_str(&format!(
+                "  - {} (cc:{}, nest:{}) {}\n",
+                r.symbol, r.cognitive_complexity, r.max_nesting, r.file
+            ));
         }
         if high_complexity.len() > 10 {
             output.push_str(&format!("  ... and {} more\n", high_complexity.len() - 10));
@@ -1357,8 +1417,10 @@ pub fn format_batch_validation_results(
     if !deep_nesting.is_empty() {
         output.push_str("\ndeep_nesting_symbols:\n");
         for r in deep_nesting.iter().take(10) {
-            output.push_str(&format!("  - {} (nest:{}) {}\n",
-                r.symbol, r.max_nesting, r.file));
+            output.push_str(&format!(
+                "  - {} (nest:{}) {}\n",
+                r.symbol, r.max_nesting, r.file
+            ));
         }
         if deep_nesting.len() > 10 {
             output.push_str(&format!("  ... and {} more\n", deep_nesting.len() - 10));
@@ -1369,8 +1431,12 @@ pub fn format_batch_validation_results(
         output.push_str("\nsymbols_with_duplicates:\n");
         for r in with_duplicates.iter().take(10) {
             if let Some(dup) = r.duplicates.first() {
-                output.push_str(&format!("  - {} ~ {} ({:.0}%)\n",
-                    r.symbol, dup.name, dup.similarity * 100.0));
+                output.push_str(&format!(
+                    "  - {} ~ {} ({:.0}%)\n",
+                    r.symbol,
+                    dup.name,
+                    dup.similarity * 100.0
+                ));
             }
         }
         if with_duplicates.len() > 10 {
@@ -1381,8 +1447,12 @@ pub fn format_batch_validation_results(
     if !high_impact.is_empty() {
         output.push_str("\nhigh_impact_symbols:\n");
         for r in high_impact.iter().take(10) {
-            output.push_str(&format!("  - {} ({} callers) {}\n",
-                r.symbol, r.callers.len(), r.file));
+            output.push_str(&format!(
+                "  - {} ({} callers) {}\n",
+                r.symbol,
+                r.callers.len(),
+                r.file
+            ));
         }
         if high_impact.len() > 10 {
             output.push_str(&format!("  ... and {} more\n", high_impact.len() - 10));
@@ -1390,11 +1460,20 @@ pub fn format_batch_validation_results(
     }
 
     // All symbols table (compact)
-    output.push_str(&format!("\nall_symbols[{}]{{name,cc,nest,dups,callers,risk}}:\n", results.len()));
+    output.push_str(&format!(
+        "\nall_symbols[{}]{{name,cc,nest,dups,callers,risk}}:\n",
+        results.len()
+    ));
     for r in results.iter().take(50) {
-        output.push_str(&format!("  {},{},{},{},{},{}\n",
-            r.symbol, r.cognitive_complexity, r.max_nesting,
-            r.duplicates.len(), r.callers.len(), r.risk));
+        output.push_str(&format!(
+            "  {},{},{},{},{},{}\n",
+            r.symbol,
+            r.cognitive_complexity,
+            r.max_nesting,
+            r.duplicates.len(),
+            r.callers.len(),
+            r.risk
+        ));
     }
     if results.len() > 50 {
         output.push_str(&format!("  ... and {} more\n", results.len() - 50));
@@ -1686,13 +1765,11 @@ mod tests {
             max_nesting: 2,
             risk: "low".to_string(),
             complexity_concerns: vec![],
-            duplicates: vec![
-                DuplicateMatch {
-                    name: "similar_fn".to_string(),
-                    file: "src/b.rs".to_string(),
-                    similarity: 0.92,
-                },
-            ],
+            duplicates: vec![DuplicateMatch {
+                name: "similar_fn".to_string(),
+                file: "src/b.rs".to_string(),
+                similarity: 0.92,
+            }],
             callers: vec![],
             high_risk_callers: vec![],
             suggestions: vec![],

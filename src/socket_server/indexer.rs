@@ -49,8 +49,16 @@ pub struct IndexResult {
 /// 1. Collects all supported source files
 /// 2. Analyzes each file to extract semantic summaries
 /// 3. Writes the shards to the cache directory
-pub fn index_directory(dir_path: &Path, cache: CacheDir, options: &IndexOptions) -> anyhow::Result<IndexResult> {
-    tracing::info!("Starting index for {:?} -> cache {}", dir_path, cache.repo_hash);
+pub fn index_directory(
+    dir_path: &Path,
+    cache: CacheDir,
+    options: &IndexOptions,
+) -> anyhow::Result<IndexResult> {
+    tracing::info!(
+        "Starting index for {:?} -> cache {}",
+        dir_path,
+        cache.repo_hash
+    );
 
     // Create shard writer with the provided cache
     let mut shard_writer = ShardWriter::with_cache(cache.clone())?;
@@ -208,7 +216,11 @@ fn collect_files_recursive(
 }
 
 /// Parse a file and extract semantic summary
-fn parse_and_extract(file_path: &Path, source: &str, lang: Lang) -> anyhow::Result<SemanticSummary> {
+fn parse_and_extract(
+    file_path: &Path,
+    source: &str,
+    lang: Lang,
+) -> anyhow::Result<SemanticSummary> {
     let mut parser = tree_sitter::Parser::new();
     parser.set_language(&lang.tree_sitter_language())?;
 
@@ -223,9 +235,9 @@ fn parse_and_extract(file_path: &Path, source: &str, lang: Lang) -> anyhow::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs::File;
     use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_collect_files_basic() {

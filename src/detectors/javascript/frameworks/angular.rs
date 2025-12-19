@@ -254,7 +254,10 @@ fn count_array_items(text: &str, property: &str) -> Option<usize> {
             // Count is number of commas + 1 (if there's content)
             // Check for empty array: [] or [ ]
             let array_content = &after_colon[bracket_start..];
-            let is_empty = array_content.trim_start_matches('[').trim().starts_with(']');
+            let is_empty = array_content
+                .trim_start_matches('[')
+                .trim()
+                .starts_with(']');
 
             if is_empty {
                 return Some(0);
@@ -357,7 +360,10 @@ fn count_constructor_params(params: &Node) -> usize {
 /// Detect common Angular patterns
 fn detect_common_patterns(summary: &mut SemanticSummary, source: &str) {
     // RxJS observables
-    if source.contains("Observable<") || source.contains("Subject<") || source.contains("BehaviorSubject<") {
+    if source.contains("Observable<")
+        || source.contains("Subject<")
+        || source.contains("BehaviorSubject<")
+    {
         push_unique_insertion(
             &mut summary.insertions,
             "RxJS observables".to_string(),
@@ -376,15 +382,14 @@ fn detect_common_patterns(summary: &mut SemanticSummary, source: &str) {
 
     // Router
     if source.contains("Router") || source.contains("ActivatedRoute") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "routing".to_string(),
-            "Router",
-        );
+        push_unique_insertion(&mut summary.insertions, "routing".to_string(), "Router");
     }
 
     // Forms
-    if source.contains("FormGroup") || source.contains("FormControl") || source.contains("FormBuilder") {
+    if source.contains("FormGroup")
+        || source.contains("FormControl")
+        || source.contains("FormBuilder")
+    {
         push_unique_insertion(
             &mut summary.insertions,
             "reactive forms".to_string(),

@@ -6,6 +6,8 @@
 //! - `setup --dry-run` - Show what would be done without making changes
 //! - `setup --non-interactive --clients <CLIENTS>` - Non-interactive setup
 
+#![allow(unused_imports)]
+
 use crate::common::{assert_valid_json, TestRepo};
 
 // ============================================================================
@@ -253,13 +255,7 @@ fn test_setup_invalid_client() {
 fn test_setup_empty_clients() {
     let repo = TestRepo::new();
 
-    let result = repo.run_cli(&[
-        "setup",
-        "--dry-run",
-        "--non-interactive",
-        "--clients",
-        "",
-    ]);
+    let result = repo.run_cli(&["setup", "--dry-run", "--non-interactive", "--clients", ""]);
 
     // Should handle empty clients
     assert!(result.is_ok());

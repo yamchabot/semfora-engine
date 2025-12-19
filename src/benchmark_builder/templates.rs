@@ -535,7 +535,6 @@ export class EventQueue {
 export const globalQueue = new EventQueue();
 "#,
         },
-
         // ============================================================
         // PHASE 2: Repository Layer (Steps 11-20)
         // ============================================================
@@ -1441,7 +1440,6 @@ export { BaseRepository, QueryOptions } from './base';
 export { db } from '../db/connection';
 "#,
         },
-
         // ============================================================
         // PHASE 3: Service Layer (Steps 21-35)
         // ============================================================
@@ -3722,7 +3720,6 @@ export { searchService, SearchService, SearchQuery, SearchResult } from './searc
 export { exportService, ExportService, ExportFormat, ExportOptions, ExportResult } from './export';
 "#,
         },
-
         // ============================================================
         // PHASE 4: Handlers (Steps 36-50)
         // ============================================================
@@ -5277,7 +5274,6 @@ export * from './admin';
 export * from './ratelimit';
 "#,
         },
-
         // ============================================================
         // PHASE 5: Routes & Integration (Steps 51-65)
         // ============================================================
@@ -6665,5 +6661,8 @@ pub fn get_template(step: usize) -> Option<FileTemplate> {
 
 /// Get all templates up to and including a specific step
 pub fn get_templates_through(step: usize) -> Vec<FileTemplate> {
-    get_templates().into_iter().filter(|t| t.step <= step).collect()
+    get_templates()
+        .into_iter()
+        .filter(|t| t.step <= step)
+        .collect()
 }

@@ -5,6 +5,8 @@
 //! - `security update` - Update security patterns from pattern server
 //! - `security stats` - Show security pattern statistics
 
+#![allow(unused_imports)]
+
 use crate::common::{assert_contains, assert_valid_json, TestRepo};
 
 // ============================================================================
@@ -190,7 +192,12 @@ fn test_security_update_with_url() {
     let repo = TestRepo::new();
 
     // Test with invalid URL - should handle gracefully
-    let result = repo.run_cli(&["security", "update", "--url", "http://invalid.example.com/patterns.bin"]);
+    let result = repo.run_cli(&[
+        "security",
+        "update",
+        "--url",
+        "http://invalid.example.com/patterns.bin",
+    ]);
 
     // Should handle error gracefully (not panic)
     assert!(result.is_ok());
@@ -257,7 +264,10 @@ fn test_security_scan_multilang() {
     let result = repo.run_cli(&["security", "scan"]);
 
     // Should complete (scan all languages)
-    assert!(result.is_ok(), "Security scan on multilang repo should complete");
+    assert!(
+        result.is_ok(),
+        "Security scan on multilang repo should complete"
+    );
 }
 
 // ============================================================================
@@ -323,7 +333,14 @@ export function dangerousCommand(cmd: string) {
     repo.generate_index().unwrap();
 
     // Combine severity and CWE filters
-    let result = repo.run_cli(&["security", "scan", "--severity", "CRITICAL", "--cwe", "CWE-78"]);
+    let result = repo.run_cli(&[
+        "security",
+        "scan",
+        "--severity",
+        "CRITICAL",
+        "--cwe",
+        "CWE-78",
+    ]);
     assert!(result.is_ok(), "Combined filters should work together");
 }
 
@@ -379,7 +396,10 @@ fn test_security_scan_min_similarity_out_of_range() {
     let result_high = repo.run_cli(&["security", "scan", "--min-similarity", "2.0"]);
 
     // Should handle gracefully (either clamp or error)
-    assert!(result_negative.is_ok(), "Negative threshold should be handled");
+    assert!(
+        result_negative.is_ok(),
+        "Negative threshold should be handled"
+    );
     assert!(result_high.is_ok(), "High threshold should be handled");
 }
 
@@ -396,10 +416,18 @@ fn test_security_update_from_file() {
     std::fs::write(&patterns_path, b"invalid_pattern_data").unwrap();
 
     // Update from local file - should handle invalid format gracefully
-    let result = repo.run_cli(&["security", "update", "--file", patterns_path.to_str().unwrap()]);
+    let result = repo.run_cli(&[
+        "security",
+        "update",
+        "--file",
+        patterns_path.to_str().unwrap(),
+    ]);
 
     // Should handle invalid file gracefully
-    assert!(result.is_ok(), "Update from file should handle invalid format");
+    assert!(
+        result.is_ok(),
+        "Update from file should handle invalid format"
+    );
 }
 
 #[test]
@@ -407,7 +435,12 @@ fn test_security_update_from_nonexistent_file() {
     let repo = TestRepo::new();
 
     // Update from non-existent file
-    let result = repo.run_cli(&["security", "update", "--file", "/nonexistent/path/patterns.bin"]);
+    let result = repo.run_cli(&[
+        "security",
+        "update",
+        "--file",
+        "/nonexistent/path/patterns.bin",
+    ]);
 
     // Should handle missing file gracefully
     assert!(result.is_ok(), "Update from missing file should not panic");
@@ -428,7 +461,10 @@ fn test_security_scan_invalid_severity() {
     let result = repo.run_cli(&["security", "scan", "--severity", "INVALID_LEVEL"]);
 
     // Should handle gracefully (either ignore or error)
-    assert!(result.is_ok(), "Invalid severity should be handled gracefully");
+    assert!(
+        result.is_ok(),
+        "Invalid severity should be handled gracefully"
+    );
 }
 
 #[test]

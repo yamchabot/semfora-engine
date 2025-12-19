@@ -10,8 +10,10 @@
 //! - Multi-language support
 //! - Error handling
 
-use crate::common::test_repo::TestRepo;
+#![allow(clippy::len_zero)]
+
 use crate::common::assertions::assert_valid_json;
+use crate::common::test_repo::TestRepo;
 
 // ============================================================================
 // Test Helpers
@@ -159,7 +161,8 @@ fn test_mcp_index_generate() {
     // Should show indexing success
     assert!(
         output.contains("Generated") || output.contains("success") || output.contains("files"),
-        "Index output should indicate success: {}", output
+        "Index output should indicate success: {}",
+        output
     );
 }
 
@@ -173,7 +176,8 @@ fn test_mcp_index_check() {
     // Should show index status
     assert!(
         output.contains("fresh") || output.contains("status") || output.contains("index"),
-        "Index check output: {}", output
+        "Index check output: {}",
+        output
     );
 }
 
@@ -185,8 +189,12 @@ fn test_mcp_index_force_regenerate() {
     let output = repo.run_cli_success(&["index", "generate", "--force"]);
 
     assert!(
-        output.contains("Generated") || output.contains("success") || output.contains("complete") || output.contains("fresh"),
-        "Force regenerate output: {}", output
+        output.contains("Generated")
+            || output.contains("success")
+            || output.contains("complete")
+            || output.contains("fresh"),
+        "Force regenerate output: {}",
+        output
     );
 }
 
@@ -203,7 +211,8 @@ fn test_mcp_search_by_name() {
 
     assert!(
         output.contains("greet") || output.contains("symbol") || output.contains("found"),
-        "Search should find 'greet': {}", output
+        "Search should find 'greet': {}",
+        output
     );
 }
 
@@ -251,7 +260,8 @@ fn test_mcp_analyze_file() {
 
     assert!(
         output.contains("greet") || output.contains("add") || output.contains("fn"),
-        "Analyze should find functions: {}", output
+        "Analyze should find functions: {}",
+        output
     );
 }
 
@@ -261,7 +271,10 @@ fn test_mcp_analyze_directory() {
 
     let output = repo.run_cli_success(&["analyze", "src"]);
 
-    assert!(output.len() > 100, "Directory analysis should produce substantial output");
+    assert!(
+        output.len() > 100,
+        "Directory analysis should produce substantial output"
+    );
 }
 
 #[test]
@@ -280,7 +293,10 @@ fn test_mcp_analyze_nonexistent_file() {
     let result = repo.run_cli(&["analyze", "nonexistent.ts"]);
 
     // Should fail for nonexistent file
-    assert!(!result.unwrap().status.success(), "Should fail for nonexistent file");
+    assert!(
+        !result.unwrap().status.success(),
+        "Should fail for nonexistent file"
+    );
 }
 
 // ============================================================================
@@ -296,7 +312,8 @@ fn test_mcp_query_overview() {
 
     assert!(
         output.contains("module") || output.contains("_type") || output.contains("src"),
-        "Overview should contain module info: {}", output
+        "Overview should contain module info: {}",
+        output
     );
 }
 
@@ -341,7 +358,8 @@ fn test_mcp_query_symbol_search_first() {
     // The search should return symbol info
     assert!(
         search_output.contains("greet") || search_output.contains("hash"),
-        "Search should return symbol info: {}", search_output
+        "Search should return symbol info: {}",
+        search_output
     );
 }
 
@@ -353,11 +371,20 @@ fn test_mcp_query_symbol_search_first() {
 fn test_mcp_query_source_by_lines() {
     let repo = create_basic_ts_repo();
 
-    let output = repo.run_cli_success(&["query", "source", "src/utils.ts", "--start", "1", "--end", "5"]);
+    let output = repo.run_cli_success(&[
+        "query",
+        "source",
+        "src/utils.ts",
+        "--start",
+        "1",
+        "--end",
+        "5",
+    ]);
 
     assert!(
         output.contains("greet") || output.contains("function") || output.contains("export"),
-        "Source query should return code: {}", output
+        "Source query should return code: {}",
+        output
     );
 }
 
@@ -383,7 +410,10 @@ fn test_mcp_query_callgraph_with_limit() {
 
     let output = repo.run_cli_success(&["query", "callgraph", "--limit", "10"]);
 
-    assert!(output.len() > 0, "Callgraph with limit should return output");
+    assert!(
+        output.len() > 0,
+        "Callgraph with limit should return output"
+    );
 }
 
 // ============================================================================
@@ -398,15 +428,18 @@ fn test_mcp_query_languages() {
 
     assert!(
         output.contains("TypeScript") || output.contains("typescript") || output.contains(".ts"),
-        "Languages should list TypeScript: {}", output
+        "Languages should list TypeScript: {}",
+        output
     );
     assert!(
         output.contains("Rust") || output.contains("rust") || output.contains(".rs"),
-        "Languages should list Rust: {}", output
+        "Languages should list Rust: {}",
+        output
     );
     assert!(
         output.contains("Python") || output.contains("python") || output.contains(".py"),
-        "Languages should list Python: {}", output
+        "Languages should list Python: {}",
+        output
     );
 }
 
@@ -423,7 +456,8 @@ fn test_mcp_query_file() {
 
     assert!(
         output.contains("greet") || output.contains("add") || output.contains("symbol"),
-        "File query should return symbols: {}", output
+        "File query should return symbols: {}",
+        output
     );
 }
 
@@ -436,7 +470,8 @@ fn test_mcp_query_file_with_source() {
 
     assert!(
         output.len() > 50,
-        "File query with source should return substantial output: {}", output
+        "File query with source should return substantial output: {}",
+        output
     );
 }
 
@@ -453,8 +488,12 @@ fn test_mcp_validate_file() {
 
     // Validate command runs duplicate analysis on the file
     assert!(
-        output.contains("DUPLICATE") || output.contains("Signatures") || output.contains("analyzed") || output.len() > 50,
-        "Validate should analyze file: {}", output
+        output.contains("DUPLICATE")
+            || output.contains("Signatures")
+            || output.contains("analyzed")
+            || output.len() > 50,
+        "Validate should analyze file: {}",
+        output
     );
 }
 
@@ -467,8 +506,12 @@ fn test_mcp_validate_duplicates() {
 
     // Should find duplicate validateEmail functions
     assert!(
-        output.contains("duplicate") || output.contains("cluster") || output.contains("validateEmail") || output.len() > 10,
-        "Should find duplicates: {}", output
+        output.contains("duplicate")
+            || output.contains("cluster")
+            || output.contains("validateEmail")
+            || output.len() > 10,
+        "Should find duplicates: {}",
+        output
     );
 }
 
@@ -485,7 +528,8 @@ fn test_mcp_analyze_diff_no_changes() {
 
     assert!(
         output.contains("No") || output.contains("no") || output.len() < 200,
-        "Diff with no changes: {}", output
+        "Diff with no changes: {}",
+        output
     );
 }
 
@@ -500,7 +544,8 @@ fn test_mcp_analyze_diff_working_tree() {
     // Should show the new file
     assert!(
         output.contains("new.ts") || output.contains("newFunc") || output.len() > 10,
-        "Diff should show uncommitted changes: {}", output
+        "Diff should show uncommitted changes: {}",
+        output
     );
 }
 
@@ -511,7 +556,10 @@ fn test_mcp_analyze_diff_not_git() {
     let result = repo.run_cli(&["analyze", "--diff", "HEAD"]);
 
     // Should fail for non-git repo
-    assert!(!result.unwrap().status.success(), "Should fail for non-git repo");
+    assert!(
+        !result.unwrap().status.success(),
+        "Should fail for non-git repo"
+    );
 }
 
 // ============================================================================
@@ -525,7 +573,8 @@ fn test_mcp_multilang_index() {
 
     assert!(
         output.contains("Generated") || output.contains("success") || output.contains("files"),
-        "Multi-lang index should succeed: {}", output
+        "Multi-lang index should succeed: {}",
+        output
     );
 }
 
@@ -539,7 +588,8 @@ fn test_mcp_multilang_search() {
 
     assert!(
         output.contains("process") || output.contains("Process"),
-        "Should find process functions: {}", output
+        "Should find process functions: {}",
+        output
     );
 }
 
@@ -565,7 +615,10 @@ fn test_mcp_error_invalid_command() {
     let result = repo.run_cli(&["invalidcommand"]);
 
     // Should fail with error
-    assert!(!result.unwrap().status.success(), "Invalid command should fail");
+    assert!(
+        !result.unwrap().status.success(),
+        "Invalid command should fail"
+    );
 }
 
 #[test]
@@ -574,7 +627,10 @@ fn test_mcp_error_missing_file() {
 
     let result = repo.run_cli(&["analyze", "does_not_exist.ts"]);
 
-    assert!(!result.unwrap().status.success(), "Missing file should fail");
+    assert!(
+        !result.unwrap().status.success(),
+        "Missing file should fail"
+    );
 }
 
 #[test]
@@ -585,7 +641,10 @@ fn test_mcp_error_unsupported_extension() {
     let result = repo.run_cli(&["analyze", "test.xyz"]);
 
     // Should fail for unsupported extension
-    assert!(!result.unwrap().status.success(), "Unsupported extension should fail");
+    assert!(
+        !result.unwrap().status.success(),
+        "Unsupported extension should fail"
+    );
 }
 
 // ============================================================================
@@ -619,7 +678,10 @@ fn test_mcp_security_scan() {
 #[test]
 fn test_mcp_test_detect() {
     let repo = create_basic_ts_repo();
-    repo.add_file("package.json", r#"{"name": "test", "scripts": {"test": "jest"}}"#);
+    repo.add_file(
+        "package.json",
+        r#"{"name": "test", "scripts": {"test": "jest"}}"#,
+    );
 
     let output = repo.run_cli_success(&["test", "--detect"]);
 
@@ -651,8 +713,12 @@ fn test_mcp_commit_prep() {
 
     // Should show uncommitted changes info
     assert!(
-        output.contains("new.ts") || output.contains("unstaged") || output.contains("change") || output.len() > 10,
-        "Commit prep should show changes: {}", output
+        output.contains("new.ts")
+            || output.contains("unstaged")
+            || output.contains("change")
+            || output.len() > 10,
+        "Commit prep should show changes: {}",
+        output
     );
 }
 
@@ -706,7 +772,8 @@ fn test_mcp_output_toon_format() {
     // TOON format should have type markers
     assert!(
         output.contains("_type") || output.len() > 0,
-        "TOON format output: {}", output
+        "TOON format output: {}",
+        output
     );
 }
 
@@ -738,7 +805,10 @@ fn test_mcp_empty_repo() {
 #[test]
 fn test_mcp_unicode_filename() {
     let repo = TestRepo::new();
-    repo.add_file("src/日本語.ts", "export function hello() { return '世界'; }");
+    repo.add_file(
+        "src/日本語.ts",
+        "export function hello() { return '世界'; }",
+    );
 
     // May or may not handle Unicode filenames depending on platform
     let result = repo.run_cli(&["analyze", "src/日本語.ts"]);
@@ -758,7 +828,8 @@ fn test_mcp_deep_nesting() {
 
     assert!(
         output.contains("deepFunction") || output.contains("fn"),
-        "Should analyze deeply nested file: {}", output
+        "Should analyze deeply nested file: {}",
+        output
     );
 }
 
@@ -796,7 +867,8 @@ fn test_mcp_search_symbol_mode() {
 
     assert!(
         output.contains("greet") || output.contains("symbol"),
-        "Symbol mode should find exact matches: {}", output
+        "Symbol mode should find exact matches: {}",
+        output
     );
 }
 
@@ -822,7 +894,8 @@ fn test_mcp_search_raw_mode() {
     // Should find regex pattern matches
     assert!(
         output.contains("function") || output.len() > 0,
-        "Raw mode should search with regex: {}", output
+        "Raw mode should search with regex: {}",
+        output
     );
 }
 
@@ -837,7 +910,8 @@ fn test_mcp_search_hybrid_mode_default() {
     // Should find results from both symbol and semantic search
     assert!(
         output.contains("User") || output.contains("user") || output.len() > 0,
-        "Hybrid mode should find results: {}", output
+        "Hybrid mode should find results: {}",
+        output
     );
 }
 
@@ -849,7 +923,10 @@ fn test_mcp_search_with_module_filter() {
     // Search with module filter
     let output = repo.run_cli_success(&["search", "greet", "--module", "src"]);
 
-    assert!(output.len() > 0, "Module filtered search should return output");
+    assert!(
+        output.len() > 0,
+        "Module filtered search should return output"
+    );
 }
 
 #[test]
@@ -860,7 +937,10 @@ fn test_mcp_search_with_kind_filter() {
     // Search only for functions
     let output = repo.run_cli_success(&["search", "*", "--kind", "fn"]);
 
-    assert!(output.len() > 0, "Kind filtered search should return output");
+    assert!(
+        output.len() > 0,
+        "Kind filtered search should return output"
+    );
 }
 
 #[test]
@@ -874,7 +954,8 @@ fn test_mcp_search_with_source_output() {
     // Should include source snippets
     assert!(
         output.contains("greet") || output.len() > 50,
-        "Search with source should show code: {}", output
+        "Search with source should show code: {}",
+        output
     );
 }
 
@@ -945,7 +1026,10 @@ fn test_mcp_query_callgraph_with_symbol_filter() {
     // Query callgraph filtered to a specific symbol
     let output = repo.run_cli_success(&["query", "callgraph", "--symbol", "helper"]);
 
-    assert!(output.len() > 0, "Callgraph with symbol filter should return output");
+    assert!(
+        output.len() > 0,
+        "Callgraph with symbol filter should return output"
+    );
 }
 
 #[test]
@@ -956,7 +1040,10 @@ fn test_mcp_query_callgraph_with_module_filter() {
     // Query callgraph filtered to a module
     let output = repo.run_cli_success(&["query", "callgraph", "--module", "src"]);
 
-    assert!(output.len() > 0, "Callgraph with module filter should return output");
+    assert!(
+        output.len() > 0,
+        "Callgraph with module filter should return output"
+    );
 }
 
 // ============================================================================
@@ -973,7 +1060,8 @@ fn test_mcp_validate_module_scope() {
 
     assert!(
         output.len() > 10,
-        "Module scope validation should return output: {}", output
+        "Module scope validation should return output: {}",
+        output
     );
 }
 
@@ -985,7 +1073,10 @@ fn test_mcp_validate_with_duplicate_threshold() {
     // Validate with custom duplicate threshold
     let output = repo.run_cli_success(&["validate", "--duplicates", "--threshold", "0.95"]);
 
-    assert!(output.len() > 0, "Validate with threshold should return output");
+    assert!(
+        output.len() > 0,
+        "Validate with threshold should return output"
+    );
 }
 
 #[test]
@@ -1047,7 +1138,8 @@ fn test_mcp_query_symbol_by_file_location() {
     // Should return symbols at that location
     assert!(
         output.contains("greet") || output.contains("add"),
-        "Should find symbols at file location: {}", output
+        "Should find symbols at file location: {}",
+        output
     );
 }
 
@@ -1057,12 +1149,14 @@ fn test_mcp_query_symbol_kind_filter() {
     repo.generate_index().expect("Index generation failed");
 
     // Query with kind filter
-    let output = repo.run_cli_success(&["query", "file", "src/api/users.ts", "--kind", "interface"]);
+    let output =
+        repo.run_cli_success(&["query", "file", "src/api/users.ts", "--kind", "interface"]);
 
     // Should find User interface
     assert!(
         output.contains("User") || output.len() > 0,
-        "Kind filter should find interfaces: {}", output
+        "Kind filter should find interfaces: {}",
+        output
     );
 }
 
@@ -1081,7 +1175,8 @@ fn test_mcp_index_smart_refresh_when_fresh() {
     // Should complete successfully - looks for "complete", "fresh", or file count
     assert!(
         output.contains("fresh") || output.contains("complete") || output.contains("files_found"),
-        "Smart refresh output: {}", output
+        "Smart refresh output: {}",
+        output
     );
 }
 
@@ -1112,14 +1207,18 @@ fn test_mcp_index_with_extension_filter() {
 
     // Should complete and show files processed
     assert!(
-        output.contains("complete") || output.contains("files_found") || output.contains("files_processed"),
-        "Extension filtered index: {}", output
+        output.contains("complete")
+            || output.contains("files_found")
+            || output.contains("files_processed"),
+        "Extension filtered index: {}",
+        output
     );
 
     // Verify only 1 file was processed (the .ts file)
     assert!(
         output.contains("files_found: 1") || output.contains("files_processed: 1"),
-        "Should only index TypeScript files: {}", output
+        "Should only index TypeScript files: {}",
+        output
     );
 }
 
@@ -1137,8 +1236,12 @@ fn test_mcp_find_duplicates_basic() {
 
     // Should find duplicate validateEmail functions
     assert!(
-        output.contains("validateEmail") || output.contains("cluster") || output.contains("duplicate") || output.len() > 10,
-        "Should detect duplicates: {}", output
+        output.contains("validateEmail")
+            || output.contains("cluster")
+            || output.contains("duplicate")
+            || output.len() > 10,
+        "Should detect duplicates: {}",
+        output
     );
 }
 
@@ -1149,7 +1252,10 @@ fn test_mcp_find_duplicates_with_limit() {
 
     let output = repo.run_cli_success(&["validate", "--duplicates", "--limit", "5"]);
 
-    assert!(output.len() > 0, "Duplicates with limit should return output");
+    assert!(
+        output.len() > 0,
+        "Duplicates with limit should return output"
+    );
 }
 
 #[test]
@@ -1188,7 +1294,8 @@ fn test_mcp_get_project_context_via_overview() {
     // Should show project info
     assert!(
         output.contains("module") || output.contains("src") || output.len() > 10,
-        "Overview should show project info: {}", output
+        "Overview should show project info: {}",
+        output
     );
 }
 
@@ -1203,7 +1310,8 @@ fn test_mcp_get_git_context_via_commit() {
     // Should show git context and changes
     assert!(
         output.contains("branch") || output.contains("new.ts") || output.len() > 10,
-        "Commit prep should show git context: {}", output
+        "Commit prep should show git context: {}",
+        output
     );
 }
 

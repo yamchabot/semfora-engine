@@ -46,9 +46,11 @@ impl McpClient for ClaudeDesktopClient {
     }
 
     fn configure(&self, config: &McpServerConfig, platform: &Platform) -> Result<(), McpDiffError> {
-        let config_path = self.config_path(platform).ok_or_else(|| McpDiffError::ConfigError {
-            message: "Could not determine Claude Desktop config path".to_string(),
-        })?;
+        let config_path = self
+            .config_path(platform)
+            .ok_or_else(|| McpDiffError::ConfigError {
+                message: "Could not determine Claude Desktop config path".to_string(),
+            })?;
 
         // Create backup
         self.backup_config(platform)?;
@@ -71,9 +73,11 @@ impl McpClient for ClaudeDesktopClient {
     }
 
     fn unconfigure(&self, platform: &Platform) -> Result<(), McpDiffError> {
-        let config_path = self.config_path(platform).ok_or_else(|| McpDiffError::ConfigError {
-            message: "Could not determine Claude Desktop config path".to_string(),
-        })?;
+        let config_path = self
+            .config_path(platform)
+            .ok_or_else(|| McpDiffError::ConfigError {
+                message: "Could not determine Claude Desktop config path".to_string(),
+            })?;
 
         if !config_path.exists() {
             return Ok(());

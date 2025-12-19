@@ -6,8 +6,6 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyzer};
-
 /// Semantic code analyzer with TOON output
 #[derive(Parser, Debug)]
 #[command(name = "semfora")]
@@ -756,7 +754,13 @@ impl SearchArgs {
     }
 
     /// Create SearchArgs for symbol-only search (used by MCP search_symbols)
-    pub fn for_symbols(query: String, module: Option<String>, kind: Option<String>, risk: Option<String>, limit: usize) -> Self {
+    pub fn for_symbols(
+        query: String,
+        module: Option<String>,
+        kind: Option<String>,
+        risk: Option<String>,
+        limit: usize,
+    ) -> Self {
         Self {
             query,
             symbols: true,
@@ -774,7 +778,13 @@ impl SearchArgs {
     }
 
     /// Create SearchArgs for semantic-only search (used by MCP semantic_search)
-    pub fn for_semantic(query: String, module: Option<String>, kind: Option<String>, include_source: bool, limit: usize) -> Self {
+    pub fn for_semantic(
+        query: String,
+        module: Option<String>,
+        kind: Option<String>,
+        include_source: bool,
+        limit: usize,
+    ) -> Self {
         Self {
             query,
             symbols: false,
@@ -792,7 +802,13 @@ impl SearchArgs {
     }
 
     /// Create SearchArgs for raw regex search (used by MCP raw_search)
-    pub fn for_raw(pattern: String, file_types: Option<String>, case_sensitive: bool, limit: usize, merge_threshold: usize) -> Self {
+    pub fn for_raw(
+        pattern: String,
+        file_types: Option<String>,
+        case_sensitive: bool,
+        limit: usize,
+        merge_threshold: usize,
+    ) -> Self {
         Self {
             query: pattern,
             symbols: false,
@@ -810,7 +826,13 @@ impl SearchArgs {
     }
 
     /// Create SearchArgs for hybrid search with source (used by MCP search_and_get_symbols)
-    pub fn for_hybrid_with_source(query: String, module: Option<String>, kind: Option<String>, risk: Option<String>, limit: usize) -> Self {
+    pub fn for_hybrid_with_source(
+        query: String,
+        module: Option<String>,
+        kind: Option<String>,
+        risk: Option<String>,
+        limit: usize,
+    ) -> Self {
         Self {
             query,
             symbols: false,
@@ -851,24 +873,13 @@ pub enum OperationMode {
     /// Analyze a single file
     SingleFile(PathBuf),
     /// Analyze all files in a directory
-    Directory {
-        path: PathBuf,
-        max_depth: usize,
-    },
+    Directory { path: PathBuf, max_depth: usize },
     /// Diff current branch against base
-    DiffBranch {
-        base_ref: String,
-    },
+    DiffBranch { base_ref: String },
     /// Analyze uncommitted changes
-    Uncommitted {
-        base_ref: String,
-    },
+    Uncommitted { base_ref: String },
     /// Analyze a specific commit
-    SingleCommit {
-        sha: String,
-    },
+    SingleCommit { sha: String },
     /// Analyze all commits since base
-    AllCommits {
-        base_ref: String,
-    },
+    AllCommits { base_ref: String },
 }

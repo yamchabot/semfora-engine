@@ -17,48 +17,109 @@ use crate::schema::{ModuleGroup, RepoOverview, RepoStats, RiskLevel, SemanticSum
 use crate::shard::extract_module_name;
 use crate::utils::truncate_to_char_boundary;
 
-
 // ============================================================================
 // Noisy call filtering - these are implementation details, not architecture
 // ============================================================================
 
 /// Array/collection methods that are implementation noise
 const NOISY_ARRAY_METHODS: &[&str] = &[
-    "includes", "filter", "map", "reduce", "forEach", "find", "findIndex",
-    "some", "every", "slice", "splice", "push", "pop", "shift", "unshift",
-    "concat", "join", "sort", "reverse", "indexOf", "lastIndexOf", "flat",
-    "flatMap", "fill", "copyWithin", "entries", "keys", "values", "at",
+    "includes",
+    "filter",
+    "map",
+    "reduce",
+    "forEach",
+    "find",
+    "findIndex",
+    "some",
+    "every",
+    "slice",
+    "splice",
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "concat",
+    "join",
+    "sort",
+    "reverse",
+    "indexOf",
+    "lastIndexOf",
+    "flat",
+    "flatMap",
+    "fill",
+    "copyWithin",
+    "entries",
+    "keys",
+    "values",
+    "at",
 ];
 
 /// Promise chain methods - the actual logic inside is captured separately
-const NOISY_PROMISE_METHODS: &[&str] = &[
-    "then", "catch", "finally",
-];
+const NOISY_PROMISE_METHODS: &[&str] = &["then", "catch", "finally"];
 
 /// ORM/Schema builder methods - these are declarations, not runtime behavior
 const NOISY_SCHEMA_METHODS: &[&str] = &[
-    "notNull", "primaryKey", "default", "references", "unique", "index",
-    "serial", "text", "integer", "bigint", "boolean", "timestamp", "jsonb",
-    "varchar", "char", "numeric", "real", "double", "date", "time", "uuid",
+    "notNull",
+    "primaryKey",
+    "default",
+    "references",
+    "unique",
+    "index",
+    "serial",
+    "text",
+    "integer",
+    "bigint",
+    "boolean",
+    "timestamp",
+    "jsonb",
+    "varchar",
+    "char",
+    "numeric",
+    "real",
+    "double",
+    "date",
+    "time",
+    "uuid",
 ];
 
 /// Math methods that are implementation noise
 const NOISY_MATH_METHODS: &[&str] = &[
-    "floor", "ceil", "round", "random", "abs", "sqrt", "pow", "min", "max",
-    "sin", "cos", "tan", "log", "exp",
+    "floor", "ceil", "round", "random", "abs", "sqrt", "pow", "min", "max", "sin", "cos", "tan",
+    "log", "exp",
 ];
 
 /// String methods that are implementation noise
 const NOISY_STRING_METHODS: &[&str] = &[
-    "split", "trim", "toLowerCase", "toUpperCase", "substring", "substr",
-    "charAt", "charCodeAt", "replace", "replaceAll", "match", "search",
-    "startsWith", "endsWith", "padStart", "padEnd", "repeat",
+    "split",
+    "trim",
+    "toLowerCase",
+    "toUpperCase",
+    "substring",
+    "substr",
+    "charAt",
+    "charCodeAt",
+    "replace",
+    "replaceAll",
+    "match",
+    "search",
+    "startsWith",
+    "endsWith",
+    "padStart",
+    "padEnd",
+    "repeat",
 ];
 
 /// Object methods that are implementation noise
 const NOISY_OBJECT_METHODS: &[&str] = &[
-    "keys", "values", "entries", "assign", "freeze", "seal",
-    "hasOwnProperty", "toString", "valueOf",
+    "keys",
+    "values",
+    "entries",
+    "assign",
+    "freeze",
+    "seal",
+    "hasOwnProperty",
+    "toString",
+    "valueOf",
 ];
 
 /// HTTP methods for API calls
@@ -66,36 +127,61 @@ const HTTP_METHODS: &[&str] = &["get", "post", "put", "patch", "delete", "head",
 
 /// API/HTTP client libraries
 const API_CLIENT_NAMES: &[&str] = &[
-    "axios", "fetch", "ky", "got", "superagent", "request", "invoke",
+    "axios",
+    "fetch",
+    "ky",
+    "got",
+    "superagent",
+    "request",
+    "invoke",
 ];
 
 /// React Query / TanStack Query hooks
 const REACT_QUERY_HOOKS: &[&str] = &[
-    "useQuery", "useMutation", "useInfiniteQuery", "useQueries",
-    "useSuspenseQuery", "useSuspenseInfiniteQuery", "usePrefetchQuery",
-    "queryClient", "useQueryClient",
+    "useQuery",
+    "useMutation",
+    "useInfiniteQuery",
+    "useQueries",
+    "useSuspenseQuery",
+    "useSuspenseInfiniteQuery",
+    "usePrefetchQuery",
+    "queryClient",
+    "useQueryClient",
 ];
 
 /// SWR hooks
-const SWR_HOOKS: &[&str] = &[
-    "useSWR", "useSWRMutation", "useSWRInfinite", "useSWRConfig",
-];
+const SWR_HOOKS: &[&str] = &["useSWR", "useSWRMutation", "useSWRInfinite", "useSWRConfig"];
 
 /// Apollo GraphQL hooks
 const APOLLO_HOOKS: &[&str] = &[
-    "useApolloClient", "useLazyQuery", "useSubscription",
-    "useReactiveVar", "useSuspenseQuery_experimental",
+    "useApolloClient",
+    "useLazyQuery",
+    "useSubscription",
+    "useReactiveVar",
+    "useSuspenseQuery_experimental",
 ];
 
 /// Check if a call is meaningful (not noise)
 pub fn is_meaningful_call(name: &str, object: Option<&str>) -> bool {
     // Always keep React hooks (useState, useEffect, etc.)
-    if name.starts_with("use") && name.chars().nth(3).map(|c| c.is_uppercase()).unwrap_or(false) {
+    if name.starts_with("use")
+        && name
+            .chars()
+            .nth(3)
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+    {
         return true;
     }
 
     // Always keep state setters
-    if name.starts_with("set") && name.chars().nth(3).map(|c| c.is_uppercase()).unwrap_or(false) {
+    if name.starts_with("set")
+        && name
+            .chars()
+            .nth(3)
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+    {
         return true;
     }
 
@@ -127,7 +213,10 @@ pub fn is_meaningful_call(name: &str, object: Option<&str>) -> bool {
     }
 
     // Always keep I/O and database calls
-    if matches!(name, "insert" | "select" | "update" | "delete" | "query" | "execute" | "migrate" | "mutate") {
+    if matches!(
+        name,
+        "insert" | "select" | "update" | "delete" | "query" | "execute" | "migrate" | "mutate"
+    ) {
         return true;
     }
 
@@ -164,7 +253,10 @@ pub fn is_meaningful_call(name: &str, object: Option<&str>) -> bool {
         }
 
         // Keep database, Response, process calls
-        if matches!(obj, "db" | "Response" | "process" | "console" | "document" | "window") {
+        if matches!(
+            obj,
+            "db" | "Response" | "process" | "console" | "document" | "window"
+        ) {
             return true;
         }
     }
@@ -324,7 +416,10 @@ fn detect_framework(summaries: &[SemanticSummary]) -> Option<String> {
 fn detect_database(summaries: &[SemanticSummary]) -> Option<String> {
     for s in summaries {
         // Drizzle detection
-        if s.added_dependencies.iter().any(|d| d == "drizzle" || d == "pgTable" || d == "mysqlTable") {
+        if s.added_dependencies
+            .iter()
+            .any(|d| d == "drizzle" || d == "pgTable" || d == "mysqlTable")
+        {
             return Some("PostgreSQL (Drizzle ORM)".to_string());
         }
 
@@ -334,7 +429,10 @@ fn detect_database(summaries: &[SemanticSummary]) -> Option<String> {
         }
 
         // Raw postgres
-        if s.added_dependencies.iter().any(|d| d == "postgres" || d == "pg") {
+        if s.added_dependencies
+            .iter()
+            .any(|d| d == "postgres" || d == "pg")
+        {
             return Some("PostgreSQL".to_string());
         }
     }
@@ -381,6 +479,7 @@ fn get_module_purpose(name: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn build_module_groups(summaries: &[SemanticSummary], dir_path: &str) -> Vec<ModuleGroup> {
     build_module_groups_with_map(summaries, dir_path, None)
 }
@@ -415,8 +514,14 @@ fn build_module_groups_with_map(
             let purpose = get_module_purpose(&name);
 
             // Calculate aggregate risk
-            let high_count = files.iter().filter(|f| f.behavioral_risk == RiskLevel::High).count();
-            let med_count = files.iter().filter(|f| f.behavioral_risk == RiskLevel::Medium).count();
+            let high_count = files
+                .iter()
+                .filter(|f| f.behavioral_risk == RiskLevel::High)
+                .count();
+            let med_count = files
+                .iter()
+                .filter(|f| f.behavioral_risk == RiskLevel::Medium)
+                .count();
             let risk = if high_count > 0 {
                 RiskLevel::High
             } else if med_count > 0 {
@@ -430,13 +535,7 @@ fn build_module_groups_with_map(
                 .iter()
                 .filter(|f| f.behavioral_risk == RiskLevel::High || f.symbol.is_some())
                 .take(3)
-                .map(|f| {
-                    f.file
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or(&f.file)
-                        .to_string()
-                })
+                .map(|f| f.file.rsplit('/').next().unwrap_or(&f.file).to_string())
                 .collect();
 
             ModuleGroup {
@@ -562,9 +661,11 @@ fn detect_patterns(summaries: &[SemanticSummary]) -> Vec<String> {
     }
 
     // MCP/Protocol patterns
-    let has_mcp = summaries
-        .iter()
-        .any(|s| s.added_dependencies.iter().any(|d| d.contains("rmcp") || d.contains("mcp")));
+    let has_mcp = summaries.iter().any(|s| {
+        s.added_dependencies
+            .iter()
+            .any(|d| d.contains("rmcp") || d.contains("mcp"))
+    });
     if has_mcp {
         patterns.push("MCP server".to_string());
     }
@@ -661,7 +762,10 @@ pub fn encode_toon_directory(overview: &RepoOverview, _summaries: &[SemanticSumm
     let mut obj = Map::new();
 
     // Add overview fields
-    obj.insert("schema_version".to_string(), json!(crate::schema::SCHEMA_VERSION));
+    obj.insert(
+        "schema_version".to_string(),
+        json!(crate::schema::SCHEMA_VERSION),
+    );
     obj.insert("_type".to_string(), json!("repo_overview"));
 
     if let Some(ref fw) = overview.framework {
@@ -724,10 +828,14 @@ pub fn encode_toon_directory(overview: &RepoOverview, _summaries: &[SemanticSumm
 }
 
 /// Encode repository overview as TOON
+#[allow(dead_code)]
 fn encode_repo_overview(overview: &RepoOverview) -> String {
     let mut obj = Map::new();
 
-    obj.insert("schema_version".to_string(), json!(crate::schema::SCHEMA_VERSION));
+    obj.insert(
+        "schema_version".to_string(),
+        json!(crate::schema::SCHEMA_VERSION),
+    );
     obj.insert("_type".to_string(), json!("repo_overview"));
 
     if let Some(ref fw) = overview.framework {
@@ -912,7 +1020,10 @@ pub fn encode_toon_clean(summary: &SemanticSummary) -> String {
                     if content.len() <= 100 {
                         obj.insert("raw".to_string(), json!(content));
                     } else {
-                        obj.insert("raw".to_string(), json!(format!("{}...", truncate_to_char_boundary(&content, 97))));
+                        obj.insert(
+                            "raw".to_string(),
+                            json!(format!("{}...", truncate_to_char_boundary(&content, 97))),
+                        );
                     }
                 } else {
                     obj.insert("raw".to_string(), json!(format!("({} lines)", lines.len())));
@@ -931,7 +1042,10 @@ pub fn encode_toon(summary: &SemanticSummary) -> String {
     let mut obj = Map::new();
 
     // Schema version for output stability
-    obj.insert("schema_version".to_string(), json!(crate::schema::SCHEMA_VERSION));
+    obj.insert(
+        "schema_version".to_string(),
+        json!(crate::schema::SCHEMA_VERSION),
+    );
 
     // Simple scalar fields
     obj.insert("file".to_string(), json!(summary.file));
@@ -1076,7 +1190,10 @@ pub fn encode_toon(summary: &SemanticSummary) -> String {
                 if content.len() <= 200 {
                     obj.insert("raw_source".to_string(), json!(content));
                 } else {
-                    obj.insert("raw_source".to_string(), json!(format!("{}...", truncate_to_char_boundary(&content, 197))));
+                    obj.insert(
+                        "raw_source".to_string(),
+                        json!(format!("{}...", truncate_to_char_boundary(&content, 197))),
+                    );
                 }
             } else {
                 // Longer files: just report structure
@@ -1480,7 +1597,11 @@ mod tests {
         assert!(framework.is_some());
         let fw = framework.unwrap();
         assert!(fw.contains("Next.js"), "Should detect Next.js: {}", fw);
-        assert!(fw.contains("App Router"), "Should detect App Router: {}", fw);
+        assert!(
+            fw.contains("App Router"),
+            "Should detect App Router: {}",
+            fw
+        );
     }
 
     #[test]
@@ -1503,7 +1624,11 @@ mod tests {
         assert!(framework.is_some());
         let fw = framework.unwrap();
         assert!(fw.contains("Next.js"), "Should detect Next.js: {}", fw);
-        assert!(fw.contains("Pages Router"), "Should detect Pages Router: {}", fw);
+        assert!(
+            fw.contains("Pages Router"),
+            "Should detect Pages Router: {}",
+            fw
+        );
     }
 
     #[test]
@@ -1537,14 +1662,12 @@ mod tests {
 
     #[test]
     fn test_detect_framework_express() {
-        let summaries = vec![
-            SemanticSummary {
-                file: "src/server.ts".to_string(),
-                language: "typescript".to_string(),
-                added_dependencies: vec!["express".to_string()],
-                ..Default::default()
-            },
-        ];
+        let summaries = vec![SemanticSummary {
+            file: "src/server.ts".to_string(),
+            language: "typescript".to_string(),
+            added_dependencies: vec!["express".to_string()],
+            ..Default::default()
+        }];
 
         let framework = detect_framework(&summaries);
         assert!(framework.is_some());
@@ -1646,8 +1769,16 @@ mod tests {
         assert!(framework.is_some());
         let fw = framework.unwrap();
         // Should detect both
-        assert!(fw.contains("Rust"), "Should detect Rust in multi-lang: {}", fw);
-        assert!(fw.contains("Python"), "Should detect Python in multi-lang: {}", fw);
+        assert!(
+            fw.contains("Rust"),
+            "Should detect Rust in multi-lang: {}",
+            fw
+        );
+        assert!(
+            fw.contains("Python"),
+            "Should detect Python in multi-lang: {}",
+            fw
+        );
         assert!(fw.contains("+"), "Should combine frameworks: {}", fw);
     }
 }

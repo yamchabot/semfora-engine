@@ -6,9 +6,10 @@
 //!
 //! TARGET can be a file path, module name, or symbol hash
 
+#![allow(unused_imports)]
+
 use crate::common::{
-    assert_contains, assert_valid_json, assert_valid_toon,
-    extract_symbol_hashes, TestRepo,
+    assert_contains, assert_valid_json, assert_valid_toon, extract_symbol_hashes, TestRepo,
 };
 
 // ============================================================================
@@ -270,11 +271,25 @@ export function processB(y: number) {
     repo.generate_index().unwrap();
 
     // High threshold - may not find near-duplicates
-    let output_high = repo.run_cli_success(&["validate", "--duplicates", "--threshold", "0.99", "-f", "json"]);
+    let output_high = repo.run_cli_success(&[
+        "validate",
+        "--duplicates",
+        "--threshold",
+        "0.99",
+        "-f",
+        "json",
+    ]);
     assert_valid_json(&output_high, "duplicates high threshold");
 
     // Lower threshold - should find more
-    let output_low = repo.run_cli_success(&["validate", "--duplicates", "--threshold", "0.70", "-f", "json"]);
+    let output_low = repo.run_cli_success(&[
+        "validate",
+        "--duplicates",
+        "--threshold",
+        "0.70",
+        "-f",
+        "json",
+    ]);
     assert_valid_json(&output_low, "duplicates low threshold");
 }
 
@@ -319,10 +334,7 @@ fn test_validate_text_format() {
 
     let output = repo.run_cli_success(&["validate", "src/service.ts", "-f", "text"]);
 
-    assert!(
-        !output.is_empty(),
-        "Text format should produce output"
-    );
+    assert!(!output.is_empty(), "Text format should produce output");
 }
 
 #[test]
@@ -472,8 +484,17 @@ export class Product {
     repo.generate_index().unwrap();
 
     // With boilerplate inclusion (normally excluded by default)
-    let result_include = repo.run_cli(&["validate", "--duplicates", "--include-boilerplate", "-f", "json"]);
-    assert!(result_include.is_ok(), "Boilerplate inclusion flag should work");
+    let result_include = repo.run_cli(&[
+        "validate",
+        "--duplicates",
+        "--include-boilerplate",
+        "-f",
+        "json",
+    ]);
+    assert!(
+        result_include.is_ok(),
+        "Boilerplate inclusion flag should work"
+    );
 
     // Without flag (boilerplate excluded by default)
     let result_default = repo.run_cli(&["validate", "--duplicates", "-f", "json"]);
@@ -625,15 +646,32 @@ fn test_validate_duplicates_exact_vs_near() {
     repo.generate_index().unwrap();
 
     // High threshold should find exact
-    let high = repo.run_cli_success(&["validate", "--duplicates", "--threshold", "0.99", "-f", "json"]);
+    let high = repo.run_cli_success(&[
+        "validate",
+        "--duplicates",
+        "--threshold",
+        "0.99",
+        "-f",
+        "json",
+    ]);
     let high_json = assert_valid_json(&high, "high threshold");
 
     // Lower threshold should find more
-    let low = repo.run_cli_success(&["validate", "--duplicates", "--threshold", "0.75", "-f", "json"]);
+    let low = repo.run_cli_success(&[
+        "validate",
+        "--duplicates",
+        "--threshold",
+        "0.75",
+        "-f",
+        "json",
+    ]);
     let low_json = assert_valid_json(&low, "low threshold");
 
     // Both should be valid JSON
-    assert!(high_json.is_object(), "High threshold result should be valid");
+    assert!(
+        high_json.is_object(),
+        "High threshold result should be valid"
+    );
     assert!(low_json.is_object(), "Low threshold result should be valid");
 }
 
@@ -668,11 +706,23 @@ fn test_validate_duplicates_short_vs_long_functions() {
 
     // Default behavior (boilerplate excluded)
     let result_default = repo.run_cli(&["validate", "--duplicates", "-f", "json"]);
-    assert!(result_default.is_ok(), "Default duplicate detection should work");
+    assert!(
+        result_default.is_ok(),
+        "Default duplicate detection should work"
+    );
 
     // With boilerplate included
-    let result_with_boilerplate = repo.run_cli(&["validate", "--duplicates", "--include-boilerplate", "-f", "json"]);
-    assert!(result_with_boilerplate.is_ok(), "Including boilerplate should work");
+    let result_with_boilerplate = repo.run_cli(&[
+        "validate",
+        "--duplicates",
+        "--include-boilerplate",
+        "-f",
+        "json",
+    ]);
+    assert!(
+        result_with_boilerplate.is_ok(),
+        "Including boilerplate should work"
+    );
 }
 
 // ============================================================================
@@ -687,11 +737,25 @@ fn test_validate_duplicates_threshold_boundaries() {
     repo.generate_index().unwrap();
 
     // Very low threshold
-    let result_low = repo.run_cli(&["validate", "--duplicates", "--threshold", "0.50", "-f", "json"]);
+    let result_low = repo.run_cli(&[
+        "validate",
+        "--duplicates",
+        "--threshold",
+        "0.50",
+        "-f",
+        "json",
+    ]);
     assert!(result_low.is_ok(), "Low threshold should work");
 
     // Very high threshold
-    let result_high = repo.run_cli(&["validate", "--duplicates", "--threshold", "0.99", "-f", "json"]);
+    let result_high = repo.run_cli(&[
+        "validate",
+        "--duplicates",
+        "--threshold",
+        "0.99",
+        "-f",
+        "json",
+    ]);
     assert!(result_high.is_ok(), "High threshold should work");
 
     // Default threshold

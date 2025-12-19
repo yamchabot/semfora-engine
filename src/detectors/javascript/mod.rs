@@ -91,7 +91,7 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree, lang: L
 /// Extract semantic information from a Vue Single File Component
 ///
 /// Vue SFCs are handled specially:
-/// 1. Parse the SFC to extract the <script> section
+/// 1. Parse the SFC to extract the `<script>` section
 /// 2. Determine the script language (ts, tsx, js, jsx)
 /// 3. Parse the script content with the appropriate grammar
 /// 4. Run standard JS/TS extraction on the script
@@ -109,11 +109,7 @@ pub fn extract_vue_sfc(summary: &mut SemanticSummary, source: &str) -> Result<()
     };
 
     // Mark as Vue SFC
-    push_unique_insertion(
-        &mut summary.insertions,
-        "Vue SFC".to_string(),
-        "Vue SFC",
-    );
+    push_unique_insertion(&mut summary.insertions, "Vue SFC".to_string(), "Vue SFC");
 
     if sfc_script.is_setup {
         push_unique_insertion(

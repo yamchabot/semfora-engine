@@ -260,13 +260,7 @@ pub fn is_api_route(info: &SymbolInfo) -> bool {
 /// Config/export: module.exports patterns
 pub fn is_config_export(info: &SymbolInfo) -> bool {
     // Config names
-    let config_names = [
-        "config",
-        "options",
-        "settings",
-        "defaults",
-        "configuration",
-    ];
+    let config_names = ["config", "options", "settings", "defaults", "configuration"];
 
     let name_lower = info.name.to_lowercase();
 
@@ -434,8 +428,13 @@ pub fn is_react_wrapper(info: &SymbolInfo) -> bool {
         .filter(|c| {
             matches!(
                 c.name.as_str(),
-                "memo" | "React.memo" | "forwardRef" | "React.forwardRef"
-                | "lazy" | "React.lazy" | "Suspense"
+                "memo"
+                    | "React.memo"
+                    | "forwardRef"
+                    | "React.forwardRef"
+                    | "lazy"
+                    | "React.lazy"
+                    | "Suspense"
             )
         })
         .collect();
@@ -488,8 +487,22 @@ pub fn is_api_wrapper(info: &SymbolInfo) -> bool {
             let obj = c.object.as_deref().unwrap_or("");
 
             // Check if it's an HTTP method call on an HTTP client object
-            let is_http_method = matches!(name, "get" | "post" | "put" | "patch" | "delete" | "request" | "head" | "options");
-            let is_http_client = matches!(obj, "axios" | "http" | "api" | "client" | "fetch" | "request" | "ky" | "got" | "superagent");
+            let is_http_method = matches!(
+                name,
+                "get" | "post" | "put" | "patch" | "delete" | "request" | "head" | "options"
+            );
+            let is_http_client = matches!(
+                obj,
+                "axios"
+                    | "http"
+                    | "api"
+                    | "client"
+                    | "fetch"
+                    | "request"
+                    | "ky"
+                    | "got"
+                    | "superagent"
+            );
 
             // Axios/fetch/HTTP library patterns
             is_http_method && is_http_client
@@ -554,7 +567,10 @@ pub fn is_context_provider(info: &SymbolInfo) -> bool {
         .filter(|c| {
             let name = c.name.as_str();
             // Context creation or usage
-            matches!(name, "createContext" | "useContext" | "useState" | "useReducer" | "useMemo")
+            matches!(
+                name,
+                "createContext" | "useContext" | "useState" | "useReducer" | "useMemo"
+            )
         })
         .collect();
 
@@ -644,8 +660,13 @@ pub fn is_suspense_boundary(info: &SymbolInfo) -> bool {
             let name = c.name.as_str();
             matches!(
                 name,
-                "Suspense" | "ErrorBoundary" | "lazy" | "React.lazy"
-                | "startTransition" | "useTransition" | "useDeferredValue"
+                "Suspense"
+                    | "ErrorBoundary"
+                    | "lazy"
+                    | "React.lazy"
+                    | "startTransition"
+                    | "useTransition"
+                    | "useDeferredValue"
             )
         })
         .collect();
@@ -717,7 +738,11 @@ mod tests {
 
     #[test]
     fn test_react_hook_custom() {
-        let symbol = make_symbol("useDebounce", vec!["useState", "useEffect", "setTimeout"], 1);
+        let symbol = make_symbol(
+            "useDebounce",
+            vec!["useState", "useEffect", "setTimeout"],
+            1,
+        );
         assert!(is_react_hook_wrapper(&symbol));
     }
 
@@ -947,13 +972,21 @@ mod tests {
 
     #[test]
     fn test_validation_yup_schema() {
-        let symbol = make_symbol("loginValidator", vec!["yup.object", "yup.string", "required"], 0);
+        let symbol = make_symbol(
+            "loginValidator",
+            vec!["yup.object", "yup.string", "required"],
+            0,
+        );
         assert!(is_validation_schema(&symbol));
     }
 
     #[test]
     fn test_validation_joi_schema() {
-        let symbol = make_symbol("configSchema", vec!["Joi.object", "Joi.string", "Joi.number"], 0);
+        let symbol = make_symbol(
+            "configSchema",
+            vec!["Joi.object", "Joi.string", "Joi.number"],
+            0,
+        );
         assert!(is_validation_schema(&symbol));
     }
 
@@ -1017,7 +1050,11 @@ mod tests {
 
     #[test]
     fn test_mock_return_value() {
-        let symbol = make_symbol("mockApiResponse", vec!["mockReturnValue", "mockResolvedValue"], 0);
+        let symbol = make_symbol(
+            "mockApiResponse",
+            vec!["mockReturnValue", "mockResolvedValue"],
+            0,
+        );
         assert!(is_test_mock(&symbol));
     }
 
@@ -1049,7 +1086,14 @@ mod tests {
     fn test_mock_too_complex() {
         let symbol = make_symbol(
             "setupMocks",
-            vec!["jest.mock", "fetch", "process", "validate", "transform", "save"],
+            vec![
+                "jest.mock",
+                "fetch",
+                "process",
+                "validate",
+                "transform",
+                "save",
+            ],
             3,
         );
         assert!(!is_test_mock(&symbol));
@@ -1327,11 +1371,8 @@ mod tests {
 
     #[test]
     fn test_api_wrapper_no_http_call() {
-        let symbol = make_symbol_with_calls(
-            "fetchData",
-            vec![("process", None), ("transform", None)],
-            0,
-        );
+        let symbol =
+            make_symbol_with_calls("fetchData", vec![("process", None), ("transform", None)], 0);
         assert!(!is_api_wrapper(&symbol));
     }
 
@@ -1377,7 +1418,14 @@ mod tests {
         // Too many non-provider calls
         let symbol = make_symbol(
             "DataProvider",
-            vec!["createContext", "fetch", "validate", "transform", "cache", "notify"],
+            vec![
+                "createContext",
+                "fetch",
+                "validate",
+                "transform",
+                "cache",
+                "notify",
+            ],
             3,
         );
         assert!(!is_context_provider(&symbol));
@@ -1537,7 +1585,11 @@ mod tests {
 
     #[test]
     fn test_suspense_boundary_with_transition() {
-        let symbol = make_symbol("DeferredContent", vec!["useTransition", "useDeferredValue"], 0);
+        let symbol = make_symbol(
+            "DeferredContent",
+            vec!["useTransition", "useDeferredValue"],
+            0,
+        );
         assert!(is_suspense_boundary(&symbol));
     }
 
@@ -1545,7 +1597,14 @@ mod tests {
     fn test_suspense_boundary_too_complex() {
         let symbol = make_symbol(
             "ComplexBoundary",
-            vec!["Suspense", "fetch", "validate", "transform", "process", "cache"],
+            vec![
+                "Suspense",
+                "fetch",
+                "validate",
+                "transform",
+                "process",
+                "cache",
+            ],
             3,
         );
         assert!(!is_suspense_boundary(&symbol));

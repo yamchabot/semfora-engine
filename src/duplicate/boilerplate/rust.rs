@@ -219,10 +219,7 @@ pub fn is_rust_builder(info: &SymbolInfo) -> bool {
     let name = &info.name;
 
     // Builder patterns
-    if name.starts_with("with_")
-        || name.starts_with("set_")
-        || name == "builder"
-        || name == "build"
+    if name.starts_with("with_") || name.starts_with("set_") || name == "builder" || name == "build"
     {
         // Should have minimal logic - typically just field assignment
         return info.control_flow.len() <= 1 && info.calls.len() <= 3;
@@ -902,7 +899,11 @@ mod tests {
 
     #[test]
     fn test_rust_iterator_too_complex() {
-        let symbol = make_symbol("next", vec!["fetch", "parse", "transform", "cache", "emit"], 3);
+        let symbol = make_symbol(
+            "next",
+            vec!["fetch", "parse", "transform", "cache", "emit"],
+            3,
+        );
         assert!(!is_rust_iterator(&symbol));
     }
 
@@ -1089,7 +1090,9 @@ mod tests {
 
     #[test]
     fn test_rust_boilerplate_disabled() {
-        use crate::duplicate::boilerplate::{classify_boilerplate, BoilerplateConfig, BuiltinBoilerplate};
+        use crate::duplicate::boilerplate::{
+            classify_boilerplate, BoilerplateConfig, BuiltinBoilerplate,
+        };
 
         let mut builtin = BuiltinBoilerplate::default();
         builtin.disable(BoilerplateCategory::RustTest);

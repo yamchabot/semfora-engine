@@ -4,8 +4,8 @@
 //! CVSS: 10.0 (Critical)
 
 use crate::lang::Lang;
-use crate::security::{CVEPattern, PatternSource, Severity};
 use crate::security::compiler::fingerprinter::fingerprint_from_source;
+use crate::security::{CVEPattern, PatternSource};
 
 /// Log4Shell vulnerable patterns
 pub fn patterns() -> Vec<CVEPattern> {
@@ -73,7 +73,11 @@ fn naming_lookup_pattern() -> CVEPattern {
         vec!["CWE-502".into(), "CWE-917".into()],
         1,
     )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
+    .with_fingerprints(
+        fp.fingerprints.call,
+        fp.fingerprints.control_flow,
+        fp.fingerprints.state,
+    )
     .with_vulnerable_calls(vec![
         "lookup".into(),
         "InitialContext".into(),
@@ -106,7 +110,11 @@ fn message_pattern_converter() -> CVEPattern {
         vec!["CWE-502".into(), "CWE-917".into()],
         2,
     )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
+    .with_fingerprints(
+        fp.fingerprints.call,
+        fp.fingerprints.control_flow,
+        fp.fingerprints.state,
+    )
     .with_vulnerable_calls(vec![
         "MessagePatternConverter".into(),
         "StrSubstitutor".into(),
@@ -126,6 +134,7 @@ fn message_pattern_converter() -> CVEPattern {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::Severity;
 
     #[test]
     fn test_log4shell_patterns() {

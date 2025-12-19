@@ -20,10 +20,8 @@
 
 use tree_sitter::Tree;
 
-use crate::schema::{
-    Call, SemanticSummary, StateChange, SymbolInfo, SymbolKind,
-};
 use crate::error::Result;
+use crate::schema::{Call, SemanticSummary, StateChange, SymbolInfo, SymbolKind};
 
 /// Extract semantic information from a Dockerfile
 ///
@@ -93,8 +91,11 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, _tree: &Tree) -> Res
 
                     // Security checks
                     let lower = args.to_lowercase();
-                    if lower.contains("curl") && (lower.contains("| sh") || lower.contains("| bash")) {
-                        security_issues.push("curl piped to shell - potential code injection".to_string());
+                    if lower.contains("curl")
+                        && (lower.contains("| sh") || lower.contains("| bash"))
+                    {
+                        security_issues
+                            .push("curl piped to shell - potential code injection".to_string());
                     }
                     if lower.contains("chmod 777") {
                         security_issues.push("chmod 777 - overly permissive".to_string());
@@ -116,10 +117,15 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, _tree: &Tree) -> Res
 
                         // Security check for secrets
                         let lower = pair.to_lowercase();
-                        if lower.contains("password") || lower.contains("secret")
-                            || lower.contains("api_key") || lower.contains("token")
+                        if lower.contains("password")
+                            || lower.contains("secret")
+                            || lower.contains("api_key")
+                            || lower.contains("token")
                         {
-                            security_issues.push(format!("Potential secret in ENV: {}", pair.split('=').next().unwrap_or(pair)));
+                            security_issues.push(format!(
+                                "Potential secret in ENV: {}",
+                                pair.split('=').next().unwrap_or(pair)
+                            ));
                         }
                     }
 
@@ -150,8 +156,14 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, _tree: &Tree) -> Res
                     // Security check: ARG with default secret
                     if args.contains('=') {
                         let lower = args.to_lowercase();
-                        if lower.contains("password") || lower.contains("secret") || lower.contains("token") {
-                            security_issues.push(format!("Potential secret in ARG default: {}", args.split('=').next().unwrap_or(args)));
+                        if lower.contains("password")
+                            || lower.contains("secret")
+                            || lower.contains("token")
+                        {
+                            security_issues.push(format!(
+                                "Potential secret in ARG default: {}",
+                                args.split('=').next().unwrap_or(args)
+                            ));
                         }
                     }
                 }
@@ -218,10 +230,13 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, _tree: &Tree) -> Res
                         ..Default::default()
                     });
 
-                    summary.insertions.push("ADD: consider using COPY instead".to_string());
+                    summary
+                        .insertions
+                        .push("ADD: consider using COPY instead".to_string());
 
                     if args.contains("http://") || args.contains("https://") {
-                        security_issues.push("ADD with URL - consider using curl + verification".to_string());
+                        security_issues
+                            .push("ADD with URL - consider using curl + verification".to_string());
                     }
                 }
 
@@ -251,7 +266,8 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, _tree: &Tree) -> Res
                     });
                 }
 
-                "LABEL" | "MAINTAINER" | "VOLUME" | "HEALTHCHECK" | "SHELL" | "STOPSIGNAL" | "ONBUILD" => {
+                "LABEL" | "MAINTAINER" | "VOLUME" | "HEALTHCHECK" | "SHELL" | "STOPSIGNAL"
+                | "ONBUILD" => {
                     summary.symbols.push(SymbolInfo {
                         name: instruction.to_uppercase(),
                         kind: SymbolKind::Function,
@@ -371,7 +387,11 @@ fn parse_env_args(args: &str) -> Vec<String> {
 /// Extract shell commands as calls
 fn extract_shell_commands(summary: &mut SemanticSummary, cmd: &str) {
     // Parse shell commands separated by &&, ;, or |
-    for part in cmd.split("&&").flat_map(|s| s.split(';')).flat_map(|s| s.split('|')) {
+    for part in cmd
+        .split("&&")
+        .flat_map(|s| s.split(';'))
+        .flat_map(|s| s.split('|'))
+    {
         let trimmed = part.trim();
         if let Some(cmd_name) = trimmed.split_whitespace().next() {
             // Skip shell builtins that aren't meaningful
@@ -404,7 +424,9 @@ mod tests {
         // Create a dummy tree (not used by text-based parser)
         let mut parser = tree_sitter::Parser::new();
         // Use bash grammar as placeholder since dockerfile grammar isn't available
-        parser.set_language(&Lang::Bash.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Lang::Bash.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse("", None).unwrap();
 
         let mut summary = SemanticSummary::default();
@@ -442,7 +464,10 @@ RUN curl -sSL https://example.com/install.sh | bash
 "#;
         let summary = parse_dockerfile(source);
 
-        assert!(summary.insertions.iter().any(|i| i.contains("curl") && i.contains("shell")));
+        assert!(summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("curl") && i.contains("shell")));
     }
 
     #[test]
@@ -453,7 +478,10 @@ ENV API_KEY=secret123
 "#;
         let summary = parse_dockerfile(source);
 
-        assert!(summary.insertions.iter().any(|i| i.contains("secret") || i.contains("API_KEY")));
+        assert!(summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("secret") || i.contains("API_KEY")));
     }
 
     #[test]
@@ -480,7 +508,10 @@ CMD ["node", "app.js"]
         let summary = parse_dockerfile(source);
 
         // Should NOT have warning about running as root (user is set to non-root)
-        assert!(!summary.insertions.iter().any(|i| i.contains("No USER directive")));
+        assert!(!summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("No USER directive")));
     }
 
     #[test]
@@ -504,9 +535,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
         let summary = parse_dockerfile(source);
 
         // Should extract shell commands
-        let cmd_names: Vec<&str> = summary.calls.iter()
-            .map(|c| c.name.as_str())
-            .collect();
+        let cmd_names: Vec<&str> = summary.calls.iter().map(|c| c.name.as_str()).collect();
         assert!(cmd_names.contains(&"apt-get"));
         assert!(cmd_names.contains(&"rm"));
     }
@@ -523,7 +552,9 @@ RUN apt-get update \
         let summary = parse_dockerfile(source);
 
         // Should parse as single RUN instruction
-        let run_count = summary.symbols.iter()
+        let run_count = summary
+            .symbols
+            .iter()
             .filter(|s| s.name.starts_with("RUN"))
             .count();
         assert_eq!(run_count, 1);
@@ -538,7 +569,9 @@ EXPOSE 3000 8080
         let summary = parse_dockerfile(source);
 
         // Should have port state changes
-        let port_changes: Vec<_> = summary.state_changes.iter()
+        let port_changes: Vec<_> = summary
+            .state_changes
+            .iter()
             .filter(|s| s.state_type == "expose")
             .collect();
         assert_eq!(port_changes.len(), 2);

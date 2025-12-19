@@ -214,7 +214,9 @@ pub async fn fetch_pattern_updates(
 /// Update patterns from a local file
 ///
 /// Useful for offline environments or testing.
-pub fn update_patterns_from_file(path: &std::path::Path) -> Result<PatternUpdateResult, McpDiffError> {
+pub fn update_patterns_from_file(
+    path: &std::path::Path,
+) -> Result<PatternUpdateResult, McpDiffError> {
     let previous_version = current_patterns_version();
 
     let bytes = std::fs::read(path)?;

@@ -1,9 +1,11 @@
 //! Commit traversal and file retrieval
 
+#![allow(dead_code)]
+
 use std::path::Path;
 
-use crate::error::Result;
 use super::git_command;
+use crate::error::Result;
 
 /// Information about a commit
 #[derive(Debug, Clone)]
@@ -27,7 +29,11 @@ pub fn get_commits_since(base_ref: &str, cwd: Option<&Path>) -> Result<Vec<Commi
     // Format: SHA|short|subject|author|date
     let format = "%H|%h|%s|%an|%aI";
     let output = git_command(
-        &["log", &format!("--format={}", format), &format!("{}..HEAD", base_ref)],
+        &[
+            "log",
+            &format!("--format={}", format),
+            &format!("{}..HEAD", base_ref),
+        ],
         cwd,
     )?;
 
@@ -57,11 +63,13 @@ pub fn get_commits_since(base_ref: &str, cwd: Option<&Path>) -> Result<Vec<Commi
 /// Get the file content at a specific ref
 ///
 /// Returns None if the file doesn't exist at that ref
-pub fn get_file_at_ref(file_path: &str, ref_name: &str, cwd: Option<&Path>) -> Result<Option<String>> {
-    let result = super::git_command_optional(
-        &["show", &format!("{}:{}", ref_name, file_path)],
-        cwd,
-    );
+pub fn get_file_at_ref(
+    file_path: &str,
+    ref_name: &str,
+    cwd: Option<&Path>,
+) -> Result<Option<String>> {
+    let result =
+        super::git_command_optional(&["show", &format!("{}:{}", ref_name, file_path)], cwd);
 
     Ok(result)
 }
@@ -73,9 +81,11 @@ pub fn get_commit_count(base_ref: &str, cwd: Option<&Path>) -> Result<usize> {
         cwd,
     )?;
 
-    output.parse().map_err(|_| crate::error::McpDiffError::GitError {
-        message: format!("Failed to parse commit count: {}", output),
-    })
+    output
+        .parse()
+        .map_err(|_| crate::error::McpDiffError::GitError {
+            message: format!("Failed to parse commit count: {}", output),
+        })
 }
 
 /// Get the parent commit of a given commit

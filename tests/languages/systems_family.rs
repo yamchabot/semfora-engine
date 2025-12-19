@@ -3,7 +3,7 @@
 //! Tests for Rust, Go, C, and C++ - languages with explicit memory management
 //! and specific visibility/export conventions.
 
-use crate::common::{TestRepo, assert_valid_json, assert_symbol_exists, assert_symbol_exported};
+use crate::common::{assert_symbol_exists, assert_symbol_exported, assert_valid_json, TestRepo};
 
 // =============================================================================
 // RUST TESTS
@@ -487,7 +487,8 @@ type reader interface {
         );
 
         repo.generate_index().unwrap();
-        let output = repo.run_cli_success(&["analyze", "pkg/interfaces/repository.go", "-f", "json"]);
+        let output =
+            repo.run_cli_success(&["analyze", "pkg/interfaces/repository.go", "-f", "json"]);
         let json = assert_valid_json(&output, "Go interface extraction");
 
         assert_symbol_exists(&json, "Repository");
@@ -751,7 +752,9 @@ typedef struct Config {
         // Check for struct-related content
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Record") || output_str.contains("Node") || output_str.contains("struct"),
+            output_str.contains("Record")
+                || output_str.contains("Node")
+                || output_str.contains("struct"),
             "Should find C structs: {}",
             output
         );
@@ -788,7 +791,9 @@ static void internal_log(const char* msg) {
         // Check for function-related content
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("helper") || output_str.contains("public_function") || output_str.contains("function"),
+            output_str.contains("helper")
+                || output_str.contains("public_function")
+                || output_str.contains("function"),
             "Should find C functions: {}",
             output
         );
@@ -995,7 +1000,9 @@ T max(T a, T b) {
         // Check for template-related content
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Container") || output_str.contains("template") || output_str.contains("class"),
+            output_str.contains("Container")
+                || output_str.contains("template")
+                || output_str.contains("class"),
             "Should find C++ templates: {}",
             output
         );
@@ -1037,7 +1044,9 @@ public:
         // Check for namespace-related content
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("trim") || output_str.contains("Service") || output_str.contains("namespace"),
+            output_str.contains("trim")
+                || output_str.contains("Service")
+                || output_str.contains("namespace"),
             "Should find C++ namespaces: {}",
             output
         );
@@ -1116,7 +1125,9 @@ private:
         // C++ symbol names may include return types/params, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Logger") || output_str.contains("Service") || output_str.contains("process"),
+            output_str.contains("Logger")
+                || output_str.contains("Service")
+                || output_str.contains("process"),
             "Should find C++ classes and methods: {}",
             output
         );

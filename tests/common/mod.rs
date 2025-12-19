@@ -5,8 +5,11 @@
 //! - Custom assertions for validating CLI output and symbol extraction
 //! - Helper functions for parsing TOON and JSON output
 
-pub mod test_repo;
-pub mod assertions;
+#![allow(unused_imports)]
+#![allow(dead_code)]
 
-pub use test_repo::TestRepo;
+pub mod assertions;
+pub mod test_repo;
+
 pub use assertions::*;
+pub use test_repo::TestRepo;

@@ -10,17 +10,11 @@ use std::path::PathBuf;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     /// Connect to a directory
-    Connect {
-        directory: PathBuf,
-    },
+    Connect { directory: PathBuf },
     /// Subscribe to events
-    Subscribe {
-        events: Vec<String>,
-    },
+    Subscribe { events: Vec<String> },
     /// Unsubscribe from events
-    Unsubscribe {
-        events: Vec<String>,
-    },
+    Unsubscribe { events: Vec<String> },
     /// Query the server
     Query {
         id: u64,
@@ -39,18 +33,11 @@ pub enum ServerMessage {
     /// Connection established
     Connected(ConnectionInfo),
     /// Subscription confirmed
-    Subscribed {
-        events: Vec<String>,
-    },
+    Subscribed { events: Vec<String> },
     /// Unsubscription confirmed
-    Unsubscribed {
-        events: Vec<String>,
-    },
+    Unsubscribed { events: Vec<String> },
     /// Query response
-    Response {
-        id: u64,
-        result: serde_json::Value,
-    },
+    Response { id: u64, result: serde_json::Value },
     /// Error response
     Error {
         id: Option<u64>,

@@ -99,7 +99,8 @@ pub fn detect_frameworks(summary: &SemanticSummary, source: &str) -> FrameworkCo
         }
 
         // NestJS
-        if dep_lower.starts_with("@nestjs/") || dep == "Controller" || dep == "Get" || dep == "Post" {
+        if dep_lower.starts_with("@nestjs/") || dep == "Controller" || dep == "Get" || dep == "Post"
+        {
             ctx.is_nestjs = true;
         }
 
@@ -173,7 +174,10 @@ fn detect_from_source(ctx: &mut FrameworkContext, source: &str) {
     }
 
     // Angular decorators
-    if source.contains("@Component(") || source.contains("@Injectable(") || source.contains("@NgModule(") {
+    if source.contains("@Component(")
+        || source.contains("@Injectable(")
+        || source.contains("@NgModule(")
+    {
         ctx.is_angular = true;
     }
 
@@ -183,7 +187,9 @@ fn detect_from_source(ctx: &mut FrameworkContext, source: &str) {
     }
 
     // Vue patterns
-    if source.contains("defineComponent(") || source.contains("ref(") && source.contains("reactive(") {
+    if source.contains("defineComponent(")
+        || source.contains("ref(") && source.contains("reactive(")
+    {
         ctx.is_vue = true;
     }
 

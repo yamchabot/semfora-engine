@@ -72,9 +72,9 @@ impl GitState {
             .or_else(|_| get_ref_sha(repo_root, "origin/master"))
             .ok();
         let branch_name = crate::git::get_current_branch(cwd).ok();
-        let merge_base = base_sha.as_ref().and_then(|base| {
-            crate::git::get_merge_base("HEAD", base, cwd).ok()
-        });
+        let merge_base = base_sha
+            .as_ref()
+            .and_then(|base| crate::git::get_merge_base("HEAD", base, cwd).ok());
 
         Self {
             head_sha,
@@ -184,27 +184,33 @@ impl GitPoller {
                 thread::sleep(branch_interval);
 
                 let current = GitState::read(&branch_root);
-                let last = branch_last.lock().clone();
+                let _last = branch_last.lock().clone();
 
                 // Check for branch changes
-                let indexed_sha = branch_state.read(|index| {
-                    index.layer(LayerKind::Branch).meta.indexed_sha.clone()
-                });
+                let indexed_sha = branch_state
+                    .read(|index| index.layer(LayerKind::Branch).meta.indexed_sha.clone());
 
                 if current.is_branch_stale(&indexed_sha) {
-                    tracing::info!("Branch layer stale: {:?} -> {:?}", indexed_sha, current.head_sha);
+                    tracing::info!(
+                        "Branch layer stale: {:?} -> {:?}",
+                        indexed_sha,
+                        current.head_sha
+                    );
 
                     // Mark layer stale
-                    let indexed_merge_base = branch_state.read(|index| {
-                        index.layer(LayerKind::Branch).meta.merge_base_sha.clone()
-                    });
+                    let indexed_merge_base = branch_state
+                        .read(|index| index.layer(LayerKind::Branch).meta.merge_base_sha.clone());
 
                     let strategy = if current.is_rebase(&indexed_merge_base) {
                         UpdateStrategy::Rebase
                     } else {
                         // Get changed files for incremental update
-                        let changed = crate::git::get_changed_files("HEAD~1", "HEAD", Some(branch_root.as_path()))
-                            .unwrap_or_default();
+                        let changed = crate::git::get_changed_files(
+                            "HEAD~1",
+                            "HEAD",
+                            Some(branch_root.as_path()),
+                        )
+                        .unwrap_or_default();
                         if changed.len() < 10 {
                             UpdateStrategy::Incremental(
                                 changed.into_iter().map(|c| PathBuf::from(c.path)).collect(),
@@ -217,11 +223,8 @@ impl GitPoller {
                     branch_state.mark_layer_stale(LayerKind::Branch, strategy.clone());
 
                     if auto_update {
-                        match synchronizer.update_layer(
-                            &branch_state,
-                            LayerKind::Branch,
-                            strategy,
-                        ) {
+                        match synchronizer.update_layer(&branch_state, LayerKind::Branch, strategy)
+                        {
                             Ok(stats) => {
                                 // Emit event for CLI
                                 let event = super::events::LayerUpdatedEvent::from_stats(
@@ -258,23 +261,22 @@ impl GitPoller {
                 let current = GitState::read(&base_root);
 
                 // Check for base changes (origin/main moved)
-                let indexed_sha = base_state.read(|index| {
-                    index.layer(LayerKind::Base).meta.indexed_sha.clone()
-                });
+                let indexed_sha =
+                    base_state.read(|index| index.layer(LayerKind::Base).meta.indexed_sha.clone());
 
                 if current.is_base_stale(&indexed_sha) {
-                    tracing::info!("Base layer stale: {:?} -> {:?}", indexed_sha, current.base_sha);
+                    tracing::info!(
+                        "Base layer stale: {:?} -> {:?}",
+                        indexed_sha,
+                        current.base_sha
+                    );
 
                     // Base layer changes typically require full rebuild
                     let strategy = UpdateStrategy::FullRebuild;
                     base_state.mark_layer_stale(LayerKind::Base, strategy.clone());
 
                     if auto_update {
-                        match synchronizer.update_layer(
-                            &base_state,
-                            LayerKind::Base,
-                            strategy,
-                        ) {
+                        match synchronizer.update_layer(&base_state, LayerKind::Base, strategy) {
                             Ok(stats) => {
                                 // Emit event for CLI
                                 let event = super::events::LayerUpdatedEvent::from_stats(
@@ -306,12 +308,10 @@ impl GitPoller {
     pub fn poll_once(&self, state: &ServerState) -> (bool, bool) {
         let current = GitState::read(&self.repo_root);
 
-        let indexed_base = state.read(|index| {
-            index.layer(LayerKind::Base).meta.indexed_sha.clone()
-        });
-        let indexed_branch = state.read(|index| {
-            index.layer(LayerKind::Branch).meta.indexed_sha.clone()
-        });
+        let indexed_base =
+            state.read(|index| index.layer(LayerKind::Base).meta.indexed_sha.clone());
+        let indexed_branch =
+            state.read(|index| index.layer(LayerKind::Branch).meta.indexed_sha.clone());
 
         let base_stale = current.is_base_stale(&indexed_base);
         let branch_stale = current.is_branch_stale(&indexed_branch);

@@ -293,7 +293,10 @@ fn test_run_with_path() {
 #[test]
 fn test_detect_text_format() {
     let repo = TestRepo::new();
-    repo.add_file("package.json", r#"{"name": "test", "scripts": {"test": "jest"}}"#);
+    repo.add_file(
+        "package.json",
+        r#"{"name": "test", "scripts": {"test": "jest"}}"#,
+    );
 
     // run_cli_success already verifies the command completes successfully
     repo.run_cli_success(&["test", "--detect", "-f", "text"]);
@@ -302,7 +305,10 @@ fn test_detect_text_format() {
 #[test]
 fn test_detect_json_format() {
     let repo = TestRepo::new();
-    repo.add_file("package.json", r#"{"name": "test", "scripts": {"test": "jest"}}"#);
+    repo.add_file(
+        "package.json",
+        r#"{"name": "test", "scripts": {"test": "jest"}}"#,
+    );
 
     let output = repo.run_cli_success(&["test", "--detect", "-f", "json"]);
     assert_valid_json(&output, "detect json format");
@@ -311,7 +317,10 @@ fn test_detect_json_format() {
 #[test]
 fn test_detect_toon_format() {
     let repo = TestRepo::new();
-    repo.add_file("package.json", r#"{"name": "test", "scripts": {"test": "jest"}}"#);
+    repo.add_file(
+        "package.json",
+        r#"{"name": "test", "scripts": {"test": "jest"}}"#,
+    );
 
     // run_cli_success already verifies the command completes successfully
     repo.run_cli_success(&["test", "--detect", "-f", "toon"]);
@@ -334,14 +343,17 @@ fn test_empty_directory() {
 fn test_multiple_frameworks() {
     let repo = TestRepo::new();
     // Both Node and Rust project markers
-    repo.add_file("package.json", r#"{"name": "test", "scripts": {"test": "jest"}}"#)
-        .add_file(
-            "Cargo.toml",
-            r#"[package]
+    repo.add_file(
+        "package.json",
+        r#"{"name": "test", "scripts": {"test": "jest"}}"#,
+    )
+    .add_file(
+        "Cargo.toml",
+        r#"[package]
 name = "test"
 version = "0.1.0"
 "#,
-        );
+    );
 
     let output = repo.run_cli_success(&["test", "--detect", "-f", "json"]);
     assert_valid_json(&output, "multiple frameworks detection");

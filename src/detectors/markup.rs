@@ -1,11 +1,16 @@
 //! Markup language detector (HTML, CSS, SCSS, Markdown)
 
-use tree_sitter::Tree;
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::SemanticSummary;
+use tree_sitter::Tree;
 
-pub fn extract(summary: &mut SemanticSummary, _source: &str, _tree: &Tree, lang: Lang) -> Result<()> {
+pub fn extract(
+    summary: &mut SemanticSummary,
+    _source: &str,
+    _tree: &Tree,
+    lang: Lang,
+) -> Result<()> {
     // Markup files have simpler extraction - mainly structure
     // For now, just mark as complete with the file info
 

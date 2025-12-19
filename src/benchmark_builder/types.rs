@@ -14,7 +14,7 @@ pub struct StepSnapshot {
     pub total_files: usize,
     /// All symbols extracted
     pub symbols: Vec<SymbolSnapshot>,
-    /// Call graph: caller_hash -> [callee_hashes]
+    /// Call graph: caller_hash -> \[callee_hashes\]
     pub call_graph: HashMap<String, Vec<String>>,
     /// Complexity metrics
     pub complexity: ComplexitySnapshot,

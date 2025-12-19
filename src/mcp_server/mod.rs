@@ -11,7 +11,7 @@ mod types;
 // Instruction variants for A/B testing - change import to switch:
 // mod instructions_compact;   // Token efficiency (~500 tokens)
 // mod instructions_complete;  // Full documentation (~4000 tokens)
-mod instructions_fast;         // Decision tree focused (~2000 tokens) - DEFAULT
+mod instructions_fast; // Decision tree focused (~2000 tokens) - DEFAULT
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,43 +25,66 @@ use rmcp::{
 use tokio::sync::Mutex;
 
 use crate::{
-    encode_toon, encode_toon_directory, generate_repo_overview, Lang,
-    CacheDir, ShardWriter, RipgrepSearchResult, normalize_kind,
-    test_runner::{self, TestFramework, TestRunOptions},
-    server::ServerState,
-    duplicate::DuplicateDetector,
-    security::{CVEMatch, CVEScanSummary, Severity, patterns::embedded::load_embedded_patterns},
-    utils::truncate_to_char_boundary,
     // CLI types for MCP->CLI handler consolidation
-    cli::{SearchArgs, IndexArgs, IndexOperation, TestArgs, SecurityArgs, SecurityOperation, OutputFormat},
-    commands::{run_search, run_index, run_test, run_security, CommandContext},
+    cli::{
+        IndexArgs, IndexOperation, OutputFormat, SearchArgs, SecurityArgs, SecurityOperation,
+        TestArgs,
+    },
+    commands::{run_index, run_search, run_security, run_test, CommandContext},
+    duplicate::DuplicateDetector,
+    encode_toon,
+    encode_toon_directory,
+    generate_repo_overview,
+    normalize_kind,
+    server::ServerState,
+    test_runner::{self},
+    utils::truncate_to_char_boundary,
+    CacheDir,
+    Lang,
 };
 
 // Re-export types for external use
-pub use types::*;
+use formatting::{
+    analyze_files,
+    extract_source_for_symbol,
+    format_call_graph_paginated,
+    format_call_graph_summary,
+    // Diff formatting with pagination
+    format_diff_output_paginated,
+    format_diff_summary,
+    format_duplicate_clusters_paginated,
+    format_duplicate_matches,
+    format_module_symbols,
+    // Prep-commit formatting
+    format_prep_commit,
+    format_source_snippet,
+    get_supported_languages,
+    load_signatures,
+    AnalyzedFile,
+    FileDiffStats,
+    GitContext,
+    SymbolMetrics,
+};
 use helpers::{
-    check_cache_staleness_detailed, collect_files, parse_and_extract,
-    generate_index_internal, analyze_files_with_stats, filter_repo_overview,
-    ensure_fresh_index, FreshnessResult, format_freshness_note,
+    check_cache_staleness_detailed,
+    collect_files,
+    ensure_fresh_index,
+    filter_repo_overview,
     // Validation helpers
-    find_symbol_by_hash, find_symbol_by_location, validate_single_symbol,
-    format_validation_result, validate_symbols_batch, format_batch_validation_results,
+    find_symbol_by_hash,
+    find_symbol_by_location,
+    format_batch_validation_results,
+    format_freshness_note,
+    format_validation_result,
+    generate_index_internal,
     // String similarity
     levenshtein_distance,
+    parse_and_extract,
+    validate_single_symbol,
+    validate_symbols_batch,
+    FreshnessResult,
 };
-use formatting::{
-    analyze_files, format_diff_output, get_supported_languages, resolve_line_range,
-    extract_source_for_symbol, format_source_snippet,
-    format_search_results, format_ripgrep_results, format_working_overlay_results,
-    format_merged_blocks, format_module_symbols, load_signatures,
-    format_call_graph_paginated, format_call_graph_summary,
-    format_duplicate_clusters_paginated, format_duplicate_matches,
-    format_cve_scan_results,
-    // Diff formatting with pagination
-    format_diff_output_paginated, format_diff_summary,
-    // Prep-commit formatting
-    format_prep_commit, GitContext, AnalyzedFile, SymbolMetrics, FileDiffStats,
-};
+pub use types::*;
 // Match this to the active module above:
 use instructions_fast::MCP_INSTRUCTIONS;
 
@@ -160,7 +183,9 @@ impl McpDiffServer {
     // Quick Context Tool
     // ========================================================================
 
-    #[tool(description = "Get quick git and project context in ~200 tokens. **Use this FIRST** when starting work on a repository to understand: current branch, last commit, index status, and project type. Much faster and smaller than get_repo_overview.")]
+    #[tool(
+        description = "Get quick git and project context in ~200 tokens. **Use this FIRST** when starting work on a repository to understand: current branch, last commit, index status, and project type. Much faster and smaller than get_repo_overview."
+    )]
     async fn get_context(
         &self,
         Parameters(request): Parameters<GetContextRequest>,
@@ -239,7 +264,10 @@ impl McpDiffServer {
                 let staleness = check_cache_staleness_detailed(&cache, 3600);
                 if staleness.is_stale {
                     output.push_str("index_status: \"stale\"\n");
-                    output.push_str(&format!("stale_files: {}\n", staleness.modified_files.len()));
+                    output.push_str(&format!(
+                        "stale_files: {}\n",
+                        staleness.modified_files.len()
+                    ));
                 } else {
                     output.push_str("index_status: \"fresh\"\n");
                 }
@@ -250,7 +278,10 @@ impl McpDiffServer {
                     // Extract framework line
                     for line in content.lines() {
                         if line.starts_with("framework:") {
-                            let framework = line.trim_start_matches("framework:").trim().trim_matches('"');
+                            let framework = line
+                                .trim_start_matches("framework:")
+                                .trim()
+                                .trim_matches('"');
                             output.push_str(&format!("project_type: \"{}\"\n", framework));
                             break;
                         }
@@ -280,7 +311,9 @@ impl McpDiffServer {
     // Analysis Tools
     // ========================================================================
 
-    #[tool(description = "Unified analysis: auto-detects file, directory, or module. For files: extracts semantic info. For directories: returns overview with module grouping. For modules: returns detailed semantic info from index.")]
+    #[tool(
+        description = "Unified analysis: auto-detects file, directory, or module. For files: extracts semantic info. For directories: returns overview with module grouping. For modules: returns detailed semantic info from index."
+    )]
     async fn analyze(
         &self,
         Parameters(request): Parameters<AnalyzeRequest>,
@@ -303,14 +336,16 @@ impl McpDiffServer {
                 let available = cache.list_modules();
                 return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Module '{}' not found. Available modules: {}",
-                    module_name, available.join(", ")
+                    module_name,
+                    available.join(", ")
                 ))]));
             }
 
             return match fs::read_to_string(&module_path) {
                 Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
                 Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to read module: {}", e
+                    "Failed to read module: {}",
+                    e
                 ))])),
             };
         }
@@ -318,16 +353,19 @@ impl McpDiffServer {
         // Path-based analysis
         let path = match &request.path {
             Some(p) => p,
-            None => return Ok(CallToolResult::error(vec![Content::text(
-                "Error: Must provide either 'path' or 'module' parameter."
-            )])),
+            None => {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Error: Must provide either 'path' or 'module' parameter.",
+                )]))
+            }
         };
 
         let resolved_path = self.resolve_path(path).await;
 
         if !resolved_path.exists() {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Path not found: {}", resolved_path.display()
+                "Path not found: {}",
+                resolved_path.display()
             ))]));
         }
 
@@ -341,7 +379,8 @@ impl McpDiffServer {
 
             if files.is_empty() {
                 return Ok(CallToolResult::success(vec![Content::text(format!(
-                    "directory: {}\nfiles_found: 0\n", resolved_path.display()
+                    "directory: {}\nfiles_found: 0\n",
+                    resolved_path.display()
                 ))]));
             }
 
@@ -361,34 +400,47 @@ impl McpDiffServer {
         // File analysis
         let lang = match Lang::from_path(&resolved_path) {
             Ok(l) => l,
-            Err(_) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Unsupported file type: {}", resolved_path.display()
-            ))])),
+            Err(_) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Unsupported file type: {}",
+                    resolved_path.display()
+                ))]))
+            }
         };
 
         let source = match fs::read_to_string(&resolved_path) {
             Ok(s) => s,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to read file: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to read file: {}",
+                    e
+                ))]))
+            }
         };
 
         let summary = match parse_and_extract(&resolved_path, &source, lang) {
             Ok(s) => s,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Analysis failed: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Analysis failed: {}",
+                    e
+                ))]))
+            }
         };
 
         let output = match request.format.as_deref() {
-            Some("json") => serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".to_string()),
+            Some("json") => {
+                serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".to_string())
+            }
             _ => encode_toon(&summary),
         };
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "**Use for code reviews** - analyzes changes between git branches or commits semantically. Shows new/modified symbols, changed dependencies, and risk assessment for each file. Use target_ref='WORKING' to review uncommitted changes before committing. Supports pagination (limit/offset) for large diffs and summary_only mode for quick overview.")]
+    #[tool(
+        description = "**Use for code reviews** - analyzes changes between git branches or commits semantically. Shows new/modified symbols, changed dependencies, and risk assessment for each file. Use target_ref='WORKING' to review uncommitted changes before committing. Supports pagination (limit/offset) for large diffs and summary_only mode for quick overview."
+    )]
     async fn analyze_diff(
         &self,
         Parameters(request): Parameters<AnalyzeDiffRequest>,
@@ -399,7 +451,9 @@ impl McpDiffServer {
         };
 
         if !crate::git::is_git_repo(Some(&working_dir)) {
-            return Ok(CallToolResult::error(vec![Content::text("Not a git repository")]));
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Not a git repository",
+            )]));
         }
 
         let base_ref = &request.base_ref;
@@ -415,9 +469,12 @@ impl McpDiffServer {
             // Compare base_ref against working tree (uncommitted changes)
             let files = match crate::git::get_uncommitted_changes(base_ref, Some(&working_dir)) {
                 Ok(files) => files,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to get uncommitted changes: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to get uncommitted changes: {}",
+                        e
+                    ))]))
+                }
             };
             (files, "WORKING (uncommitted)")
         } else {
@@ -425,12 +482,16 @@ impl McpDiffServer {
             let merge_base = crate::git::get_merge_base(base_ref, target_ref, Some(&working_dir))
                 .unwrap_or_else(|_| base_ref.to_string());
 
-            let files = match crate::git::get_changed_files(&merge_base, target_ref, Some(&working_dir)) {
-                Ok(files) => files,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to get changed files: {}", e
-                ))])),
-            };
+            let files =
+                match crate::git::get_changed_files(&merge_base, target_ref, Some(&working_dir)) {
+                    Ok(files) => files,
+                    Err(e) => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "Failed to get changed files: {}",
+                            e
+                        ))]))
+                    }
+                };
             (files, target_ref)
         };
 
@@ -446,13 +507,22 @@ impl McpDiffServer {
         let output = if summary_only {
             format_diff_summary(&working_dir, base_ref, display_target, &changed_files)
         } else {
-            format_diff_output_paginated(&working_dir, base_ref, display_target, &changed_files, offset, limit)
+            format_diff_output_paginated(
+                &working_dir,
+                base_ref,
+                display_target,
+                &changed_files,
+                offset,
+                limit,
+            )
         };
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "Get all programming languages supported by semfora-engine for semantic analysis")]
+    #[tool(
+        description = "Get all programming languages supported by semfora-engine for semantic analysis"
+    )]
     fn get_languages(
         &self,
         Parameters(_request): Parameters<GetLanguagesRequest>,
@@ -465,7 +535,9 @@ impl McpDiffServer {
     // Sharded Index Tools
     // ========================================================================
 
-    #[tool(description = "Get the repository overview from a pre-built sharded index. Returns a compact summary with framework detection, module list, risk breakdown, and entry points. Use this to understand a codebase before diving into specific modules. Use max_modules param to control module listing (default 30, set 0 to exclude, high number for all).")]
+    #[tool(
+        description = "Get the repository overview from a pre-built sharded index. Returns a compact summary with framework detection, module list, risk breakdown, and entry points. Use this to understand a codebase before diving into specific modules. Use max_modules param to control module listing (default 30, set 0 to exclude, high number for all)."
+    )]
     async fn get_overview(
         &self,
         Parameters(request): Parameters<GetOverviewRequest>,
@@ -539,22 +611,22 @@ impl McpDiffServer {
                 }
 
                 // Filter and limit modules in the content
-                let filtered_content = filter_repo_overview(
-                    &content,
-                    max_modules,
-                    exclude_test_dirs,
-                );
+                let filtered_content =
+                    filter_repo_overview(&content, max_modules, exclude_test_dirs);
 
                 output.push_str(&filtered_content);
                 Ok(CallToolResult::success(vec![Content::text(output)]))
             }
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to read overview: {}", e
+                "Failed to read overview: {}",
+                e
             ))])),
         }
     }
 
-    #[tool(description = "Get detailed semantic information for symbol(s). Three modes: (1) Single hash: use symbol_hash. (2) Batch: use hashes array (max 20). (3) Location: use file+line to find symbol at that position. Returns complete semantic summaries including calls, state changes, and control flow.")]
+    #[tool(
+        description = "Get detailed semantic information for symbol(s). Three modes: (1) Single hash: use symbol_hash. (2) Batch: use hashes array (max 20). (3) Location: use file+line to find symbol at that position. Returns complete semantic summaries including calls, state changes, and control flow."
+    )]
     async fn get_symbol(
         &self,
         Parameters(request): Parameters<GetSymbolRequest>,
@@ -575,10 +647,7 @@ impl McpDiffServer {
         if let Some(ref hashes) = request.hashes {
             if !hashes.is_empty() {
                 // Batch mode
-                let hashes: Vec<&str> = hashes.iter()
-                    .take(20)
-                    .map(|s| s.as_str())
-                    .collect();
+                let hashes: Vec<&str> = hashes.iter().take(20).map(|s| s.as_str()).collect();
 
                 let include_source = request.include_source.unwrap_or(false);
                 let context = request.context.unwrap_or(3);
@@ -600,7 +669,9 @@ impl McpDiffServer {
 
                                 // Optionally include source code
                                 if include_source {
-                                    if let Some(source_snippet) = extract_source_for_symbol(&cache, &content, context) {
+                                    if let Some(source_snippet) =
+                                        extract_source_for_symbol(&cache, &content, context)
+                                    {
                                         output.push_str("\n__source__:\n");
                                         output.push_str(&source_snippet);
                                     }
@@ -633,7 +704,8 @@ impl McpDiffServer {
             return match fs::read_to_string(&symbol_path) {
                 Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
                 Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to read symbol: {}", e
+                    "Failed to read symbol: {}",
+                    e
                 ))])),
             };
         }
@@ -641,28 +713,33 @@ impl McpDiffServer {
         // Single symbol mode
         let symbol_hash = match &request.symbol_hash {
             Some(h) => h,
-            None => return Ok(CallToolResult::error(vec![Content::text(
-                "Either symbol_hash, hashes, or file+line must be provided"
-            )])),
+            None => {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Either symbol_hash, hashes, or file+line must be provided",
+                )]))
+            }
         };
 
         let symbol_path = cache.symbol_path(symbol_hash);
         if !symbol_path.exists() {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Symbol '{}' not found in index", symbol_hash
+                "Symbol '{}' not found in index",
+                symbol_hash
             ))]));
         }
 
         match fs::read_to_string(&symbol_path) {
             Ok(content) => Ok(CallToolResult::success(vec![Content::text(content)])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to read symbol: {}", e
+                "Failed to read symbol: {}",
+                e
             ))])),
         }
     }
 
-
-    #[tool(description = "Understand code flow and dependencies between functions. **Use with filters** (module, symbol) for targeted analysis - unfiltered output can be very large. Returns a mapping of symbol -> [called symbols]. Set export='sqlite' to export to SQLite database (expensive operation).")]
+    #[tool(
+        description = "Understand code flow and dependencies between functions. **Use with filters** (module, symbol) for targeted analysis - unfiltered output can be very large. Returns a mapping of symbol -> [called symbols]. Set export='sqlite' to export to SQLite database (expensive operation)."
+    )]
     async fn get_callgraph(
         &self,
         Parameters(request): Parameters<GetCallgraphRequest>,
@@ -714,18 +791,21 @@ impl McpDiffServer {
                         ));
                         output.push_str(&format!("nodes_exported: {}\n", stats.nodes_inserted));
                         output.push_str(&format!("edges_exported: {}\n", stats.edges_inserted));
-                        output.push_str(&format!("module_edges: {}\n", stats.module_edges_inserted));
+                        output
+                            .push_str(&format!("module_edges: {}\n", stats.module_edges_inserted));
                         output.push_str(&format!("duration_ms: {}\n", stats.duration_ms));
                         output.push_str("\nhint: \"Open with semfora-graph explorer or any SQLite client (DB Browser, DBeaver, sqlite3 CLI)\"\n");
                         Ok(CallToolResult::success(vec![Content::text(output)]))
                     }
                     Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                        "Export failed: {}", e
+                        "Export failed: {}",
+                        e
                     ))])),
                 };
             } else {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Unknown export format: '{}'. Supported: 'sqlite'", export_format
+                    "Unknown export format: '{}'. Supported: 'sqlite'",
+                    export_format
                 ))]));
             }
         }
@@ -733,7 +813,7 @@ impl McpDiffServer {
         let call_graph_path = cache.call_graph_path();
         if !call_graph_path.exists() {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Call graph not found in index. The index may need to be regenerated."
+                "Call graph not found in index. The index may need to be regenerated.",
             )]));
         }
 
@@ -757,8 +837,8 @@ impl McpDiffServer {
                 let symbol_lower = symbol.to_lowercase();
 
                 // Check if it looks like a hash (contains : with hex-like chars)
-                let is_hash_like = symbol.contains(':') &&
-                    symbol.chars().all(|c| c.is_ascii_hexdigit() || c == ':');
+                let is_hash_like = symbol.contains(':')
+                    && symbol.chars().all(|c| c.is_ascii_hexdigit() || c == ':');
 
                 if is_hash_like {
                     // Direct hash lookup - include if it exists in our mapping
@@ -809,10 +889,18 @@ impl McpDiffServer {
                         .filter(|name| {
                             let name_lower = name.to_lowercase();
                             // Simple similarity: shared prefix or substring
-                            name_lower.starts_with(&symbol_lower[..symbol_lower.len().min(3).max(1)]) ||
-                            symbol_lower.split('_').any(|part| name_lower.contains(part))
+                            name_lower
+                                .starts_with(&symbol_lower[..symbol_lower.len().min(3).max(1)])
+                                || symbol_lower
+                                    .split('_')
+                                    .any(|part| name_lower.contains(part))
                         })
-                        .map(|name| (name, levenshtein_distance(&symbol_lower, &name.to_lowercase())))
+                        .map(|name| {
+                            (
+                                name,
+                                levenshtein_distance(&symbol_lower, &name.to_lowercase()),
+                            )
+                        })
                         .collect();
                     suggestions.sort_by_key(|(_, dist)| *dist);
                     suggestions.truncate(5);
@@ -821,7 +909,10 @@ impl McpDiffServer {
                     output.push_str("_type: call_graph\n");
                     output.push_str(&format!("symbol_filter: \"{}\"\n", symbol));
                     output.push_str("status: \"no_matches\"\n");
-                    output.push_str(&format!("message: \"No symbol found matching '{}'\"\n\n", symbol));
+                    output.push_str(&format!(
+                        "message: \"No symbol found matching '{}'\"\n\n",
+                        symbol
+                    ));
 
                     if !suggestions.is_empty() {
                         output.push_str("did_you_mean:\n");
@@ -843,18 +934,24 @@ impl McpDiffServer {
             // For large repos without filters, return summary with instructions
             let file = match fs::File::open(&call_graph_path) {
                 Ok(f) => f,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to open call graph: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to open call graph: {}",
+                        e
+                    ))]))
+                }
             };
-            
+
             let reader = BufReader::new(file);
             let mut total_edges = 0usize;
             let mut total_callees = 0usize;
             let mut top_callers: Vec<(String, usize)> = Vec::new();
-            
+
             for line in reader.lines().filter_map(|l| l.ok()) {
-                if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+                if line.starts_with("_type:")
+                    || line.starts_with("schema_version:")
+                    || line.starts_with("edges:")
+                {
                     continue;
                 }
                 // Note: hash may contain colons (e.g., "locationHash:semanticHash"), so we find ": ["
@@ -862,11 +959,15 @@ impl McpDiffServer {
                     let caller = line[..bracket_pos].trim().to_string();
                     let rest = line[bracket_pos + 2..].trim();
                     if rest.starts_with('[') && rest.ends_with(']') {
-                        let inner = &rest[1..rest.len()-1];
-                        let callee_count = if inner.is_empty() { 0 } else { inner.matches(',').count() + 1 };
+                        let inner = &rest[1..rest.len() - 1];
+                        let callee_count = if inner.is_empty() {
+                            0
+                        } else {
+                            inner.matches(',').count() + 1
+                        };
                         total_edges += 1;
                         total_callees += callee_count;
-                        
+
                         // Track top callers (by callee count)
                         if callee_count > 10 {
                             top_callers.push((caller, callee_count));
@@ -874,73 +975,84 @@ impl McpDiffServer {
                     }
                 }
             }
-            
+
             // Sort and take top 20
             top_callers.sort_by(|a, b| b.1.cmp(&a.1));
             top_callers.truncate(20);
-            
+
             let mut output = String::new();
             output.push_str("_type: call_graph_summary\n");
             output.push_str(&format!("file_size: {} MB\n", file_size / 1024 / 1024));
             output.push_str(&format!("total_callers: {}\n", total_edges));
             output.push_str(&format!("total_call_edges: {}\n", total_callees));
-            output.push_str(&format!("avg_callees_per_caller: {:.1}\n\n", total_callees as f64 / total_edges.max(1) as f64));
-            
+            output.push_str(&format!(
+                "avg_callees_per_caller: {:.1}\n\n",
+                total_callees as f64 / total_edges.max(1) as f64
+            ));
+
             output.push_str("top_callers_by_fan_out:\n");
             for (caller, count) in &top_callers {
                 output.push_str(&format!("  {} ({} callees)\n", caller, count));
             }
-            
-            output.push_str("\n⚠️ Large call graph detected. Use filters to query specific parts:\n");
+
+            output
+                .push_str("\n⚠️ Large call graph detected. Use filters to query specific parts:\n");
             output.push_str("  - module: Filter by module name\n");
             output.push_str("  - symbol: Filter by symbol name\n");
             output.push_str("  - summary_only: true for statistics only\n");
-            
+
             return Ok(CallToolResult::success(vec![Content::text(output)]));
         }
 
         // Stream through file with filtering (for filtered queries or small files)
         let file = match fs::File::open(&call_graph_path) {
             Ok(f) => f,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to open call graph: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to open call graph: {}",
+                    e
+                ))]))
+            }
         };
-        
+
         let reader = BufReader::new(file);
         let mut edges: Vec<(String, Vec<String>)> = Vec::new();
         let mut total_edges = 0usize;
         let mut skipped = 0usize;
-        
+
         for line in reader.lines().filter_map(|l| l.ok()) {
             // Skip header lines
-            if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+            if line.starts_with("_type:")
+                || line.starts_with("schema_version:")
+                || line.starts_with("edges:")
+            {
                 continue;
             }
-            
+
             // Parse edge
             // Note: hash may contain colons (e.g., "locationHash:semanticHash"), so we find ": ["
             if let Some(bracket_pos) = line.find(": [") {
                 let caller = line[..bracket_pos].trim();
                 let rest = line[bracket_pos + 2..].trim();
-                
+
                 if rest.starts_with('[') && rest.ends_with(']') {
                     total_edges += 1;
-                    
-                    let inner = &rest[1..rest.len()-1];
+
+                    let inner = &rest[1..rest.len() - 1];
                     let callees: Vec<String> = inner
                         .split(',')
                         .filter(|s| !s.is_empty())
                         .map(|s| s.trim().trim_matches('"').to_string())
                         .collect();
-                    
+
                     // Apply filters during streaming
                     let matches_filter = {
                         let mut matches = true;
 
                         if let Some(module) = &request.module {
                             let caller_matches = caller.contains(module.as_str());
-                            let callee_matches = callees.iter().any(|c| c.contains(module.as_str()));
+                            let callee_matches =
+                                callees.iter().any(|c| c.contains(module.as_str()));
                             if !caller_matches && !callee_matches {
                                 matches = false;
                             }
@@ -963,19 +1075,19 @@ impl McpDiffServer {
 
                         matches
                     };
-                    
+
                     if matches_filter {
                         // Handle offset
                         if skipped < offset {
                             skipped += 1;
                             continue;
                         }
-                        
+
                         // Collect edges (for both summary and non-summary mode)
                         if edges.len() < limit {
                             edges.push((caller.to_string(), callees));
                         }
-                        
+
                         // Early exit if we have enough for non-summary mode
                         // (summary mode will process all matching edges)
                     }
@@ -1008,7 +1120,9 @@ impl McpDiffServer {
     // Query-Driven API Tools
     // ========================================================================
 
-    #[tool(description = "Get source code for symbol(s) or line range. Three modes: (1) Batch: use hashes array (max 20, most efficient). (2) Single hash: use symbol_hash. (3) File+lines: use file_path with start_line/end_line. Returns code snippets with context lines.")]
+    #[tool(
+        description = "Get source code for symbol(s) or line range. Three modes: (1) Batch: use hashes array (max 20, most efficient). (2) Single hash: use symbol_hash. (3) File+lines: use file_path with start_line/end_line. Returns code snippets with context lines."
+    )]
     async fn get_source(
         &self,
         Parameters(request): Parameters<GetSourceRequest>,
@@ -1021,15 +1135,15 @@ impl McpDiffServer {
                 let repo_path = self.get_working_dir().await;
                 let cache = match CacheDir::for_repo(&repo_path) {
                     Ok(c) => c,
-                    Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                        "Failed to access cache: {}", e
-                    ))])),
+                    Err(e) => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "Failed to access cache: {}",
+                            e
+                        ))]))
+                    }
                 };
 
-                let hashes: Vec<&str> = hashes.iter()
-                    .take(20)
-                    .map(|s| s.as_str())
-                    .collect();
+                let hashes: Vec<&str> = hashes.iter().take(20).map(|s| s.as_str()).collect();
 
                 let mut output = String::new();
                 output.push_str("_type: batch_source\n");
@@ -1042,7 +1156,9 @@ impl McpDiffServer {
                     let symbol_path = cache.symbol_path(hash);
                     if symbol_path.exists() {
                         if let Ok(symbol_content) = fs::read_to_string(&symbol_path) {
-                            if let Some(source_snippet) = extract_source_for_symbol(&cache, &symbol_content, context) {
+                            if let Some(source_snippet) =
+                                extract_source_for_symbol(&cache, &symbol_content, context)
+                            {
                                 output.push_str(&format!("\n--- {} ---\n", hash));
                                 output.push_str(&source_snippet);
                                 found += 1;
@@ -1071,29 +1187,37 @@ impl McpDiffServer {
             let repo_path = self.get_working_dir().await;
             let cache = match CacheDir::for_repo(&repo_path) {
                 Ok(c) => c,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to access cache: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to access cache: {}",
+                        e
+                    ))]))
+                }
             };
 
             let symbol_path = cache.symbol_path(hash);
             if !symbol_path.exists() {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Symbol {} not found in index", hash
+                    "Symbol {} not found in index",
+                    hash
                 ))]));
             }
 
             let symbol_content = match fs::read_to_string(&symbol_path) {
                 Ok(c) => c,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to read symbol: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to read symbol: {}",
+                        e
+                    ))]))
+                }
             };
 
             return match extract_source_for_symbol(&cache, &symbol_content, context) {
                 Some(source) => Ok(CallToolResult::success(vec![Content::text(source)])),
                 None => Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Could not extract source for symbol {}", hash
+                    "Could not extract source for symbol {}",
+                    hash
                 ))])),
             };
         }
@@ -1101,23 +1225,31 @@ impl McpDiffServer {
         // File+lines mode (requires file_path)
         let file_path = match &request.file_path {
             Some(p) => self.resolve_path(p).await,
-            None => return Ok(CallToolResult::error(vec![Content::text(
-                "Either file_path, symbol_hash, or hashes must be provided"
-            )])),
+            None => {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Either file_path, symbol_hash, or hashes must be provided",
+                )]))
+            }
         };
 
         let (start_line, end_line) = match (request.start_line, request.end_line) {
             (Some(s), Some(e)) => (s, e),
-            _ => return Ok(CallToolResult::error(vec![Content::text(
-                "Both start_line and end_line are required for file+lines mode"
-            )])),
+            _ => {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Both start_line and end_line are required for file+lines mode",
+                )]))
+            }
         };
 
         let source = match fs::read_to_string(&file_path) {
             Ok(s) => s,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to read file {}: {}", file_path.display(), e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to read file {}: {}",
+                    file_path.display(),
+                    e
+                ))]))
+            }
         };
 
         let output = format_source_snippet(&file_path, &source, start_line, end_line, context);
@@ -1128,7 +1260,9 @@ impl McpDiffServer {
     // Unified Search Handler (consolidates search_symbols, semantic_search, raw_search, search_and_get_symbols)
     // ========================================================================
 
-    #[tool(description = "Unified search - runs BOTH symbol and semantic search by default (hybrid mode). Returns symbol matches AND conceptually related code in one call. Use mode='symbols' for exact name match only, mode='semantic' for BM25 conceptual search, or mode='raw' for regex patterns in comments/strings.")]
+    #[tool(
+        description = "Unified search - runs BOTH symbol and semantic search by default (hybrid mode). Returns symbol matches AND conceptually related code in one call. Use mode='symbols' for exact name match only, mode='semantic' for BM25 conceptual search, or mode='raw' for regex patterns in comments/strings."
+    )]
     async fn search(
         &self,
         Parameters(request): Parameters<SearchRequest>,
@@ -1143,7 +1277,9 @@ impl McpDiffServer {
         let original_dir = std::env::current_dir().ok();
         if let Err(e) = std::env::set_current_dir(&repo_path) {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to change to directory {}: {}", repo_path.display(), e
+                "Failed to change to directory {}: {}",
+                repo_path.display(),
+                e
             ))]));
         }
 
@@ -1188,13 +1324,18 @@ impl McpDiffServer {
 
         match result {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("Search failed: {}", e))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Search failed: {}",
+                e
+            ))])),
         }
     }
 
     /// Unified validate handler - auto-detects scope based on parameters.
     /// Scope priority: symbol_hash > file_path+line > file_path > module
-    #[tool(description = "Unified quality audit - validates complexity, duplicates, and impact radius. Auto-detects scope: provide symbol_hash OR file_path+line for single symbol, file_path alone for all symbols in file, or module for module-level validation.")]
+    #[tool(
+        description = "Unified quality audit - validates complexity, duplicates, and impact radius. Auto-detects scope: provide symbol_hash OR file_path+line for single symbol, file_path alone for all symbols in file, or module for module-level validation."
+    )]
     async fn validate(
         &self,
         Parameters(request): Parameters<ValidateRequest>,
@@ -1206,14 +1347,18 @@ impl McpDiffServer {
 
         let cache = match CacheDir::for_repo(&repo_path) {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]))
+            }
         };
 
         if !cache.exists() {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No index found for {}. Run index tool first.", repo_path.display()
+                "No index found for {}. Run index tool first.",
+                repo_path.display()
             ))]));
         }
 
@@ -1236,7 +1381,9 @@ impl McpDiffServer {
             let mut output = format_validation_result(&result);
 
             if request.include_source.unwrap_or(false) {
-                if let Some(source) = get_symbol_source_snippet(&cache, &symbol_entry.file, &symbol_entry.lines, 2) {
+                if let Some(source) =
+                    get_symbol_source_snippet(&cache, &symbol_entry.file, &symbol_entry.lines, 2)
+                {
                     output.push_str("\n__source__:\n");
                     output.push_str(&source);
                 }
@@ -1257,7 +1404,12 @@ impl McpDiffServer {
                 let mut output = format_validation_result(&result);
 
                 if request.include_source.unwrap_or(false) {
-                    if let Some(source) = get_symbol_source_snippet(&cache, &symbol_entry.file, &symbol_entry.lines, 2) {
+                    if let Some(source) = get_symbol_source_snippet(
+                        &cache,
+                        &symbol_entry.file,
+                        &symbol_entry.lines,
+                        2,
+                    ) {
                         output.push_str("\n__source__:\n");
                         output.push_str(&source);
                     }
@@ -1269,12 +1421,16 @@ impl McpDiffServer {
             // File-level validation (all symbols in file)
             let all_entries = match cache.load_all_symbol_entries() {
                 Ok(e) => e,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to load symbol index: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to load symbol index: {}",
+                        e
+                    ))]))
+                }
             };
 
-            let mut entries: Vec<_> = all_entries.into_iter()
+            let mut entries: Vec<_> = all_entries
+                .into_iter()
                 .filter(|e| e.file.ends_with(file_path) || file_path.ends_with(&e.file))
                 .collect();
 
@@ -1285,7 +1441,8 @@ impl McpDiffServer {
 
             if entries.is_empty() {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "No symbols found in file: {}", file_path
+                    "No symbols found in file: {}",
+                    file_path
                 ))]));
             }
 
@@ -1299,13 +1456,19 @@ impl McpDiffServer {
             // Module-level validation
             let all_entries = match cache.load_all_symbol_entries() {
                 Ok(e) => e,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to load symbol index: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to load symbol index: {}",
+                        e
+                    ))]))
+                }
             };
 
-            let mut entries: Vec<_> = all_entries.into_iter()
-                .filter(|e| e.module.eq_ignore_ascii_case(module_name) || e.module.ends_with(module_name))
+            let mut entries: Vec<_> = all_entries
+                .into_iter()
+                .filter(|e| {
+                    e.module.eq_ignore_ascii_case(module_name) || e.module.ends_with(module_name)
+                })
                 .collect();
 
             if let Some(ref kind) = request.kind {
@@ -1318,25 +1481,29 @@ impl McpDiffServer {
 
             if entries.is_empty() {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "No symbols found in module: {}", module_name
+                    "No symbols found in module: {}",
+                    module_name
                 ))]));
             }
 
             let results = validate_symbols_batch(&cache, &entries, threshold);
-            let output = format_batch_validation_results(&results, &format!("module:{}", module_name));
+            let output =
+                format_batch_validation_results(&results, &format!("module:{}", module_name));
 
             return Ok(CallToolResult::success(vec![Content::text(output)]));
         }
 
         // No valid scope provided
         Ok(CallToolResult::error(vec![Content::text(
-            "Must provide one of: symbol_hash, file_path (with optional line), or module"
+            "Must provide one of: symbol_hash, file_path (with optional line), or module",
         )]))
     }
 
     /// Unified index handler - smart refresh by default.
     /// Checks freshness first, only regenerates if stale. Use force=true to always rebuild.
-    #[tool(description = "Unified index management - smart refresh by default (checks freshness, rebuilds only if stale). Use force=true to always regenerate. Returns index status and statistics.")]
+    #[tool(
+        description = "Unified index management - smart refresh by default (checks freshness, rebuilds only if stale). Use force=true to always regenerate. Returns index status and statistics."
+    )]
     async fn index(
         &self,
         Parameters(request): Parameters<IndexRequest>,
@@ -1350,7 +1517,9 @@ impl McpDiffServer {
         let original_dir = std::env::current_dir().ok();
         if let Err(e) = std::env::set_current_dir(&repo_path) {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to change to directory {}: {}", repo_path.display(), e
+                "Failed to change to directory {}: {}",
+                repo_path.display(),
+                e
             ))]));
         }
 
@@ -1389,12 +1558,17 @@ impl McpDiffServer {
 
         match result {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("Index operation failed: {}", e))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Index operation failed: {}",
+                e
+            ))])),
         }
     }
 
     /// Unified test handler - runs tests by default, use detect_only=true to only detect frameworks.
-    #[tool(description = "Unified test runner - runs tests by default (auto-detects framework). Use detect_only=true to only detect available test frameworks without running.")]
+    #[tool(
+        description = "Unified test runner - runs tests by default (auto-detects framework). Use detect_only=true to only detect available test frameworks without running."
+    )]
     async fn test(
         &self,
         Parameters(request): Parameters<TestRequest>,
@@ -1408,7 +1582,9 @@ impl McpDiffServer {
         let original_dir = std::env::current_dir().ok();
         if let Err(e) = std::env::set_current_dir(&project_path) {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to change to directory {}: {}", project_path.display(), e
+                "Failed to change to directory {}: {}",
+                project_path.display(),
+                e
             ))]));
         }
 
@@ -1432,7 +1608,10 @@ impl McpDiffServer {
 
         match result {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("Test operation failed: {}", e))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Test operation failed: {}",
+                e
+            ))])),
         }
     }
 
@@ -1440,7 +1619,9 @@ impl McpDiffServer {
     // Unified Security Handler (consolidates cve_scan, update_security_patterns, get_security_pattern_stats)
     // ========================================================================
 
-    #[tool(description = "Unified security tool - scans for CVE vulnerability patterns by default. Use stats_only=true to get pattern statistics, update=true to update patterns from remote source. Matches function signatures against pre-compiled fingerprints from NVD/GHSA data.")]
+    #[tool(
+        description = "Unified security tool - scans for CVE vulnerability patterns by default. Use stats_only=true to get pattern statistics, update=true to update patterns from remote source. Matches function signatures against pre-compiled fingerprints from NVD/GHSA data."
+    )]
     async fn security(
         &self,
         Parameters(request): Parameters<SecurityRequest>,
@@ -1454,7 +1635,9 @@ impl McpDiffServer {
         let original_dir = std::env::current_dir().ok();
         if let Err(e) = std::env::set_current_dir(&repo_path) {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to change to directory {}: {}", repo_path.display(), e
+                "Failed to change to directory {}: {}",
+                repo_path.display(),
+                e
             ))]));
         }
 
@@ -1477,9 +1660,7 @@ impl McpDiffServer {
             }
         };
 
-        let args = SecurityArgs {
-            operation,
-        };
+        let args = SecurityArgs { operation };
 
         let ctx = CommandContext::from_cli(OutputFormat::Toon, false, false);
         let result = run_security(&args, &ctx);
@@ -1491,16 +1672,20 @@ impl McpDiffServer {
 
         match result {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("Security operation failed: {}", e))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Security operation failed: {}",
+                e
+            ))])),
         }
     }
-
 
     // ========================================================================
     // Layer Management Tools (SEM-98, SEM-99, SEM-101, SEM-102, SEM-104)
     // ========================================================================
 
-    #[tool(description = "Get server status including mode, features, and optionally detailed layer status. Combines server mode info with layer details when include_layers is true.")]
+    #[tool(
+        description = "Get server status including mode, features, and optionally detailed layer status. Combines server mode info with layer details when include_layers is true."
+    )]
     async fn server_status(
         &self,
         Parameters(request): Parameters<ServerStatusRequest>,
@@ -1510,7 +1695,10 @@ impl McpDiffServer {
 
         output.push_str("_type: server_status\n");
         output.push_str(&format!("version: {}\n", env!("CARGO_PKG_VERSION")));
-        output.push_str(&format!("persistent_mode: {}\n", self.server_state.is_some()));
+        output.push_str(&format!(
+            "persistent_mode: {}\n",
+            self.server_state.is_some()
+        ));
 
         if let Some(state) = &self.server_state {
             output.push_str("features:\n");
@@ -1536,7 +1724,10 @@ impl McpDiffServer {
                 for layer_status in &status.layers {
                     output.push_str(&format!("  - kind: {:?}\n", layer_status.kind));
                     output.push_str(&format!("    is_stale: {}\n", layer_status.is_stale));
-                    output.push_str(&format!("    symbol_count: {}\n", layer_status.symbol_count));
+                    output.push_str(&format!(
+                        "    symbol_count: {}\n",
+                        layer_status.symbol_count
+                    ));
                     output.push_str(&format!("    strategy: {:?}\n", layer_status.strategy));
                 }
             }
@@ -1559,9 +1750,11 @@ impl McpDiffServer {
     // Duplicate Detection Tools
     // ========================================================================
 
-    #[tool(description = "Unified duplicate detection. **Codebase scan** (default): Find all duplicate clusters for health audits. **Single symbol check**: Pass symbol_hash to check one symbol before writing new code or during refactoring.
+    #[tool(
+        description = "Unified duplicate detection. **Codebase scan** (default): Find all duplicate clusters for health audits. **Single symbol check**: Pass symbol_hash to check one symbol before writing new code or during refactoring.
 
-Output is token-optimized: duplicates are grouped by module with counts and similarity ranges (e.g., 'Nop.Web.Factories: 12 (91-98%) [near]') plus top 3 individual matches per cluster. Use limit=10-20 for initial exploration, higher for comprehensive scans. Results are paginated - use offset to get more.")]
+Output is token-optimized: duplicates are grouped by module with counts and similarity ranges (e.g., 'Nop.Web.Factories: 12 (91-98%) [near]') plus top 3 individual matches per cluster. Use limit=10-20 for initial exploration, higher for comprehensive scans. Results are paginated - use offset to get more."
+    )]
     async fn find_duplicates(
         &self,
         Parameters(request): Parameters<FindDuplicatesRequest>,
@@ -1573,17 +1766,23 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         let cache = match CacheDir::for_repo(&repo_path) {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]))
+            }
         };
 
         // Load signatures from index
         let signatures = match load_signatures(&cache) {
             Ok(sigs) => sigs,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to load signature index: {}. Run generate_index first.", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to load signature index: {}. Run generate_index first.",
+                    e
+                ))]))
+            }
         };
 
         if signatures.is_empty() {
@@ -1598,9 +1797,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         if let Some(symbol_hash) = &request.symbol_hash {
             let target = match signatures.iter().find(|s| &s.symbol_hash == symbol_hash) {
                 Some(sig) => sig,
-                None => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Symbol {} not found in signature index.", symbol_hash
-                ))])),
+                None => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Symbol {} not found in signature index.",
+                        symbol_hash
+                    ))]))
+                }
             };
 
             let detector = DuplicateDetector::new(threshold);
@@ -1616,11 +1818,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         let offset = request.offset.unwrap_or(0) as usize;
         let sort_by = request.sort_by.as_deref().unwrap_or("similarity");
 
-        let detector = DuplicateDetector::new(threshold)
-            .with_boilerplate_exclusion(exclude_boilerplate);
+        let detector =
+            DuplicateDetector::new(threshold).with_boilerplate_exclusion(exclude_boilerplate);
 
         // Filter by module and min_lines
-        let filtered_sigs: Vec<_> = signatures.iter()
+        let filtered_sigs: Vec<_> = signatures
+            .iter()
             .filter(|s| {
                 // Apply module filter
                 if let Some(module) = &request.module {
@@ -1655,18 +1858,25 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
             _ => {
                 // Default: sort by highest similarity in cluster
                 clusters.sort_by(|a, b| {
-                    let a_max = a.duplicates.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
-                    let b_max = b.duplicates.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
-                    b_max.partial_cmp(&a_max).unwrap_or(std::cmp::Ordering::Equal)
+                    let a_max = a
+                        .duplicates
+                        .iter()
+                        .map(|d| d.similarity)
+                        .fold(0.0_f64, f64::max);
+                    let b_max = b
+                        .duplicates
+                        .iter()
+                        .map(|d| d.similarity)
+                        .fold(0.0_f64, f64::max);
+                    b_max
+                        .partial_cmp(&a_max)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
             }
         }
 
         // Apply pagination
-        let paginated: Vec<_> = clusters.into_iter()
-            .skip(offset)
-            .take(limit)
-            .collect();
+        let paginated: Vec<_> = clusters.into_iter().skip(offset).take(limit).collect();
 
         let output = format_duplicate_clusters_paginated(
             &paginated,
@@ -1679,12 +1889,13 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-
     // ========================================================================
     // Commit Preparation Tools
     // ========================================================================
 
-    #[tool(description = "Prepare information for writing a commit message. Gathers git context, analyzes staged and unstaged changes semantically, and returns a compact summary with optional complexity metrics. **Use before committing** to understand what you're about to commit. This tool NEVER commits - it only provides information.")]
+    #[tool(
+        description = "Prepare information for writing a commit message. Gathers git context, analyzes staged and unstaged changes semantically, and returns a compact summary with optional complexity metrics. **Use before committing** to understand what you're about to commit. This tool NEVER commits - it only provides information."
+    )]
     async fn prep_commit(
         &self,
         Parameters(request): Parameters<PrepCommitRequest>,
@@ -1698,7 +1909,9 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         // Verify it's a git repo
         if !crate::git::is_git_repo(Some(&repo_path)) {
-            return Ok(CallToolResult::error(vec![Content::text("Not a git repository")]));
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Not a git repository",
+            )]));
         }
 
         // Extract options with defaults
@@ -1768,9 +1981,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         // Get staged changes
         let staged_changes = match crate::git::get_staged_changes(Some(&repo_path)) {
             Ok(files) => files,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to get staged changes: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to get staged changes: {}",
+                    e
+                ))]))
+            }
         };
 
         // Get unstaged changes (unless staged_only)
@@ -1779,9 +1995,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         } else {
             match crate::git::get_unstaged_changes(Some(&repo_path)) {
                 Ok(files) => files,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "Failed to get unstaged changes: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Failed to get unstaged changes: {}",
+                        e
+                    ))]))
+                }
             }
         };
 
@@ -1794,168 +2013,198 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         // Helper to analyze a list of changed files
         let analyze_files_list = |changes: &[crate::git::ChangedFile]| -> Vec<AnalyzedFile> {
-            changes.iter().map(|changed_file| {
-                let file_path = repo_path.join(&changed_file.path);
-                let change_type_str = format!("{:?}", changed_file.change_type);
+            changes
+                .iter()
+                .map(|changed_file| {
+                    let file_path = repo_path.join(&changed_file.path);
+                    let change_type_str = format!("{:?}", changed_file.change_type);
 
-                // Get diff stats if requested
-                let diff_stats = if show_diff_stats {
-                    // Get diff stats for this specific file
-                    let stat_output = Command::new("git")
-                        .args(["diff", "--numstat", "--cached", "--", &changed_file.path])
-                        .current_dir(&repo_path)
-                        .output()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-                    // If no cached stat, try unstaged
-                    let stat_output = stat_output.or_else(|| {
-                        Command::new("git")
-                            .args(["diff", "--numstat", "--", &changed_file.path])
+                    // Get diff stats if requested
+                    let diff_stats = if show_diff_stats {
+                        // Get diff stats for this specific file
+                        let stat_output = Command::new("git")
+                            .args(["diff", "--numstat", "--cached", "--", &changed_file.path])
                             .current_dir(&repo_path)
                             .output()
                             .ok()
                             .filter(|o| o.status.success())
-                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    });
+                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
 
-                    stat_output.and_then(|stat| {
-                        let parts: Vec<&str> = stat.split_whitespace().collect();
-                        if parts.len() >= 2 {
-                            let insertions = parts[0].parse().unwrap_or(0);
-                            let deletions = parts[1].parse().unwrap_or(0);
-                            Some(FileDiffStats { insertions, deletions })
-                        } else {
-                            None
+                        // If no cached stat, try unstaged
+                        let stat_output = stat_output.or_else(|| {
+                            Command::new("git")
+                                .args(["diff", "--numstat", "--", &changed_file.path])
+                                .current_dir(&repo_path)
+                                .output()
+                                .ok()
+                                .filter(|o| o.status.success())
+                                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        });
+
+                        stat_output.and_then(|stat| {
+                            let parts: Vec<&str> = stat.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                let insertions = parts[0].parse().unwrap_or(0);
+                                let deletions = parts[1].parse().unwrap_or(0);
+                                Some(FileDiffStats {
+                                    insertions,
+                                    deletions,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    };
+
+                    // Skip deleted files - they have no symbols
+                    if matches!(changed_file.change_type, crate::git::ChangeType::Deleted) {
+                        return AnalyzedFile {
+                            path: changed_file.path.clone(),
+                            change_type: change_type_str,
+                            diff_stats,
+                            symbols: Vec::new(),
+                            error: Some("file deleted".to_string()),
+                        };
+                    }
+
+                    // Check if file exists
+                    if !file_path.exists() {
+                        return AnalyzedFile {
+                            path: changed_file.path.clone(),
+                            change_type: change_type_str,
+                            diff_stats,
+                            symbols: Vec::new(),
+                            error: Some("file not found".to_string()),
+                        };
+                    }
+
+                    // Check if it's a supported language
+                    let lang = match Lang::from_path(&file_path) {
+                        Ok(l) => l,
+                        Err(_) => {
+                            return AnalyzedFile {
+                                path: changed_file.path.clone(),
+                                change_type: change_type_str,
+                                diff_stats,
+                                symbols: Vec::new(),
+                                error: Some("unsupported language".to_string()),
+                            };
                         }
-                    })
-                } else {
-                    None
-                };
-
-                // Skip deleted files - they have no symbols
-                if matches!(changed_file.change_type, crate::git::ChangeType::Deleted) {
-                    return AnalyzedFile {
-                        path: changed_file.path.clone(),
-                        change_type: change_type_str,
-                        diff_stats,
-                        symbols: Vec::new(),
-                        error: Some("file deleted".to_string()),
                     };
-                }
 
-                // Check if file exists
-                if !file_path.exists() {
-                    return AnalyzedFile {
-                        path: changed_file.path.clone(),
-                        change_type: change_type_str,
-                        diff_stats,
-                        symbols: Vec::new(),
-                        error: Some("file not found".to_string()),
+                    // Parse and extract symbols
+                    let source = match fs::read_to_string(&file_path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            return AnalyzedFile {
+                                path: changed_file.path.clone(),
+                                change_type: change_type_str,
+                                diff_stats,
+                                symbols: Vec::new(),
+                                error: Some(format!("read error: {}", e)),
+                            };
+                        }
                     };
-                }
 
-                // Check if it's a supported language
-                let lang = match Lang::from_path(&file_path) {
-                    Ok(l) => l,
-                    Err(_) => {
-                        return AnalyzedFile {
-                            path: changed_file.path.clone(),
-                            change_type: change_type_str,
-                            diff_stats,
-                            symbols: Vec::new(),
-                            error: Some("unsupported language".to_string()),
-                        };
-                    }
-                };
+                    let summary = match parse_and_extract(&file_path, &source, lang) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            return AnalyzedFile {
+                                path: changed_file.path.clone(),
+                                change_type: change_type_str,
+                                diff_stats,
+                                symbols: Vec::new(),
+                                error: Some(format!("parse error: {}", e)),
+                            };
+                        }
+                    };
 
-                // Parse and extract symbols
-                let source = match fs::read_to_string(&file_path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return AnalyzedFile {
-                            path: changed_file.path.clone(),
-                            change_type: change_type_str,
-                            diff_stats,
-                            symbols: Vec::new(),
-                            error: Some(format!("read error: {}", e)),
-                        };
-                    }
-                };
+                    // Create a single symbol entry for the file-level summary
+                    let lines = format!(
+                        "{}-{}",
+                        summary.start_line.unwrap_or(1),
+                        summary.end_line.unwrap_or(1)
+                    );
 
-                let summary = match parse_and_extract(&file_path, &source, lang) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return AnalyzedFile {
-                            path: changed_file.path.clone(),
-                            change_type: change_type_str,
-                            diff_stats,
-                            symbols: Vec::new(),
-                            error: Some(format!("parse error: {}", e)),
-                        };
-                    }
-                };
-
-                // Create a single symbol entry for the file-level summary
-                let lines = format!(
-                    "{}-{}",
-                    summary.start_line.unwrap_or(1),
-                    summary.end_line.unwrap_or(1)
-                );
-
-                let (cognitive, cyclomatic, max_nesting, fan_out, loc, state_mutations, io_operations) =
-                    if include_complexity || include_all_metrics {
+                    let (
+                        cognitive,
+                        cyclomatic,
+                        max_nesting,
+                        fan_out,
+                        loc,
+                        state_mutations,
+                        io_operations,
+                    ) = if include_complexity || include_all_metrics {
                         // Pass 0 for fan_in since we don't have call graph data
-                        let complexity = crate::analysis::symbol_complexity_from_summary(&summary, 0);
+                        let complexity =
+                            crate::analysis::symbol_complexity_from_summary(&summary, 0);
                         (
                             Some(complexity.cognitive as usize),
                             Some(complexity.cyclomatic as usize),
                             Some(complexity.max_nesting as usize),
-                            if include_all_metrics { Some(complexity.fan_out as usize) } else { None },
-                            if include_all_metrics { Some(complexity.loc as usize) } else { None },
-                            if include_all_metrics { Some(complexity.state_mutations as usize) } else { None },
-                            if include_all_metrics { Some(complexity.io_operations as usize) } else { None },
+                            if include_all_metrics {
+                                Some(complexity.fan_out as usize)
+                            } else {
+                                None
+                            },
+                            if include_all_metrics {
+                                Some(complexity.loc as usize)
+                            } else {
+                                None
+                            },
+                            if include_all_metrics {
+                                Some(complexity.state_mutations as usize)
+                            } else {
+                                None
+                            },
+                            if include_all_metrics {
+                                Some(complexity.io_operations as usize)
+                            } else {
+                                None
+                            },
                         )
                     } else {
                         (None, None, None, None, None, None, None)
                     };
 
-                // Get symbol name and kind from the summary
-                let symbol_name = summary.symbol.clone().unwrap_or_else(|| {
-                    // Use file stem as fallback name
-                    std::path::Path::new(&changed_file.path)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown")
-                        .to_string()
-                });
-                let symbol_kind = summary
-                    .symbol_kind
-                    .map(|k| format!("{:?}", k).to_lowercase())
-                    .unwrap_or_else(|| "file".to_string());
+                    // Get symbol name and kind from the summary
+                    let symbol_name = summary.symbol.clone().unwrap_or_else(|| {
+                        // Use file stem as fallback name
+                        std::path::Path::new(&changed_file.path)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_string()
+                    });
+                    let symbol_kind = summary
+                        .symbol_kind
+                        .map(|k| format!("{:?}", k).to_lowercase())
+                        .unwrap_or_else(|| "file".to_string());
 
-                let symbols = vec![SymbolMetrics {
-                    name: symbol_name,
-                    kind: symbol_kind,
-                    lines,
-                    cognitive,
-                    cyclomatic,
-                    max_nesting,
-                    fan_out,
-                    loc,
-                    state_mutations,
-                    io_operations,
-                }];
+                    let symbols = vec![SymbolMetrics {
+                        name: symbol_name,
+                        kind: symbol_kind,
+                        lines,
+                        cognitive,
+                        cyclomatic,
+                        max_nesting,
+                        fan_out,
+                        loc,
+                        state_mutations,
+                        io_operations,
+                    }];
 
-                AnalyzedFile {
-                    path: changed_file.path.clone(),
-                    change_type: change_type_str,
-                    diff_stats,
-                    symbols,
-                    error: None,
-                }
-            }).collect()
+                    AnalyzedFile {
+                        path: changed_file.path.clone(),
+                        change_type: change_type_str,
+                        diff_stats,
+                        symbols,
+                        error: None,
+                    }
+                })
+                .collect()
         };
 
         // Analyze staged and unstaged files
@@ -1975,8 +2224,9 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-
-    #[tool(description = "Get symbols from a file or module (mutually exclusive). Use file_path for file-centric view, or module for module-centric view. Returns lightweight index entries with optional source snippets.")]
+    #[tool(
+        description = "Get symbols from a file or module (mutually exclusive). Use file_path for file-centric view, or module for module-centric view. Returns lightweight index entries with optional source snippets."
+    )]
     async fn get_file(
         &self,
         Parameters(request): Parameters<GetFileRequest>,
@@ -1985,12 +2235,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         match (&request.file_path, &request.module) {
             (Some(_), Some(_)) => {
                 return Ok(CallToolResult::error(vec![Content::text(
-                    "Error: file_path and module are mutually exclusive. Provide one or the other."
+                    "Error: file_path and module are mutually exclusive. Provide one or the other.",
                 )]));
             }
             (None, None) => {
                 return Ok(CallToolResult::error(vec![Content::text(
-                    "Error: Must provide either file_path or module parameter."
+                    "Error: Must provide either file_path or module parameter.",
                 )]));
             }
             _ => {}
@@ -2018,9 +2268,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
                 limit,
             ) {
                 Ok(r) => r,
-                Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "List failed: {}", e
-                ))])),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "List failed: {}",
+                        e
+                    ))]))
+                }
             };
 
             let output = format_module_symbols(module, &results, &cache);
@@ -2032,14 +2285,18 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         let cache = match CacheDir::for_repo(&repo_path) {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]))
+            }
         };
 
         if !cache.exists() {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+                "No sharded index found for {}. Run generate_index first.",
+                repo_path.display()
             ))]));
         }
 
@@ -2051,22 +2308,27 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         // Search the symbol index for symbols in this file
         let symbols: Vec<_> = match cache.load_all_symbol_entries() {
-            Ok(all) => {
-                all.into_iter()
-                    .filter(|e| {
-                        let entry_file = e.file.trim_start_matches("./");
-                        entry_file == target_file ||
-                        entry_file.ends_with(target_file) ||
-                        target_file.ends_with(entry_file)
-                    })
-                    .filter(|e| {
-                        request.kind.as_ref().map_or(true, |k| e.kind == normalize_kind(k))
-                    })
-                    .collect()
+            Ok(all) => all
+                .into_iter()
+                .filter(|e| {
+                    let entry_file = e.file.trim_start_matches("./");
+                    entry_file == target_file
+                        || entry_file.ends_with(target_file)
+                        || target_file.ends_with(entry_file)
+                })
+                .filter(|e| {
+                    request
+                        .kind
+                        .as_ref()
+                        .map_or(true, |k| e.kind == normalize_kind(k))
+                })
+                .collect(),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to load symbol index: {}",
+                    e
+                ))]))
             }
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to load symbol index: {}", e
-            ))])),
         };
 
         if symbols.is_empty() {
@@ -2080,7 +2342,10 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         output.push_str("_type: file_symbols\n");
         output.push_str(&format!("file: \"{}\"\n", file_path));
         output.push_str(&format!("showing: {}\n", symbols.len()));
-        output.push_str(&format!("symbols[{}]{{name,hash,kind,lines,risk}}:\n", symbols.len()));
+        output.push_str(&format!(
+            "symbols[{}]{{name,hash,kind,lines,risk}}:\n",
+            symbols.len()
+        ));
 
         for entry in &symbols {
             output.push_str(&format!(
@@ -2093,7 +2358,9 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         if include_source && !symbols.is_empty() {
             output.push_str("\n__sources__:\n");
             for entry in &symbols {
-                if let Some(source) = get_symbol_source_snippet(&cache, &entry.file, &entry.lines, context) {
+                if let Some(source) =
+                    get_symbol_source_snippet(&cache, &entry.file, &entry.lines, context)
+                {
                     output.push_str(&format!("\n--- {} ({}) ---\n", entry.symbol, entry.lines));
                     output.push_str(&source);
                 }
@@ -2103,7 +2370,9 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "**Use before modifying existing code** to understand impact radius. Answers 'what functions call this symbol?' Shows what will break if you change this function. Returns direct callers and optionally transitive callers (up to depth 3).")]
+    #[tool(
+        description = "**Use before modifying existing code** to understand impact radius. Answers 'what functions call this symbol?' Shows what will break if you change this function. Returns direct callers and optionally transitive callers (up to depth 3)."
+    )]
     async fn get_callers(
         &self,
         Parameters(request): Parameters<GetCallersRequest>,
@@ -2115,14 +2384,18 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         let cache = match CacheDir::for_repo(&repo_path) {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to access cache: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to access cache: {}",
+                    e
+                ))]))
+            }
         };
 
         if !cache.exists() {
             return Ok(CallToolResult::error(vec![Content::text(format!(
-                "No sharded index found for {}. Run generate_index first.", repo_path.display()
+                "No sharded index found for {}. Run generate_index first.",
+                repo_path.display()
             ))]));
         }
 
@@ -2134,35 +2407,46 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         let call_graph_path = cache.call_graph_path();
         if !call_graph_path.exists() {
             return Ok(CallToolResult::error(vec![Content::text(
-                "Call graph not found. Run generate_index to create it."
+                "Call graph not found. Run generate_index to create it.",
             )]));
         }
 
         let content = match fs::read_to_string(&call_graph_path) {
             Ok(c) => c,
-            Err(e) => return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Failed to read call graph: {}", e
-            ))])),
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Failed to read call graph: {}",
+                    e
+                ))]))
+            }
         };
 
         // Build reverse call graph (callee -> callers)
-        let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-        let mut symbol_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut reverse_graph: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        let mut symbol_names: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         for line in content.lines() {
-            if line.starts_with("_type:") || line.starts_with("schema_version:") || line.starts_with("edges:") {
+            if line.starts_with("_type:")
+                || line.starts_with("schema_version:")
+                || line.starts_with("edges:")
+            {
                 continue;
             }
             if let Some(colon_pos) = line.find(':') {
                 let caller = line[..colon_pos].trim().to_string();
                 let rest = line[colon_pos + 1..].trim();
                 if rest.starts_with('[') && rest.ends_with(']') {
-                    let inner = &rest[1..rest.len()-1];
+                    let inner = &rest[1..rest.len() - 1];
                     for callee in inner.split(',').filter(|s| !s.is_empty()) {
                         let callee = callee.trim().trim_matches('"').to_string();
                         // Skip external calls
                         if !callee.starts_with("ext:") {
-                            reverse_graph.entry(callee.clone()).or_default().push(caller.clone());
+                            reverse_graph
+                                .entry(callee.clone())
+                                .or_default()
+                                .push(caller.clone());
                         }
                     }
                 }
@@ -2178,7 +2462,10 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         // Find callers at each depth level
         let target_hash = &request.symbol_hash;
-        let target_name = symbol_names.get(target_hash).cloned().unwrap_or_else(|| target_hash.clone());
+        let target_name = symbol_names
+            .get(target_hash)
+            .cloned()
+            .unwrap_or_else(|| target_hash.clone());
 
         let mut all_callers: Vec<(String, String, usize)> = Vec::new(); // (hash, name, depth)
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -2192,7 +2479,8 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
                     for caller_hash in callers {
                         if !visited.contains(caller_hash) && all_callers.len() < limit {
                             visited.insert(caller_hash.clone());
-                            let caller_name = symbol_names.get(caller_hash)
+                            let caller_name = symbol_names
+                                .get(caller_hash)
                                 .cloned()
                                 .unwrap_or_else(|| caller_hash.clone());
                             all_callers.push((caller_hash.clone(), caller_name, current_depth));
@@ -2218,7 +2506,10 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         if all_callers.is_empty() {
             output.push_str("callers: (none - this may be an entry point or unused)\n");
         } else {
-            output.push_str(&format!("callers[{}]{{name,hash,depth}}:\n", all_callers.len()));
+            output.push_str(&format!(
+                "callers[{}]{{name,hash,depth}}:\n",
+                all_callers.len()
+            ));
             for (hash, name, d) in &all_callers {
                 output.push_str(&format!("  {},{},{}\n", name, hash, d));
             }
@@ -2236,9 +2527,21 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
                             for line in content.lines() {
                                 let trimmed = line.trim();
                                 if trimmed.starts_with("file:") {
-                                    file = Some(trimmed.trim_start_matches("file:").trim().trim_matches('"').to_string());
+                                    file = Some(
+                                        trimmed
+                                            .trim_start_matches("file:")
+                                            .trim()
+                                            .trim_matches('"')
+                                            .to_string(),
+                                    );
                                 } else if trimmed.starts_with("lines:") {
-                                    lines = Some(trimmed.trim_start_matches("lines:").trim().trim_matches('"').to_string());
+                                    lines = Some(
+                                        trimmed
+                                            .trim_start_matches("lines:")
+                                            .trim()
+                                            .trim_matches('"')
+                                            .to_string(),
+                                    );
                                 }
                             }
                             if let (Some(f), Some(l)) = (file, lines) {
@@ -2255,11 +2558,15 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
-
 }
 
 /// Get source snippet for a symbol given file and line range
-fn get_symbol_source_snippet(cache: &CacheDir, file: &str, lines: &str, context: usize) -> Option<String> {
+fn get_symbol_source_snippet(
+    cache: &CacheDir,
+    file: &str,
+    lines: &str,
+    context: usize,
+) -> Option<String> {
     let (start_line, end_line) = if let Some((s, e)) = lines.split_once('-') {
         (s.parse::<usize>().ok()?, e.parse::<usize>().ok()?)
     } else {
@@ -2269,10 +2576,13 @@ fn get_symbol_source_snippet(cache: &CacheDir, file: &str, lines: &str, context:
     let full_path = cache.repo_root.join(file);
     let source = fs::read_to_string(&full_path).ok()?;
 
-    Some(format_source_snippet(&full_path, &source, start_line, end_line, context))
+    Some(format_source_snippet(
+        &full_path, &source, start_line, end_line, context,
+    ))
 }
 
 /// Format test results as compact TOON output
+#[allow(dead_code)]
 fn format_test_results(results: &test_runner::TestResults) -> String {
     let mut output = String::new();
     output.push_str("_type: test_results\n");
@@ -2313,7 +2623,10 @@ fn format_test_results(results: &test_runner::TestResults) -> String {
     // Include truncated stdout/stderr for debugging
     if !results.stdout.is_empty() {
         let stdout = if results.stdout.len() > 500 {
-            format!("{}...(truncated)", truncate_to_char_boundary(&results.stdout, 500))
+            format!(
+                "{}...(truncated)",
+                truncate_to_char_boundary(&results.stdout, 500)
+            )
         } else {
             results.stdout.clone()
         };

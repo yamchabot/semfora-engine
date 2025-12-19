@@ -8,14 +8,14 @@
 //! The compiler is used offline to build the pattern database that gets
 //! embedded in the semfora-engine binary.
 
-pub mod ghsa;
-pub mod nvd;
 pub mod commit_parser;
 pub mod fingerprinter;
+pub mod ghsa;
+pub mod nvd;
 
 use crate::error::Result;
-use crate::security::{CVEPattern, PatternDatabase, PatternSource, Severity};
 use crate::lang::Lang;
+use crate::security::{CVEPattern, PatternDatabase, PatternSource, Severity};
 use std::path::Path;
 
 /// Configuration for the pattern compiler
@@ -68,16 +68,16 @@ impl Default for CompilerConfig {
             github_token: std::env::var("GITHUB_TOKEN").ok(),
             nvd_api_key: std::env::var("NVD_API_KEY").ok(),
             cwe_categories: vec![
-                "CWE-89".into(),   // SQL Injection
-                "CWE-79".into(),   // XSS
-                "CWE-78".into(),   // OS Command Injection
-                "CWE-502".into(),  // Deserialization
-                "CWE-287".into(),  // Auth Bypass
-                "CWE-22".into(),   // Path Traversal
-                "CWE-94".into(),   // Code Injection
-                "CWE-918".into(),  // SSRF
-                "CWE-611".into(),  // XXE
-                "CWE-434".into(),  // Unrestricted Upload
+                "CWE-89".into(),  // SQL Injection
+                "CWE-79".into(),  // XSS
+                "CWE-78".into(),  // OS Command Injection
+                "CWE-502".into(), // Deserialization
+                "CWE-287".into(), // Auth Bypass
+                "CWE-22".into(),  // Path Traversal
+                "CWE-94".into(),  // Code Injection
+                "CWE-918".into(), // SSRF
+                "CWE-611".into(), // XXE
+                "CWE-434".into(), // Unrestricted Upload
             ],
             min_cvss: 7.0, // HIGH and CRITICAL only
             max_patterns_per_cwe: 100,
@@ -132,7 +132,10 @@ impl PatternCompiler {
         for cwe in &self.config.cwe_categories {
             let advisories = self.ghsa_client.fetch_by_cwe(cwe).await?;
 
-            for advisory in advisories.into_iter().take(self.config.max_patterns_per_cwe) {
+            for advisory in advisories
+                .into_iter()
+                .take(self.config.max_patterns_per_cwe)
+            {
                 if let Some(pattern) = self.advisory_to_pattern(&advisory).await? {
                     if pattern.cvss_v3_score.unwrap_or(0.0) >= self.config.min_cvss {
                         db.add_pattern(pattern);
@@ -181,7 +184,12 @@ impl PatternCompiler {
             fingerprints.state,
         )
         .with_vulnerable_calls(vulnerable_calls)
-        .with_cvss(nvd_meta.as_ref().and_then(|m| m.cvss_v3_score).unwrap_or(0.0))
+        .with_cvss(
+            nvd_meta
+                .as_ref()
+                .and_then(|m| m.cvss_v3_score)
+                .unwrap_or(0.0),
+        )
         .with_description(&advisory.summary)
         .with_languages(advisory.affected_languages.clone())
         .with_source(PatternSource::GitHubAdvisory {
@@ -206,7 +214,10 @@ impl PatternCompiler {
 
     /// Compile patterns from GHSA with options
     /// If `search_commits` is true, will search GitHub for fix commits when not in advisory
-    pub async fn compile_from_ghsa_with_options(&self, search_commits: bool) -> Result<Vec<CVEPattern>> {
+    pub async fn compile_from_ghsa_with_options(
+        &self,
+        search_commits: bool,
+    ) -> Result<Vec<CVEPattern>> {
         let mut patterns = Vec::new();
         let mut stats = CompileStats::default();
 
@@ -221,7 +232,10 @@ impl PatternCompiler {
 
             stats.total_advisories += advisories.len();
 
-            for advisory in advisories.into_iter().take(self.config.max_patterns_per_cwe) {
+            for advisory in advisories
+                .into_iter()
+                .take(self.config.max_patterns_per_cwe)
+            {
                 stats.processed += 1;
 
                 // Skip if no CVE ID

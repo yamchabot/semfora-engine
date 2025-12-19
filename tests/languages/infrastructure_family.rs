@@ -3,9 +3,13 @@
 //! Tests for HCL (Terraform), Dockerfile, and Gradle - infrastructure and
 //! build configuration languages.
 
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../common/mod.rs"]
 mod common;
-use common::{TestRepo, assertions::*};
+use common::{assertions::*, TestRepo};
 
 // =============================================================================
 // HCL (TERRAFORM) TESTS
@@ -53,7 +57,9 @@ resource "aws_security_group" "allow_http" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("aws_instance") || output_str.contains("aws_security_group") || output_str.contains("resource"),
+            output_str.contains("aws_instance")
+                || output_str.contains("aws_security_group")
+                || output_str.contains("resource"),
             "Should find HCL resources: {}",
             output
         );
@@ -103,7 +109,9 @@ variable "allowed_cidrs" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("region") || output_str.contains("instance_type") || output_str.contains("variable"),
+            output_str.contains("region")
+                || output_str.contains("instance_type")
+                || output_str.contains("variable"),
             "Should find HCL variables: {}",
             output
         );
@@ -146,7 +154,9 @@ output "connection_string" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("instance_id") || output_str.contains("public_ip") || output_str.contains("output"),
+            output_str.contains("instance_id")
+                || output_str.contains("public_ip")
+                || output_str.contains("output"),
             "Should find HCL outputs: {}",
             output
         );
@@ -196,7 +206,9 @@ module "eks" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("vpc") || output_str.contains("eks") || output_str.contains("module"),
+            output_str.contains("vpc")
+                || output_str.contains("eks")
+                || output_str.contains("module"),
             "Should find HCL modules: {}",
             output
         );
@@ -244,7 +256,9 @@ data "terraform_remote_state" "network" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("amazon_linux") || output_str.contains("available") || output_str.contains("data"),
+            output_str.contains("amazon_linux")
+                || output_str.contains("available")
+                || output_str.contains("data"),
             "Should find HCL data sources: {}",
             output
         );
@@ -281,7 +295,9 @@ data "terraform_remote_state" "network" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("environment") || output_str.contains("common_tags") || output_str.contains("locals"),
+            output_str.contains("environment")
+                || output_str.contains("common_tags")
+                || output_str.contains("locals"),
             "Should find HCL locals: {}",
             output
         );
@@ -298,7 +314,10 @@ data "terraform_remote_state" "network" {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "infra/empty.tf", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty HCL file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty HCL file"
+        );
     }
 
     #[test]
@@ -350,7 +369,9 @@ resource "aws_security_group" "dynamic" {
         // HCL symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("instance_ids") || output_str.contains("locals") || output_str.contains("dynamic"),
+            output_str.contains("instance_ids")
+                || output_str.contains("locals")
+                || output_str.contains("dynamic"),
             "Should find HCL complex expressions: {}",
             output
         );
@@ -415,7 +436,9 @@ provider "kubernetes" {
         let json = assert_valid_json(&output, "HCL provider configuration");
 
         // Provider blocks should be detected
-        assert!(output.contains("aws") || output.contains("kubernetes") || output.contains("terraform"));
+        assert!(
+            output.contains("aws") || output.contains("kubernetes") || output.contains("terraform")
+        );
     }
 }
 
@@ -505,7 +528,9 @@ CMD ["npm", "run", "dev"]
         // Dockerfile symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("builder") || output_str.contains("production") || output_str.contains("FROM"),
+            output_str.contains("builder")
+                || output_str.contains("production")
+                || output_str.contains("FROM"),
             "Should find Dockerfile stages: {}",
             output
         );
@@ -547,7 +572,10 @@ CMD ["node", "index.js"]
         // Dockerfile symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("BASE_IMAGE") || output_str.contains("NODE_ENV") || output_str.contains("ARG") || output_str.contains("ENV"),
+            output_str.contains("BASE_IMAGE")
+                || output_str.contains("NODE_ENV")
+                || output_str.contains("ARG")
+                || output_str.contains("ENV"),
             "Should find Dockerfile ARG/ENV: {}",
             output
         );
@@ -574,7 +602,10 @@ CMD ["node", "server.js"]
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docker/Dockerfile", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Dockerfile with HEALTHCHECK");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Dockerfile with HEALTHCHECK"
+        );
     }
 
     #[test]
@@ -610,7 +641,10 @@ RUN ["sh", "-c", "echo hello && echo world"]
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docker/Dockerfile", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle complex Dockerfile RUN");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle complex Dockerfile RUN"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -624,7 +658,10 @@ RUN ["sh", "-c", "echo hello && echo world"]
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docker/Dockerfile", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Dockerfile");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Dockerfile"
+        );
     }
 
     #[test]
@@ -642,7 +679,10 @@ RUN ["sh", "-c", "echo hello && echo world"]
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docker/Dockerfile", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle comments-only Dockerfile");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle comments-only Dockerfile"
+        );
     }
 
     #[test]
@@ -673,7 +713,9 @@ ENTRYPOINT ["/main"]
         // Dockerfile symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("builder") || output_str.contains("scratch") || output_str.contains("FROM"),
+            output_str.contains("builder")
+                || output_str.contains("scratch")
+                || output_str.contains("FROM"),
             "Should find Dockerfile stages: {}",
             output
         );
@@ -730,7 +772,9 @@ task("assemble") {
         // Gradle symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("compile") || output_str.contains("test") || output_str.contains("task"),
+            output_str.contains("compile")
+                || output_str.contains("test")
+                || output_str.contains("task"),
             "Should find Gradle tasks: {}",
             output
         );
@@ -785,7 +829,9 @@ tasks.register("customTask") {
         // Gradle symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("customTask") || output_str.contains("tasks") || output_str.contains("register"),
+            output_str.contains("customTask")
+                || output_str.contains("tasks")
+                || output_str.contains("register"),
             "Should find Gradle Kotlin DSL content: {}",
             output
         );
@@ -842,7 +888,9 @@ bootJar {
         // Gradle symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("customTask") || output_str.contains("task") || output_str.contains("plugins"),
+            output_str.contains("customTask")
+                || output_str.contains("task")
+                || output_str.contains("plugins"),
             "Should find Gradle Groovy DSL content: {}",
             output
         );
@@ -905,7 +953,10 @@ application {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["query", "overview", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle multi-project Gradle");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle multi-project Gradle"
+        );
     }
 
     #[test]
@@ -969,7 +1020,9 @@ val processTemplates by tasks.registering {
         // Gradle symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("generateDocs") || output_str.contains("copyResources") || output_str.contains("registering"),
+            output_str.contains("generateDocs")
+                || output_str.contains("copyResources")
+                || output_str.contains("registering"),
             "Should find Gradle custom tasks: {}",
             output
         );
@@ -986,7 +1039,10 @@ val processTemplates by tasks.registering {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "build.gradle.kts", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Gradle file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Gradle file"
+        );
     }
 
     #[test]
@@ -1046,7 +1102,10 @@ dependencies {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "app/build.gradle.kts", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Android Gradle configuration");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Android Gradle configuration"
+        );
     }
 
     #[test]
@@ -1075,6 +1134,9 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "gradle/libs.versions.toml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Gradle version catalog");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Gradle version catalog"
+        );
     }
 }

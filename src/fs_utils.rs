@@ -100,9 +100,7 @@ pub fn get_cache_base_dir() -> PathBuf {
     {
         // Windows: Use %LOCALAPPDATA%\semfora\cache
         if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-            return PathBuf::from(local_appdata)
-                .join("semfora")
-                .join("cache");
+            return PathBuf::from(local_appdata).join("semfora").join("cache");
         }
         // Fallback if LOCALAPPDATA not set (rare)
         if let Some(home) = dirs::home_dir() {

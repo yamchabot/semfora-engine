@@ -61,13 +61,16 @@ fn enhance_python_symbols(summary: &mut SemanticSummary, root: &Node, source: &s
 
     // Re-sort symbols and update primary if a decorated symbol should take priority
     if !decorated_symbols.is_empty() {
-        let best_decorated = decorated_symbols.iter()
+        let best_decorated = decorated_symbols
+            .iter()
             .filter(|(_, has_dec)| *has_dec)
             .next();
 
         if let Some((decorated_name, _)) = best_decorated {
             // Check if decorated symbol should be primary
-            let current_primary_score = summary.symbol.as_ref()
+            let current_primary_score = summary
+                .symbol
+                .as_ref()
                 .map(|name| calculate_basic_score(name, &filename_stem))
                 .unwrap_or(0);
 

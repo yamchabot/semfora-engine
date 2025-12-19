@@ -1,8 +1,8 @@
 //! Language detection and tree-sitter grammar loading
 
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tree_sitter::Language;
-use serde::{Deserialize, Serialize};
 
 use crate::error::{McpDiffError, Result};
 
@@ -52,12 +52,11 @@ impl Lang {
         }
 
         // Fall back to extension-based detection
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .ok_or_else(|| McpDiffError::UnsupportedLanguage {
+        let ext = path.extension().and_then(|e| e.to_str()).ok_or_else(|| {
+            McpDiffError::UnsupportedLanguage {
                 extension: "none".to_string(),
-            })?;
+            }
+        })?;
 
         Self::from_extension(ext)
     }

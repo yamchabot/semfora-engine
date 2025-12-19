@@ -3,6 +3,8 @@
 //! This allows users to export the semfora-engine MCP configuration to any
 //! location, supporting use cases we haven't anticipated.
 
+#![allow(dead_code)]
+
 use super::{json_utils, ClientStatus, McpClient, McpServerConfig};
 use crate::error::McpDiffError;
 use crate::installer::platform::Platform;
@@ -58,7 +60,11 @@ impl McpClient for CustomExportClient {
         None
     }
 
-    fn configure(&self, config: &McpServerConfig, _platform: &Platform) -> Result<(), McpDiffError> {
+    fn configure(
+        &self,
+        config: &McpServerConfig,
+        _platform: &Platform,
+    ) -> Result<(), McpDiffError> {
         // Create backup if file exists
         if self.output_path.exists() {
             json_utils::backup_config(&self.output_path)?;

@@ -21,8 +21,8 @@
 use serde::Serialize;
 use std::io::{self, Write};
 
-use crate::overlay::LayerKind;
 use super::sync::LayerUpdateStats;
+use crate::overlay::LayerKind;
 
 /// Event emitter for sending JSON events to stdout
 pub struct EventEmitter {
@@ -255,10 +255,7 @@ impl EngineEvent for DuplicateDetectedEvent {
 
 impl DuplicateDetectedEvent {
     /// Create a new duplicate detected event
-    pub fn new(
-        new_function: DuplicateFunctionInfo,
-        similar_to: Vec<DuplicateSimilarInfo>,
-    ) -> Self {
+    pub fn new(new_function: DuplicateFunctionInfo, similar_to: Vec<DuplicateSimilarInfo>) -> Self {
         Self {
             new_function,
             similar_to,
@@ -271,9 +268,9 @@ impl DuplicateDetectedEvent {
 // Global Event Emitter
 // ============================================================================
 
-use std::sync::OnceLock;
 use parking_lot::Mutex;
 use std::sync::mpsc;
+use std::sync::OnceLock;
 
 static GLOBAL_EMITTER: OnceLock<EventEmitter> = OnceLock::new();
 
@@ -321,7 +318,10 @@ pub fn register_broadcast_listener() -> mpsc::Receiver<BroadcastEvent> {
 /// Broadcast an event to all registered listeners
 fn broadcast_event<E: EngineEvent>(event: &E) {
     let senders = get_broadcast_senders().lock();
-    tracing::debug!("[BROADCAST] broadcast_event called, {} listeners registered", senders.len());
+    tracing::debug!(
+        "[BROADCAST] broadcast_event called, {} listeners registered",
+        senders.len()
+    );
 
     if senders.is_empty() {
         tracing::debug!("[BROADCAST] No listeners, skipping broadcast");
@@ -333,7 +333,11 @@ fn broadcast_event<E: EngineEvent>(event: &E) {
         payload_json: serde_json::to_string(event).unwrap_or_default(),
     };
 
-    tracing::info!("[BROADCAST] Sending {} event to {} listeners", broadcast.event_type, senders.len());
+    tracing::info!(
+        "[BROADCAST] Sending {} event to {} listeners",
+        broadcast.event_type,
+        senders.len()
+    );
 
     // Send to all listeners (ignore errors for disconnected receivers)
     let mut sent_count = 0;
@@ -343,7 +347,11 @@ fn broadcast_event<E: EngineEvent>(event: &E) {
             Err(e) => tracing::warn!("[BROADCAST] Failed to send to listener: {:?}", e),
         }
     }
-    tracing::debug!("[BROADCAST] Sent to {}/{} listeners", sent_count, senders.len());
+    tracing::debug!(
+        "[BROADCAST] Sent to {}/{} listeners",
+        sent_count,
+        senders.len()
+    );
 }
 
 // ============================================================================

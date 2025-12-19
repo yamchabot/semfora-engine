@@ -177,19 +177,23 @@ fn bench_large_repos(c: &mut Criterion) {
         let file_count = count_source_files(&repo_path);
         group.throughput(Throughput::Elements(file_count as u64));
 
-        group.bench_with_input(BenchmarkId::new("large", repo_name), &repo_path, |b, path| {
-            b.iter(|| {
-                let temp_dir = tempfile::tempdir().unwrap();
-                let cache = CacheDir {
-                    root: temp_dir.path().to_path_buf(),
-                    repo_root: path.clone(),
-                    repo_hash: format!("bench_{}", repo_name),
-                };
-                cache.init().unwrap();
+        group.bench_with_input(
+            BenchmarkId::new("large", repo_name),
+            &repo_path,
+            |b, path| {
+                b.iter(|| {
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    let cache = CacheDir {
+                        root: temp_dir.path().to_path_buf(),
+                        repo_root: path.clone(),
+                        repo_hash: format!("bench_{}", repo_name),
+                    };
+                    cache.init().unwrap();
 
-                let _ = index_directory(black_box(path), cache, &options);
-            });
-        });
+                    let _ = index_directory(black_box(path), cache, &options);
+                });
+            },
+        );
     }
 
     group.finish();

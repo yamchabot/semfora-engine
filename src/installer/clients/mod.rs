@@ -3,19 +3,19 @@
 //! Supports Claude Desktop, Claude Code, Cursor, VS Code, OpenAI Codex,
 //! and custom export to user-specified paths.
 
-mod claude_desktop;
 mod claude_code;
+mod claude_desktop;
 mod cursor;
-mod vscode;
-mod openai_codex;
 mod custom;
+mod openai_codex;
+mod vscode;
 
-pub use claude_desktop::ClaudeDesktopClient;
 pub use claude_code::ClaudeCodeClient;
+pub use claude_desktop::ClaudeDesktopClient;
 pub use cursor::CursorClient;
-pub use vscode::VSCodeClient;
-pub use openai_codex::OpenAICodexClient;
 pub use custom::CustomExportClient;
+pub use openai_codex::OpenAICodexClient;
+pub use vscode::VSCodeClient;
 
 use crate::error::McpDiffError;
 use crate::installer::platform::Platform;
@@ -75,12 +75,21 @@ impl McpServerConfig {
     /// Generate environment variables for the MCP server
     pub fn env_vars(&self) -> serde_json::Map<String, JsonValue> {
         let mut env = serde_json::Map::new();
-        env.insert("RUST_LOG".to_string(), JsonValue::String(self.log_level.clone()));
+        env.insert(
+            "RUST_LOG".to_string(),
+            JsonValue::String(self.log_level.clone()),
+        );
 
         if let Some(cache_dir) = &self.cache_dir {
             env.insert(
                 "XDG_CACHE_HOME".to_string(),
-                JsonValue::String(cache_dir.parent().unwrap_or(cache_dir).to_string_lossy().to_string()),
+                JsonValue::String(
+                    cache_dir
+                        .parent()
+                        .unwrap_or(cache_dir)
+                        .to_string_lossy()
+                        .to_string(),
+                ),
             );
         }
 
@@ -232,9 +241,10 @@ pub(crate) mod json_utils {
 
         // Write to temp file first
         let temp_path = path.with_extension("tmp");
-        let content = serde_json::to_string_pretty(value).map_err(|e| McpDiffError::ConfigError {
-            message: format!("Failed to serialize JSON: {}", e),
-        })?;
+        let content =
+            serde_json::to_string_pretty(value).map_err(|e| McpDiffError::ConfigError {
+                message: format!("Failed to serialize JSON: {}", e),
+            })?;
 
         fs::write(&temp_path, &content).map_err(|e| McpDiffError::IoError {
             path: temp_path.clone(),
@@ -278,9 +288,11 @@ pub(crate) mod json_utils {
             .entry("mcpServers")
             .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
 
-        let servers_obj = servers.as_object_mut().ok_or_else(|| McpDiffError::ConfigError {
-            message: "mcpServers is not an object".to_string(),
-        })?;
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| McpDiffError::ConfigError {
+                message: "mcpServers is not an object".to_string(),
+            })?;
 
         servers_obj.insert("semfora-engine".to_string(), server_config.clone());
         Ok(())

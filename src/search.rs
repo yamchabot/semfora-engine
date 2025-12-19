@@ -83,8 +83,8 @@ impl SearchHints {
 
         // Guard: directory check
         if let Some(ref dir) = self.dir {
-            let in_dir = path.contains(&format!("/{}/", dir))
-                || path.starts_with(&format!("{}/", dir));
+            let in_dir =
+                path.contains(&format!("/{}/", dir)) || path.starts_with(&format!("{}/", dir));
             if !in_dir {
                 return false;
             }
@@ -236,12 +236,14 @@ pub fn is_test_file(path: &str) -> bool {
     }
 
     // File name patterns by extension
-    if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
         match ext.to_lowercase().as_str() {
             // Rust: *_test.rs
             "rs" => {
-                return file_name.ends_with("_test.rs")
-                    || file_name.starts_with("test_");
+                return file_name.ends_with("_test.rs") || file_name.starts_with("test_");
             }
             // TypeScript/JavaScript: *.test.ts, *.spec.ts, *.test.js, *.spec.js
             "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs" => {
@@ -344,9 +346,7 @@ mod tests {
 
     #[test]
     fn test_combined_filters() {
-        let hints = SearchHints::new()
-            .with_ext("rs")
-            .with_dir("src");
+        let hints = SearchHints::new().with_ext("rs").with_dir("src");
 
         assert!(hints.matches("src/lib.rs"));
         assert!(hints.matches("project/src/main.rs"));
@@ -386,11 +386,19 @@ mod tests {
 
     #[test]
     fn test_lang_filter_various_languages() {
-        assert!(SearchHints::new().with_lang("python").matches("src/main.py"));
-        assert!(SearchHints::new().with_lang("javascript").matches("src/app.js"));
-        assert!(SearchHints::new().with_lang("javascript").matches("src/component.jsx"));
+        assert!(SearchHints::new()
+            .with_lang("python")
+            .matches("src/main.py"));
+        assert!(SearchHints::new()
+            .with_lang("javascript")
+            .matches("src/app.js"));
+        assert!(SearchHints::new()
+            .with_lang("javascript")
+            .matches("src/component.jsx"));
         assert!(SearchHints::new().with_lang("go").matches("src/main.go"));
-        assert!(SearchHints::new().with_lang("java").matches("src/Main.java"));
+        assert!(SearchHints::new()
+            .with_lang("java")
+            .matches("src/Main.java"));
         assert!(SearchHints::new().with_lang("cpp").matches("src/main.cpp"));
         assert!(SearchHints::new().with_lang("c").matches("src/main.c"));
     }
@@ -399,8 +407,14 @@ mod tests {
     fn test_lang_from_extension() {
         assert_eq!(lang_from_extension("foo.rs"), Some("rust".to_string()));
         assert_eq!(lang_from_extension("foo.py"), Some("python".to_string()));
-        assert_eq!(lang_from_extension("foo.ts"), Some("typescript".to_string()));
-        assert_eq!(lang_from_extension("foo.tsx"), Some("typescript".to_string()));
+        assert_eq!(
+            lang_from_extension("foo.ts"),
+            Some("typescript".to_string())
+        );
+        assert_eq!(
+            lang_from_extension("foo.tsx"),
+            Some("typescript".to_string())
+        );
         assert_eq!(lang_from_extension("foo.unknown"), None);
     }
 

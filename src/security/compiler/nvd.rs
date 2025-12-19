@@ -43,6 +43,7 @@ pub struct NvdCveMetadata {
 
 /// NVD API response structures
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct NvdResponse {
     #[serde(rename = "resultsPerPage")]
     results_per_page: usize,
@@ -147,7 +148,12 @@ impl NvdClient {
         }
 
         // Rate limiting: NVD allows 5 requests/30s without key, 50/30s with key
-        tokio::time::sleep(Duration::from_millis(if self.api_key.is_some() { 600 } else { 6000 })).await;
+        tokio::time::sleep(Duration::from_millis(if self.api_key.is_some() {
+            600
+        } else {
+            6000
+        }))
+        .await;
 
         let response = request.send().await?;
 
@@ -174,12 +180,18 @@ impl NvdClient {
         let (cvss_v3_score, cvss_v3_vector) = cve.metrics.as_ref().map_or((None, None), |m| {
             if let Some(ref v31) = m.cvss_v31 {
                 if let Some(first) = v31.first() {
-                    return (Some(first.cvss_data.base_score), Some(first.cvss_data.vector_string.clone()));
+                    return (
+                        Some(first.cvss_data.base_score),
+                        Some(first.cvss_data.vector_string.clone()),
+                    );
                 }
             }
             if let Some(ref v30) = m.cvss_v30 {
                 if let Some(first) = v30.first() {
-                    return (Some(first.cvss_data.base_score), Some(first.cvss_data.vector_string.clone()));
+                    return (
+                        Some(first.cvss_data.base_score),
+                        Some(first.cvss_data.vector_string.clone()),
+                    );
                 }
             }
             (None, None)
@@ -251,7 +263,12 @@ impl NvdClient {
             }
 
             // Rate limiting
-            tokio::time::sleep(Duration::from_millis(if self.api_key.is_some() { 600 } else { 6000 })).await;
+            tokio::time::sleep(Duration::from_millis(if self.api_key.is_some() {
+                600
+            } else {
+                6000
+            }))
+            .await;
 
             let response = request.send().await?;
 
@@ -265,19 +282,26 @@ impl NvdClient {
             for vuln in nvd_response.vulnerabilities {
                 let cve = &vuln.cve;
 
-                let (cvss_v3_score, cvss_v3_vector) = cve.metrics.as_ref().map_or((None, None), |m| {
-                    if let Some(ref v31) = m.cvss_v31 {
-                        if let Some(first) = v31.first() {
-                            return (Some(first.cvss_data.base_score), Some(first.cvss_data.vector_string.clone()));
+                let (cvss_v3_score, cvss_v3_vector) =
+                    cve.metrics.as_ref().map_or((None, None), |m| {
+                        if let Some(ref v31) = m.cvss_v31 {
+                            if let Some(first) = v31.first() {
+                                return (
+                                    Some(first.cvss_data.base_score),
+                                    Some(first.cvss_data.vector_string.clone()),
+                                );
+                            }
                         }
-                    }
-                    if let Some(ref v30) = m.cvss_v30 {
-                        if let Some(first) = v30.first() {
-                            return (Some(first.cvss_data.base_score), Some(first.cvss_data.vector_string.clone()));
+                        if let Some(ref v30) = m.cvss_v30 {
+                            if let Some(first) = v30.first() {
+                                return (
+                                    Some(first.cvss_data.base_score),
+                                    Some(first.cvss_data.vector_string.clone()),
+                                );
+                            }
                         }
-                    }
-                    (None, None)
-                });
+                        (None, None)
+                    });
 
                 let description = cve
                     .descriptions
@@ -349,7 +373,12 @@ impl NvdClient {
                 request = request.header("apiKey", key);
             }
 
-            tokio::time::sleep(Duration::from_millis(if self.api_key.is_some() { 600 } else { 6000 })).await;
+            tokio::time::sleep(Duration::from_millis(if self.api_key.is_some() {
+                600
+            } else {
+                6000
+            }))
+            .await;
 
             let response = request.send().await?;
 
@@ -364,14 +393,18 @@ impl NvdClient {
                 // Process same as fetch_by_cwe...
                 let cve = &vuln.cve;
 
-                let (cvss_v3_score, cvss_v3_vector) = cve.metrics.as_ref().map_or((None, None), |m| {
-                    if let Some(ref v31) = m.cvss_v31 {
-                        if let Some(first) = v31.first() {
-                            return (Some(first.cvss_data.base_score), Some(first.cvss_data.vector_string.clone()));
+                let (cvss_v3_score, cvss_v3_vector) =
+                    cve.metrics.as_ref().map_or((None, None), |m| {
+                        if let Some(ref v31) = m.cvss_v31 {
+                            if let Some(first) = v31.first() {
+                                return (
+                                    Some(first.cvss_data.base_score),
+                                    Some(first.cvss_data.vector_string.clone()),
+                                );
+                            }
                         }
-                    }
-                    (None, None)
-                });
+                        (None, None)
+                    });
 
                 let description = cve
                     .descriptions
@@ -386,7 +419,8 @@ impl NvdClient {
                     .map(|ws| {
                         ws.iter()
                             .flat_map(|w| {
-                                w.description.iter()
+                                w.description
+                                    .iter()
                                     .filter(|d| d.lang == "en" && d.value.starts_with("CWE-"))
                                     .map(|d| d.value.clone())
                             })

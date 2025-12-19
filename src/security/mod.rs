@@ -84,19 +84,11 @@ impl Severity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PatternSource {
     /// Extracted from GitHub Security Advisory fix commit
-    GitHubAdvisory {
-        ghsa_id: String,
-        commit_sha: String,
-    },
+    GitHubAdvisory { ghsa_id: String, commit_sha: String },
     /// Manually curated by security team
-    ManualCuration {
-        author: String,
-        date: String,
-    },
+    ManualCuration { author: String, date: String },
     /// Extracted from NVD reference URL
-    NvdReference {
-        url: String,
-    },
+    NvdReference { url: String },
 }
 
 /// Pre-compiled vulnerability pattern (embedded in binary)
@@ -189,12 +181,7 @@ impl CVEPattern {
     }
 
     /// Set the fingerprints for this pattern
-    pub fn with_fingerprints(
-        mut self,
-        call: u64,
-        control_flow: u64,
-        state: u64,
-    ) -> Self {
+    pub fn with_fingerprints(mut self, call: u64, control_flow: u64, state: u64) -> Self {
         self.call_fingerprint = call;
         self.control_flow_fingerprint = control_flow;
         self.state_fingerprint = state;
@@ -287,18 +274,12 @@ impl PatternDatabase {
 
         // Update CWE index
         for cwe in &pattern.cwe_ids {
-            self.cwe_index
-                .entry(cwe.clone())
-                .or_default()
-                .push(idx);
+            self.cwe_index.entry(cwe.clone()).or_default().push(idx);
         }
 
         // Update language index
         for lang in &pattern.languages {
-            self.lang_index
-                .entry(*lang)
-                .or_default()
-                .push(idx);
+            self.lang_index.entry(*lang).or_default().push(idx);
         }
 
         self.patterns.push(pattern);
@@ -445,8 +426,7 @@ mod tests {
     fn test_pattern_serialization() {
         let mut db = PatternDatabase::new();
         db.add_pattern(
-            CVEPattern::new("CVE-2021-44228", vec!["CWE-502".into()], 0)
-                .with_cvss(10.0),
+            CVEPattern::new("CVE-2021-44228", vec!["CWE-502".into()], 0).with_cvss(10.0),
         );
 
         let bytes = db.to_bytes().unwrap();

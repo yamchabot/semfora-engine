@@ -3,8 +3,8 @@
 //! Generic patterns for XSS vulnerabilities across languages
 
 use crate::lang::Lang;
-use crate::security::{CVEPattern, PatternSource, Severity};
 use crate::security::compiler::fingerprinter::fingerprint_from_source;
+use crate::security::{CVEPattern, PatternSource};
 
 /// XSS vulnerable patterns
 pub fn patterns() -> Vec<CVEPattern> {
@@ -29,25 +29,25 @@ fn js_innerhtml_xss() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::JavaScript);
 
-    CVEPattern::new(
-        "CWE-79-JS-INNERHTML",
-        vec!["CWE-79".into()],
-        0,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "innerHTML".into(),
-        "outerHTML".into(),
-        "insertAdjacentHTML".into(),
-    ])
-    .with_cvss(6.1)
-    .with_description("XSS via innerHTML assignment with user-controlled input")
-    .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-79-JS-INNERHTML", vec!["CWE-79".into()], 0)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "innerHTML".into(),
+            "outerHTML".into(),
+            "insertAdjacentHTML".into(),
+        ])
+        .with_cvss(6.1)
+        .with_description("XSS via innerHTML assignment with user-controlled input")
+        .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// JavaScript document.write XSS
@@ -60,24 +60,21 @@ fn js_document_write_xss() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::JavaScript);
 
-    CVEPattern::new(
-        "CWE-79-JS-DOCWRITE",
-        vec!["CWE-79".into()],
-        1,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "write".into(),
-        "writeln".into(),
-    ])
-    .with_cvss(6.1)
-    .with_description("XSS via document.write with user-controlled input")
-    .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.80)
+    CVEPattern::new("CWE-79-JS-DOCWRITE", vec!["CWE-79".into()], 1)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["write".into(), "writeln".into()])
+        .with_cvss(6.1)
+        .with_description("XSS via document.write with user-controlled input")
+        .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.80)
 }
 
 /// React dangerouslySetInnerHTML XSS
@@ -90,23 +87,26 @@ fn react_dangerous_html() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Jsx);
 
-    CVEPattern::new(
-        "CWE-79-REACT-DANGEROUS",
-        vec!["CWE-79".into()],
-        2,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "dangerouslySetInnerHTML".into(),
-    ])
-    .with_cvss(6.1)
-    .with_description("XSS via React dangerouslySetInnerHTML with user-controlled input")
-    .with_languages(vec![Lang::Jsx, Lang::Tsx, Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.90)
+    CVEPattern::new("CWE-79-REACT-DANGEROUS", vec!["CWE-79".into()], 2)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["dangerouslySetInnerHTML".into()])
+        .with_cvss(6.1)
+        .with_description("XSS via React dangerouslySetInnerHTML with user-controlled input")
+        .with_languages(vec![
+            Lang::Jsx,
+            Lang::Tsx,
+            Lang::JavaScript,
+            Lang::TypeScript,
+        ])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.90)
 }
 
 /// Server-side template injection leading to XSS
@@ -124,12 +124,12 @@ fn template_injection() -> CVEPattern {
         vec!["CWE-79".into(), "CWE-94".into()],
         3,
     )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "send".into(),
-        "write".into(),
-        "render".into(),
-    ])
+    .with_fingerprints(
+        fp.fingerprints.call,
+        fp.fingerprints.control_flow,
+        fp.fingerprints.state,
+    )
+    .with_vulnerable_calls(vec!["send".into(), "write".into(), "render".into()])
     .with_cvss(6.1)
     .with_description("XSS via server-side HTML string concatenation")
     .with_languages(vec![Lang::JavaScript, Lang::TypeScript, Lang::Python])

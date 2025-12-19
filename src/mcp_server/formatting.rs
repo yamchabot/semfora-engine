@@ -4,6 +4,8 @@
 //! data structures into the TOON (Token-Optimized Object Notation) format
 //! that is returned by MCP tools.
 
+#![allow(dead_code)]
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -13,7 +15,10 @@ use crate::duplicate::{DuplicateCluster, DuplicateKind, DuplicateMatch, Function
 use crate::schema::SCHEMA_VERSION;
 use crate::security::{CVEMatch, CVEScanSummary, Severity};
 use crate::utils::truncate_to_char_boundary;
-use crate::{encode_toon, CacheDir, Lang, MergedBlock, RipgrepSearchResult, SemanticSummary, SymbolIndexEntry};
+use crate::{
+    encode_toon, CacheDir, Lang, MergedBlock, RipgrepSearchResult, SemanticSummary,
+    SymbolIndexEntry,
+};
 
 use super::helpers::parse_and_extract;
 use super::GetSourceRequest;
@@ -53,7 +58,9 @@ pub(super) fn format_diff_output(
     let mut output = String::new();
     output.push_str(&format!(
         "diff: {} -> {} ({} files)\n\n",
-        base_ref, target_ref, changed_files.len()
+        base_ref,
+        target_ref,
+        changed_files.len()
     ));
 
     for changed_file in changed_files {
@@ -110,16 +117,10 @@ pub(super) fn format_diff_output_paginated(
     offset: usize,
     limit: usize,
 ) -> String {
-    use std::collections::HashMap;
-
     let total_files = changed_files.len();
 
     // Apply pagination
-    let page_files: Vec<_> = changed_files
-        .iter()
-        .skip(offset)
-        .take(limit)
-        .collect();
+    let page_files: Vec<_> = changed_files.iter().skip(offset).take(limit).collect();
 
     let mut output = String::new();
 
@@ -146,7 +147,8 @@ pub(super) fn format_diff_output_paginated(
     for f in changed_files {
         *by_type.entry(f.change_type.as_str()).or_insert(0) += 1;
     }
-    let type_summary: Vec<_> = by_type.iter()
+    let type_summary: Vec<_> = by_type
+        .iter()
         .map(|(k, v)| format!("{}={}", k, v))
         .collect();
     output.push_str(&format!("changes: {}\n", type_summary.join(", ")));
@@ -241,7 +243,8 @@ pub(super) fn format_diff_summary(
     for f in changed_files {
         *by_type.entry(f.change_type.as_str()).or_insert(0) += 1;
     }
-    let type_summary: Vec<_> = by_type.iter()
+    let type_summary: Vec<_> = by_type
+        .iter()
         .map(|(k, v)| format!("{}={}", k, v))
         .collect();
     output.push_str(&format!("by_change_type: {}\n", type_summary.join(", ")));
@@ -265,7 +268,8 @@ pub(super) fn format_diff_summary(
     // Sort by count descending, take top 10
     let mut lang_vec: Vec<_> = by_lang.iter().collect();
     lang_vec.sort_by(|a, b| b.1.cmp(a.1));
-    let lang_summary: Vec<_> = lang_vec.iter()
+    let lang_summary: Vec<_> = lang_vec
+        .iter()
         .take(10)
         .map(|(k, v)| format!("{}={}", k, v))
         .collect();
@@ -285,7 +289,8 @@ pub(super) fn format_diff_summary(
     // Sort by count descending, take top 10
     let mut module_vec: Vec<_> = by_module.iter().collect();
     module_vec.sort_by(|a, b| b.1.cmp(a.1));
-    let module_summary: Vec<_> = module_vec.iter()
+    let module_summary: Vec<_> = module_vec
+        .iter()
         .take(10)
         .map(|(k, v)| format!("{} ({})", k, v))
         .collect();
@@ -410,11 +415,16 @@ pub(super) async fn resolve_line_range(
             }
         }
 
-        Err("Symbol does not have line range information. Use start_line/end_line directly.".to_string())
+        Err(
+            "Symbol does not have line range information. Use start_line/end_line directly."
+                .to_string(),
+        )
     } else {
         match (request.start_line, request.end_line) {
             (Some(s), Some(e)) => Ok((s, e)),
-            _ => Err("Either symbol_hash OR both start_line and end_line are required.".to_string()),
+            _ => {
+                Err("Either symbol_hash OR both start_line and end_line are required.".to_string())
+            }
         }
     }
 }
@@ -437,12 +447,19 @@ pub(super) fn find_cache_for_path(start_path: &Path) -> Result<CacheDir, String>
         current = parent.to_path_buf();
     }
 
-    Err("Could not find sharded index. Use start_line/end_line directly or run generate_index.".to_string())
+    Err(
+        "Could not find sharded index. Use start_line/end_line directly or run generate_index."
+            .to_string(),
+    )
 }
 
 /// Extract source code for a symbol given its shard content
 /// Parses the file path and line range from the TOON content
-pub(super) fn extract_source_for_symbol(cache: &CacheDir, symbol_content: &str, context: usize) -> Option<String> {
+pub(super) fn extract_source_for_symbol(
+    cache: &CacheDir,
+    symbol_content: &str,
+    context: usize,
+) -> Option<String> {
     // Parse file and lines from TOON: "file: ..." and "lines: ..."
     let mut file_path: Option<String> = None;
     let mut start_line: Option<usize> = None;
@@ -478,7 +495,9 @@ pub(super) fn extract_source_for_symbol(cache: &CacheDir, symbol_content: &str, 
     let full_path = cache.repo_root.join(&file);
     let source = fs::read_to_string(&full_path).ok()?;
 
-    Some(format_source_snippet(&full_path, &source, start, end, context))
+    Some(format_source_snippet(
+        &full_path, &source, start, end, context,
+    ))
 }
 
 /// Format a source code snippet with line numbers and markers
@@ -505,9 +524,18 @@ pub(super) fn format_source_snippet(
         context_end
     ));
 
-    for (i, line) in lines.iter().enumerate().skip(context_start).take(context_end - context_start) {
+    for (i, line) in lines
+        .iter()
+        .enumerate()
+        .skip(context_start)
+        .take(context_end - context_start)
+    {
         let line_num = i + 1;
-        let marker = if line_num >= start_line && line_num <= end_line { ">" } else { " " };
+        let marker = if line_num >= start_line && line_num <= end_line {
+            ">"
+        } else {
+            " "
+        };
         output.push_str(&format!("{}{:4} | {}\n", marker, line_num, line));
     }
 
@@ -532,7 +560,13 @@ pub(super) fn format_search_results(query: &str, results: &[SymbolIndexEntry]) -
         for entry in results {
             output.push_str(&format!(
                 "  {},{},{},{},{},{},{}\n",
-                entry.symbol, entry.hash, entry.kind, entry.module, entry.file, entry.lines, entry.risk
+                entry.symbol,
+                entry.hash,
+                entry.kind,
+                entry.module,
+                entry.file,
+                entry.lines,
+                entry.risk
             ));
         }
     }
@@ -551,7 +585,10 @@ pub(super) fn format_ripgrep_results(query: &str, results: &[RipgrepSearchResult
     if results.is_empty() {
         output.push_str("results: (none)\n");
     } else {
-        output.push_str(&format!("results[{}]{{file,line,col,content}}:\n", results.len()));
+        output.push_str(&format!(
+            "results[{}]{{file,line,col,content}}:\n",
+            results.len()
+        ));
         for entry in results {
             // Truncate long content for display
             let content = if entry.content.len() > 100 {
@@ -561,7 +598,10 @@ pub(super) fn format_ripgrep_results(query: &str, results: &[RipgrepSearchResult
             };
             output.push_str(&format!(
                 "  {}:{}:{}: {}\n",
-                entry.file, entry.line, entry.column, content.trim()
+                entry.file,
+                entry.line,
+                entry.column,
+                content.trim()
             ));
         }
     }
@@ -570,7 +610,10 @@ pub(super) fn format_ripgrep_results(query: &str, results: &[RipgrepSearchResult
 }
 
 /// Format working overlay search results (uncommitted files only)
-pub(super) fn format_working_overlay_results(query: &str, results: &[RipgrepSearchResult]) -> String {
+pub(super) fn format_working_overlay_results(
+    query: &str,
+    results: &[RipgrepSearchResult],
+) -> String {
     let mut output = String::new();
     output.push_str("_type: working_overlay_results\n");
     output.push_str("_note: Searching uncommitted files only (staged + unstaged changes)\n");
@@ -596,10 +639,7 @@ pub(super) fn format_working_overlay_results(query: &str, results: &[RipgrepSear
                 } else {
                     entry.content.clone()
                 };
-                output.push_str(&format!(
-                    "    L{}: {}\n",
-                    entry.line, content.trim()
-                ));
+                output.push_str(&format!("    L{}: {}\n", entry.line, content.trim()));
             }
         }
     }
@@ -608,7 +648,11 @@ pub(super) fn format_working_overlay_results(query: &str, results: &[RipgrepSear
 }
 
 /// Format merged blocks from ripgrep search as compact TOON
-pub(super) fn format_merged_blocks(query: &str, blocks: &[MergedBlock], search_path: &Path) -> String {
+pub(super) fn format_merged_blocks(
+    query: &str,
+    blocks: &[MergedBlock],
+    search_path: &Path,
+) -> String {
     let mut output = String::new();
     output.push_str("_type: raw_search_results\n");
     output.push_str(&format!("pattern: \"{}\"\n", query));
@@ -622,10 +666,15 @@ pub(super) fn format_merged_blocks(query: &str, blocks: &[MergedBlock], search_p
     } else {
         output.push_str("\n");
         for block in blocks {
-            let file = block.file.strip_prefix(search_path)
+            let file = block
+                .file
+                .strip_prefix(search_path)
                 .unwrap_or(&block.file)
                 .to_string_lossy();
-            output.push_str(&format!("## {} (lines {}-{})\n", file, block.start_line, block.end_line));
+            output.push_str(&format!(
+                "## {} (lines {}-{})\n",
+                file, block.start_line, block.end_line
+            ));
             for line in &block.lines {
                 let marker = if line.is_match { ">" } else { " " };
                 output.push_str(&format!("{}{:4}: {}\n", marker, line.line, line.content));
@@ -638,7 +687,11 @@ pub(super) fn format_merged_blocks(query: &str, blocks: &[MergedBlock], search_p
 }
 
 /// Format module symbols listing as compact TOON
-pub(super) fn format_module_symbols(module: &str, results: &[SymbolIndexEntry], cache: &CacheDir) -> String {
+pub(super) fn format_module_symbols(
+    module: &str,
+    results: &[SymbolIndexEntry],
+    cache: &CacheDir,
+) -> String {
     let mut output = String::new();
     output.push_str("_type: module_symbols\n");
     output.push_str(&format!("module: \"{}\"\n", module));
@@ -647,7 +700,10 @@ pub(super) fn format_module_symbols(module: &str, results: &[SymbolIndexEntry], 
     if results.is_empty() {
         let available = cache.list_modules();
         output.push_str("symbols: (none)\n");
-        output.push_str(&format!("hint: available modules are: {}\n", available.join(", ")));
+        output.push_str(&format!(
+            "hint: available modules are: {}\n",
+            available.join(", ")
+        ));
     } else {
         output.push_str(&format!("symbols[{}]{{s,h,k,f,l,r}}:\n", results.len()));
         for entry in results {
@@ -712,7 +768,8 @@ pub(super) fn format_call_graph_paginated(
 
     for (caller, callees) in edges {
         let caller_display = format_symbol(caller);
-        let callees_str = callees.iter()
+        let callees_str = callees
+            .iter()
             .map(|c| {
                 if c.starts_with("ext:") {
                     format!("\"{}\"", c) // External calls stay as-is
@@ -746,8 +803,16 @@ pub(super) fn format_call_graph_summary(
 
     // Calculate statistics
     let total_calls: usize = edges.iter().map(|(_, callees)| callees.len()).sum();
-    let avg_calls = if edges.is_empty() { 0.0 } else { total_calls as f64 / edges.len() as f64 };
-    let max_calls = edges.iter().map(|(_, callees)| callees.len()).max().unwrap_or(0);
+    let avg_calls = if edges.is_empty() {
+        0.0
+    } else {
+        total_calls as f64 / edges.len() as f64
+    };
+    let max_calls = edges
+        .iter()
+        .map(|(_, callees)| callees.len())
+        .max()
+        .unwrap_or(0);
 
     output.push_str(&format!("total_calls: {}\n", total_calls));
     output.push_str(&format!("avg_calls_per_symbol: {:.1}\n", avg_calls));
@@ -764,14 +829,19 @@ pub(super) fn format_call_graph_summary(
     };
 
     // Top callers (symbols that make the most calls)
-    let mut callers_by_count: Vec<_> = edges.iter()
+    let mut callers_by_count: Vec<_> = edges
+        .iter()
         .map(|(caller, callees)| (caller.clone(), callees.len()))
         .collect();
     callers_by_count.sort_by(|a, b| b.1.cmp(&a.1));
 
     output.push_str("\ntop_callers[10]:\n");
     for (caller, count) in callers_by_count.iter().take(10) {
-        output.push_str(&format!("  - {} (calls: {})\n", format_symbol(caller), count));
+        output.push_str(&format!(
+            "  - {} (calls: {})\n",
+            format_symbol(caller),
+            count
+        ));
     }
 
     // Top callees (most called symbols)
@@ -791,11 +861,17 @@ pub(super) fn format_call_graph_summary(
         } else {
             format_symbol(callee)
         };
-        output.push_str(&format!("  - {} (called: {} times)\n", callee_display, count));
+        output.push_str(&format!(
+            "  - {} (called: {} times)\n",
+            callee_display, count
+        ));
     }
 
     // Leaf functions (call nothing)
-    let leaf_count = edges.iter().filter(|(_, callees)| callees.is_empty()).count();
+    let leaf_count = edges
+        .iter()
+        .filter(|(_, callees)| callees.is_empty())
+        .count();
     output.push_str(&format!("\nleaf_functions: {}\n", leaf_count));
 
     output
@@ -812,8 +888,8 @@ pub(super) fn load_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>
         return Err("Signature index not found".to_string());
     }
 
-    let file = fs::File::open(&sig_path)
-        .map_err(|e| format!("Failed to open signature index: {}", e))?;
+    let file =
+        fs::File::open(&sig_path).map_err(|e| format!("Failed to open signature index: {}", e))?;
     let reader = BufReader::new(file);
 
     let mut signatures = Vec::new();
@@ -836,7 +912,14 @@ pub(super) fn load_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>
 
 /// Format duplicate clusters as compact TOON output
 pub(super) fn format_duplicate_clusters(clusters: &[DuplicateCluster], threshold: f64) -> String {
-    format_duplicate_clusters_paginated(clusters, threshold, clusters.len(), 0, clusters.len(), "similarity")
+    format_duplicate_clusters_paginated(
+        clusters,
+        threshold,
+        clusters.len(),
+        0,
+        clusters.len(),
+        "similarity",
+    )
 }
 
 /// Extract a short module name from a file path
@@ -846,8 +929,12 @@ fn extract_module_name(file_path: &str) -> String {
     let path = Path::new(file_path);
 
     // Get parent directory and file stem
-    let parent = path.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy());
-    let grandparent = path.parent()
+    let parent = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|s| s.to_string_lossy());
+    let grandparent = path
+        .parent()
         .and_then(|p| p.parent())
         .and_then(|p| p.file_name())
         .map(|s| s.to_string_lossy());
@@ -855,7 +942,8 @@ fn extract_module_name(file_path: &str) -> String {
     match (grandparent, parent) {
         (Some(gp), Some(p)) => format!("{}.{}", gp, p),
         (None, Some(p)) => p.to_string(),
-        _ => path.file_stem()
+        _ => path
+            .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string()),
     }
@@ -886,10 +974,7 @@ pub(super) fn format_duplicate_clusters_paginated(
 
     // Pagination hint
     if offset + clusters.len() < total_clusters {
-        output.push_str(&format!(
-            "next: offset={} for more\n",
-            offset + limit
-        ));
+        output.push_str(&format!("next: offset={} for more\n", offset + limit));
     }
 
     if clusters.is_empty() {
@@ -905,9 +990,7 @@ pub(super) fn format_duplicate_clusters_paginated(
     }
 
     // Count total duplicates in this page
-    let page_duplicates: usize = clusters.iter()
-        .map(|c| c.duplicates.len())
-        .sum();
+    let page_duplicates: usize = clusters.iter().map(|c| c.duplicates.len()).sum();
     output.push_str(&format!("page_duplicates: {}\n\n", page_duplicates));
 
     for (i, cluster) in clusters.iter().enumerate() {
@@ -962,12 +1045,21 @@ pub(super) fn format_duplicate_clusters_paginated(
             }
 
             // Calculate similarity range for this module
-            let min_sim = dups.iter().map(|d| d.similarity).fold(f64::INFINITY, f64::min);
+            let min_sim = dups
+                .iter()
+                .map(|d| d.similarity)
+                .fold(f64::INFINITY, f64::min);
             let max_sim = dups.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
 
             // Count by kind
-            let exact = dups.iter().filter(|d| matches!(d.kind, DuplicateKind::Exact)).count();
-            let near = dups.iter().filter(|d| matches!(d.kind, DuplicateKind::Near)).count();
+            let exact = dups
+                .iter()
+                .filter(|d| matches!(d.kind, DuplicateKind::Exact))
+                .count();
+            let near = dups
+                .iter()
+                .filter(|d| matches!(d.kind, DuplicateKind::Near))
+                .count();
 
             let kind_hint = if exact > 0 && near == 0 {
                 "exact"
@@ -992,14 +1084,17 @@ pub(super) fn format_duplicate_clusters_paginated(
         if remaining_modules > 0 {
             output.push_str(&format!(
                 "    +{} more modules: {} dups\n",
-                remaining_modules,
-                remaining_count
+                remaining_modules, remaining_count
             ));
         }
 
         // Show top 3 individual matches for actionable detail
         let mut top_matches: Vec<_> = cluster.duplicates.iter().collect();
-        top_matches.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+        top_matches.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         if !top_matches.is_empty() {
             output.push_str("  top_matches:\n");
@@ -1053,10 +1148,16 @@ pub(super) fn format_duplicate_matches(
         };
         output.push_str(&format!(
             "  - {} ({})\n    similarity: {:.0}% [{}]\n",
-            m.symbol.name, m.symbol.file, m.similarity * 100.0, kind_str
+            m.symbol.name,
+            m.symbol.file,
+            m.similarity * 100.0,
+            kind_str
         ));
         if m.symbol.start_line > 0 {
-            output.push_str(&format!("    lines: {}-{}\n", m.symbol.start_line, m.symbol.end_line));
+            output.push_str(&format!(
+                "    lines: {}-{}\n",
+                m.symbol.start_line, m.symbol.end_line
+            ));
         }
         output.push_str(&format!("    hash: {}\n", m.symbol.hash));
 
@@ -1084,16 +1185,28 @@ pub(super) fn format_cve_scan_results(
 ) -> String {
     let mut output = String::new();
     output.push_str("_type: cve_scan\n");
-    output.push_str(&format!("functions_scanned: {}\n", summary.functions_scanned));
+    output.push_str(&format!(
+        "functions_scanned: {}\n",
+        summary.functions_scanned
+    ));
     output.push_str(&format!("patterns_checked: {}\n", summary.patterns_checked));
-    output.push_str(&format!("similarity_threshold: {:.0}%\n", threshold * 100.0));
+    output.push_str(&format!(
+        "similarity_threshold: {:.0}%\n",
+        threshold * 100.0
+    ));
     output.push_str(&format!("total_matches: {}\n", summary.total_matches));
     output.push_str(&format!("scan_time_ms: {}\n", summary.scan_time_ms));
 
     // Severity breakdown
     if !summary.by_severity.is_empty() {
         output.push_str("by_severity:\n");
-        for sev in [Severity::Critical, Severity::High, Severity::Medium, Severity::Low, Severity::None] {
+        for sev in [
+            Severity::Critical,
+            Severity::High,
+            Severity::Medium,
+            Severity::Low,
+            Severity::None,
+        ] {
             if let Some(&count) = summary.by_severity.get(&sev) {
                 if count > 0 {
                     output.push_str(&format!("  {}: {}\n", sev, count));
@@ -1109,7 +1222,12 @@ pub(super) fn format_cve_scan_results(
 
     output.push_str("\nmatches:\n");
     for (i, m) in matches.iter().enumerate() {
-        output.push_str(&format!("\n  [{}] {} ({:.0}% match)\n", i + 1, m.cve_id, m.similarity * 100.0));
+        output.push_str(&format!(
+            "\n  [{}] {} ({:.0}% match)\n",
+            i + 1,
+            m.cve_id,
+            m.similarity * 100.0
+        ));
         output.push_str(&format!("      severity: {}\n", m.severity));
         if !m.cwe_ids.is_empty() {
             output.push_str(&format!("      cwe: {}\n", m.cwe_ids.join(", ")));
@@ -1224,22 +1342,33 @@ pub(super) fn format_prep_commit(
 
     // Total diff stats if enabled
     if show_diff_stats {
-        let staged_insertions: usize = staged_files.iter()
+        let staged_insertions: usize = staged_files
+            .iter()
             .filter_map(|f| f.diff_stats.as_ref())
             .map(|s| s.insertions)
             .sum();
-        let staged_deletions: usize = staged_files.iter()
+        let staged_deletions: usize = staged_files
+            .iter()
             .filter_map(|f| f.diff_stats.as_ref())
             .map(|s| s.deletions)
             .sum();
-        output.push_str(&format!("  staged_changes: +{} -{}\n", staged_insertions, staged_deletions));
+        output.push_str(&format!(
+            "  staged_changes: +{} -{}\n",
+            staged_insertions, staged_deletions
+        ));
     }
     output.push('\n');
 
     // Staged changes section
     if !staged_files.is_empty() {
         output.push_str(&format!("staged_changes[{}]:\n", staged_files.len()));
-        format_file_list(&mut output, staged_files, include_complexity, include_all_metrics, show_diff_stats);
+        format_file_list(
+            &mut output,
+            staged_files,
+            include_complexity,
+            include_all_metrics,
+            show_diff_stats,
+        );
         output.push('\n');
     } else {
         output.push_str("staged_changes: (none)\n\n");
@@ -1248,7 +1377,13 @@ pub(super) fn format_prep_commit(
     // Unstaged changes section
     if !unstaged_files.is_empty() {
         output.push_str(&format!("unstaged_changes[{}]:\n", unstaged_files.len()));
-        format_file_list(&mut output, unstaged_files, include_complexity, include_all_metrics, show_diff_stats);
+        format_file_list(
+            &mut output,
+            unstaged_files,
+            include_complexity,
+            include_all_metrics,
+            show_diff_stats,
+        );
     } else {
         output.push_str("unstaged_changes: (none)\n");
     }
@@ -1290,7 +1425,10 @@ fn format_file_list(
         output.push_str(&format!("    symbols[{}]:\n", file.symbols.len()));
         for sym in &file.symbols {
             // Basic info: name (kind) lines
-            output.push_str(&format!("      - {} ({}) L{}\n", sym.name, sym.kind, sym.lines));
+            output.push_str(&format!(
+                "      - {} ({}) L{}\n",
+                sym.name, sym.kind, sym.lines
+            ));
 
             // Complexity metrics if enabled
             if include_complexity || include_all_metrics {
@@ -1532,7 +1670,10 @@ mod tests {
     #[test]
     fn test_format_call_graph_summary_with_edges() {
         let edges = vec![
-            ("caller1".to_string(), vec!["callee1".to_string(), "callee2".to_string()]),
+            (
+                "caller1".to_string(),
+                vec!["callee1".to_string(), "callee2".to_string()],
+            ),
             ("caller2".to_string(), vec!["callee1".to_string()]),
         ];
         let output = format_call_graph_summary(&edges, 3, 3, None);
@@ -1544,9 +1685,7 @@ mod tests {
 
     #[test]
     fn test_format_call_graph_summary_with_name_mapping() {
-        let edges = vec![
-            ("hash1".to_string(), vec!["hash2".to_string()]),
-        ];
+        let edges = vec![("hash1".to_string(), vec!["hash2".to_string()])];
         let mut names = HashMap::new();
         names.insert("hash1".to_string(), "myFunction".to_string());
         names.insert("hash2".to_string(), "otherFunction".to_string());
@@ -1573,9 +1712,7 @@ mod tests {
 
     #[test]
     fn test_format_call_graph_paginated_with_pagination_hint() {
-        let edges = vec![
-            ("caller1".to_string(), vec!["callee1".to_string()]),
-        ];
+        let edges = vec![("caller1".to_string(), vec!["callee1".to_string()])];
         // Total is more than shown
         let output = format_call_graph_paginated(&edges, 10, 5, 0, 2, None);
 
@@ -1711,7 +1848,10 @@ mod tests {
         let staged = vec![AnalyzedFile {
             path: "src/main.ts".to_string(),
             change_type: "modified".to_string(),
-            diff_stats: Some(FileDiffStats { insertions: 10, deletions: 5 }),
+            diff_stats: Some(FileDiffStats {
+                insertions: 10,
+                deletions: 5,
+            }),
             symbols: vec![SymbolMetrics {
                 name: "myFunction".to_string(),
                 kind: "fn".to_string(),
@@ -1797,7 +1937,10 @@ mod tests {
     // format_diff_output_paginated Tests
     // ========================================================================
 
-    fn make_changed_file(path: &str, change_type: crate::git::ChangeType) -> crate::git::ChangedFile {
+    fn make_changed_file(
+        path: &str,
+        change_type: crate::git::ChangeType,
+    ) -> crate::git::ChangedFile {
         crate::git::ChangedFile {
             path: path.to_string(),
             old_path: None,
@@ -1808,14 +1951,7 @@ mod tests {
     #[test]
     fn test_format_diff_output_paginated_empty() {
         let temp = tempfile::tempdir().unwrap();
-        let output = format_diff_output_paginated(
-            temp.path(),
-            "main",
-            "HEAD",
-            &[],
-            0,
-            20,
-        );
+        let output = format_diff_output_paginated(temp.path(), "main", "HEAD", &[], 0, 20);
 
         assert!(output.contains("_type: analyze_diff"));
         assert!(output.contains("base: \"main\""));
@@ -1833,20 +1969,15 @@ mod tests {
         std::fs::write(
             temp.path().join("src/main.ts"),
             "export function hello(): string { return 'hi'; }",
-        ).unwrap();
+        )
+        .unwrap();
 
-        let files = vec![
-            make_changed_file("src/main.ts", crate::git::ChangeType::Modified),
-        ];
+        let files = vec![make_changed_file(
+            "src/main.ts",
+            crate::git::ChangeType::Modified,
+        )];
 
-        let output = format_diff_output_paginated(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-            0,
-            20,
-        );
+        let output = format_diff_output_paginated(temp.path(), "main", "HEAD", &files, 0, 20);
 
         assert!(output.contains("_type: analyze_diff"));
         assert!(output.contains("total_files: 1"));
@@ -1865,7 +1996,8 @@ mod tests {
             std::fs::write(
                 temp.path().join(format!("src/file{}.ts", i)),
                 format!("export function f{}(): number {{ return {}; }}", i, i),
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let files: Vec<_> = (0..5)
@@ -1873,14 +2005,7 @@ mod tests {
             .collect();
 
         // Request only 2 files at offset 0
-        let output = format_diff_output_paginated(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-            0,
-            2,
-        );
+        let output = format_diff_output_paginated(temp.path(), "main", "HEAD", &files, 0, 2);
 
         assert!(output.contains("total_files: 5"));
         assert!(output.contains("showing: 2"));
@@ -1901,21 +2026,16 @@ mod tests {
         std::fs::write(
             temp.path().join("src/main.ts"),
             "export function f(): void {}",
-        ).unwrap();
+        )
+        .unwrap();
 
-        let files = vec![
-            make_changed_file("src/main.ts", crate::git::ChangeType::Modified),
-        ];
+        let files = vec![make_changed_file(
+            "src/main.ts",
+            crate::git::ChangeType::Modified,
+        )];
 
         // Offset beyond available files
-        let output = format_diff_output_paginated(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-            10,
-            20,
-        );
+        let output = format_diff_output_paginated(temp.path(), "main", "HEAD", &files, 10, 20);
 
         assert!(output.contains("total_files: 1"));
         assert!(output.contains("showing: 0"));
@@ -1926,18 +2046,12 @@ mod tests {
     fn test_format_diff_output_paginated_deleted_file() {
         let temp = tempfile::tempdir().unwrap();
 
-        let files = vec![
-            make_changed_file("src/deleted.ts", crate::git::ChangeType::Deleted),
-        ];
+        let files = vec![make_changed_file(
+            "src/deleted.ts",
+            crate::git::ChangeType::Deleted,
+        )];
 
-        let output = format_diff_output_paginated(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-            0,
-            20,
-        );
+        let output = format_diff_output_paginated(temp.path(), "main", "HEAD", &files, 0, 20);
 
         assert!(output.contains("src/deleted.ts [deleted]"));
         assert!(output.contains("(deleted)"));
@@ -1956,14 +2070,7 @@ mod tests {
             make_changed_file("src/c.ts", crate::git::ChangeType::Deleted),
         ];
 
-        let output = format_diff_output_paginated(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-            0,
-            20,
-        );
+        let output = format_diff_output_paginated(temp.path(), "main", "HEAD", &files, 0, 20);
 
         // Should have change type counts in summary
         assert!(output.contains("changes:"));
@@ -1979,12 +2086,7 @@ mod tests {
     #[test]
     fn test_format_diff_summary_empty() {
         let temp = tempfile::tempdir().unwrap();
-        let output = format_diff_summary(
-            temp.path(),
-            "main",
-            "HEAD",
-            &[],
-        );
+        let output = format_diff_summary(temp.path(), "main", "HEAD", &[]);
 
         assert!(output.contains("_type: analyze_diff_summary"));
         assert!(output.contains("total_files: 0"));
@@ -2004,12 +2106,7 @@ mod tests {
             make_changed_file("src/lib.rs", crate::git::ChangeType::Modified),
         ];
 
-        let output = format_diff_summary(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-        );
+        let output = format_diff_summary(temp.path(), "main", "HEAD", &files);
 
         assert!(output.contains("_type: analyze_diff_summary"));
         assert!(output.contains("total_files: 3"));
@@ -2028,12 +2125,7 @@ mod tests {
             make_changed_file("src/utils/format.ts", crate::git::ChangeType::Modified),
         ];
 
-        let output = format_diff_summary(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-        );
+        let output = format_diff_summary(temp.path(), "main", "HEAD", &files);
 
         assert!(output.contains("risk_estimate:"));
         // auth file should be high risk
@@ -2047,16 +2139,9 @@ mod tests {
     #[test]
     fn test_format_diff_summary_hint() {
         let temp = tempfile::tempdir().unwrap();
-        let files = vec![
-            make_changed_file("file.ts", crate::git::ChangeType::Added),
-        ];
+        let files = vec![make_changed_file("file.ts", crate::git::ChangeType::Added)];
 
-        let output = format_diff_summary(
-            temp.path(),
-            "main",
-            "HEAD",
-            &files,
-        );
+        let output = format_diff_summary(temp.path(), "main", "HEAD", &files);
 
         assert!(output.contains("_hint:"));
         assert!(output.contains("limit/offset"));

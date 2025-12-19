@@ -3,8 +3,8 @@
 //! Generic patterns for SQL injection vulnerabilities across languages
 
 use crate::lang::Lang;
-use crate::security::{CVEPattern, PatternSource, Severity};
 use crate::security::compiler::fingerprinter::fingerprint_from_source;
+use crate::security::{CVEPattern, PatternSource};
 
 /// SQL Injection vulnerable patterns
 pub fn patterns() -> Vec<CVEPattern> {
@@ -34,29 +34,29 @@ fn js_string_concat_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::JavaScript);
 
-    CVEPattern::new(
-        "CWE-89-JS-CONCAT",
-        vec!["CWE-89".into()],
-        0,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "query".into(),
-        "execute".into(),
-        "raw".into(),
-        "exec".into(),
-        "all".into(),
-        "get".into(),
-        "run".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via string concatenation in JavaScript")
-    .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-89-JS-CONCAT", vec!["CWE-89".into()], 0)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "query".into(),
+            "execute".into(),
+            "raw".into(),
+            "exec".into(),
+            "all".into(),
+            "get".into(),
+            "run".into(),
+        ])
+        .with_cvss(8.6)
+        .with_description("SQL injection via string concatenation in JavaScript")
+        .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// JavaScript template literal SQL injection
@@ -68,25 +68,21 @@ fn js_template_literal_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::JavaScript);
 
-    CVEPattern::new(
-        "CWE-89-JS-TEMPLATE",
-        vec!["CWE-89".into()],
-        1,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "query".into(),
-        "execute".into(),
-        "raw".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via template literals in JavaScript")
-    .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-89-JS-TEMPLATE", vec!["CWE-89".into()], 1)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["query".into(), "execute".into(), "raw".into()])
+        .with_cvss(8.6)
+        .with_description("SQL injection via template literals in JavaScript")
+        .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// Python f-string SQL injection
@@ -99,25 +95,21 @@ fn python_format_string_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Python);
 
-    CVEPattern::new(
-        "CWE-89-PY-FSTRING",
-        vec!["CWE-89".into()],
-        2,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "execute".into(),
-        "executemany".into(),
-        "raw".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via f-strings in Python")
-    .with_languages(vec![Lang::Python])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-89-PY-FSTRING", vec!["CWE-89".into()], 2)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["execute".into(), "executemany".into(), "raw".into()])
+        .with_cvss(8.6)
+        .with_description("SQL injection via f-strings in Python")
+        .with_languages(vec![Lang::Python])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// Python percent format SQL injection
@@ -130,24 +122,21 @@ fn python_percent_format_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Python);
 
-    CVEPattern::new(
-        "CWE-89-PY-PERCENT",
-        vec!["CWE-89".into()],
-        3,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "execute".into(),
-        "executemany".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via percent formatting in Python")
-    .with_languages(vec![Lang::Python])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.80)
+    CVEPattern::new("CWE-89-PY-PERCENT", vec!["CWE-89".into()], 3)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["execute".into(), "executemany".into()])
+        .with_cvss(8.6)
+        .with_description("SQL injection via percent formatting in Python")
+        .with_languages(vec![Lang::Python])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.80)
 }
 
 /// Java string concatenation SQL injection
@@ -161,27 +150,27 @@ fn java_string_concat_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Java);
 
-    CVEPattern::new(
-        "CWE-89-JAVA-CONCAT",
-        vec!["CWE-89".into()],
-        4,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "executeQuery".into(),
-        "executeUpdate".into(),
-        "execute".into(),
-        "createStatement".into(),
-        "prepareStatement".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via string concatenation in Java")
-    .with_languages(vec![Lang::Java])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-89-JAVA-CONCAT", vec!["CWE-89".into()], 4)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "executeQuery".into(),
+            "executeUpdate".into(),
+            "execute".into(),
+            "createStatement".into(),
+            "prepareStatement".into(),
+        ])
+        .with_cvss(8.6)
+        .with_description("SQL injection via string concatenation in Java")
+        .with_languages(vec![Lang::Java])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// Rust format! SQL injection
@@ -194,27 +183,27 @@ fn rust_format_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Rust);
 
-    CVEPattern::new(
-        "CWE-89-RUST-FORMAT",
-        vec!["CWE-89".into()],
-        5,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "query".into(),
-        "execute".into(),
-        "fetch_all".into(),
-        "fetch_one".into(),
-        "fetch_optional".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via format! macro in Rust")
-    .with_languages(vec![Lang::Rust])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.80)
+    CVEPattern::new("CWE-89-RUST-FORMAT", vec!["CWE-89".into()], 5)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "query".into(),
+            "execute".into(),
+            "fetch_all".into(),
+            "fetch_one".into(),
+            "fetch_optional".into(),
+        ])
+        .with_cvss(8.6)
+        .with_description("SQL injection via format! macro in Rust")
+        .with_languages(vec![Lang::Rust])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.80)
 }
 
 /// C# string concatenation SQL injection
@@ -228,32 +217,33 @@ fn csharp_string_concat_sql() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::CSharp);
 
-    CVEPattern::new(
-        "CWE-89-CSHARP-CONCAT",
-        vec!["CWE-89".into()],
-        6,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "SqlCommand".into(),
-        "ExecuteReader".into(),
-        "ExecuteNonQuery".into(),
-        "ExecuteScalar".into(),
-        "Execute".into(),
-    ])
-    .with_cvss(8.6)
-    .with_description("SQL injection via string concatenation in C#")
-    .with_languages(vec![Lang::CSharp])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-89-CSHARP-CONCAT", vec!["CWE-89".into()], 6)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "SqlCommand".into(),
+            "ExecuteReader".into(),
+            "ExecuteNonQuery".into(),
+            "ExecuteScalar".into(),
+            "Execute".into(),
+        ])
+        .with_cvss(8.6)
+        .with_description("SQL injection via string concatenation in C#")
+        .with_languages(vec![Lang::CSharp])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::Severity;
 
     #[test]
     fn test_sql_injection_patterns() {

@@ -66,8 +66,12 @@ fn extract_module_name_from_path(file_path: &str) -> String {
     let path = Path::new(file_path);
 
     // Get parent directory and file stem
-    let parent = path.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy());
-    let grandparent = path.parent()
+    let parent = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|s| s.to_string_lossy());
+    let grandparent = path
+        .parent()
         .and_then(|p| p.parent())
         .and_then(|p| p.file_name())
         .map(|s| s.to_string_lossy());
@@ -75,7 +79,8 @@ fn extract_module_name_from_path(file_path: &str) -> String {
     match (grandparent, parent) {
         (Some(gp), Some(p)) => format!("{}.{}", gp, p),
         (None, Some(p)) => p.to_string(),
-        _ => path.file_stem()
+        _ => path
+            .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string()),
     }
@@ -91,7 +96,11 @@ fn get_module_name(symbol: &crate::duplicate::SymbolRef) -> String {
 }
 
 /// Find all duplicates in the codebase
-fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandContext) -> Result<String> {
+fn run_find_duplicates(
+    args: &ValidateArgs,
+    cache: &CacheDir,
+    ctx: &CommandContext,
+) -> Result<String> {
     if !cache.exists() {
         return Err(McpDiffError::GitError {
             message: "No index found. Run `semfora index generate` first.".to_string(),
@@ -117,11 +126,14 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
         return Ok("No function signatures found in index.".to_string());
     }
 
-    eprintln!("Analyzing {} signatures for duplicates...", signatures.len());
+    eprintln!(
+        "Analyzing {} signatures for duplicates...",
+        signatures.len()
+    );
 
     let exclude_boilerplate = !args.include_boilerplate;
-    let detector = DuplicateDetector::new(args.threshold)
-        .with_boilerplate_exclusion(exclude_boilerplate);
+    let detector =
+        DuplicateDetector::new(args.threshold).with_boilerplate_exclusion(exclude_boilerplate);
 
     let clusters = detector.find_all_clusters(&signatures);
     let total_clusters = clusters.len();
@@ -199,7 +211,8 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
                 output.push_str(&format!("  duplicates: {}\n", cluster.duplicates.len()));
 
                 // Group duplicates by module (actual index module names)
-                let mut by_module: BTreeMap<String, Vec<&crate::duplicate::DuplicateMatch>> = BTreeMap::new();
+                let mut by_module: BTreeMap<String, Vec<&crate::duplicate::DuplicateMatch>> =
+                    BTreeMap::new();
                 for dup in &cluster.duplicates {
                     let module = get_module_name(&dup.symbol);
                     by_module.entry(module).or_default().push(dup);
@@ -221,11 +234,20 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
                         continue;
                     }
 
-                    let min_sim = dups.iter().map(|d| d.similarity).fold(f64::INFINITY, f64::min);
+                    let min_sim = dups
+                        .iter()
+                        .map(|d| d.similarity)
+                        .fold(f64::INFINITY, f64::min);
                     let max_sim = dups.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
 
-                    let exact = dups.iter().filter(|d| matches!(d.kind, DuplicateKind::Exact)).count();
-                    let near = dups.iter().filter(|d| matches!(d.kind, DuplicateKind::Near)).count();
+                    let exact = dups
+                        .iter()
+                        .filter(|d| matches!(d.kind, DuplicateKind::Exact))
+                        .count();
+                    let near = dups
+                        .iter()
+                        .filter(|d| matches!(d.kind, DuplicateKind::Near))
+                        .count();
 
                     let kind_hint = if exact > 0 && near == 0 {
                         "exact"
@@ -250,14 +272,17 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
                 if remaining_modules > 0 {
                     output.push_str(&format!(
                         "    +{} more modules: {} dups\n",
-                        remaining_modules,
-                        remaining_count
+                        remaining_modules, remaining_count
                     ));
                 }
 
                 // Show top 3 individual matches
                 let mut top_matches: Vec<_> = cluster.duplicates.iter().collect();
-                top_matches.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+                top_matches.sort_by(|a, b| {
+                    b.similarity
+                        .partial_cmp(&a.similarity)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 if !top_matches.is_empty() {
                     output.push_str("  top_matches:\n");
@@ -296,18 +321,29 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
             }
 
             let total_duplicates: usize = paginated.iter().map(|c| c.duplicates.len()).sum();
-            output.push_str(&format!("Total duplicate functions: {}\n\n", total_duplicates));
+            output.push_str(&format!(
+                "Total duplicate functions: {}\n\n",
+                total_duplicates
+            ));
 
             for (i, cluster) in paginated.iter().enumerate() {
                 let primary_module = get_module_name(&cluster.primary);
 
                 output.push_str("───────────────────────────────────────────\n");
-                output.push_str(&format!("Cluster {} ({} duplicates)\n", i + 1, cluster.duplicates.len()));
-                output.push_str(&format!("Primary: {} ({})\n", cluster.primary.name, primary_module));
+                output.push_str(&format!(
+                    "Cluster {} ({} duplicates)\n",
+                    i + 1,
+                    cluster.duplicates.len()
+                ));
+                output.push_str(&format!(
+                    "Primary: {} ({})\n",
+                    cluster.primary.name, primary_module
+                ));
                 output.push_str(&format!("  hash: {}\n", cluster.primary.hash));
 
                 // Group by module (actual index module names)
-                let mut by_module: BTreeMap<String, Vec<&crate::duplicate::DuplicateMatch>> = BTreeMap::new();
+                let mut by_module: BTreeMap<String, Vec<&crate::duplicate::DuplicateMatch>> =
+                    BTreeMap::new();
                 for dup in &cluster.duplicates {
                     let module = get_module_name(&dup.symbol);
                     by_module.entry(module).or_default().push(dup);
@@ -318,7 +354,10 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
                 module_entries.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
                 for (module, dups) in module_entries.iter().take(5) {
-                    let min_sim = dups.iter().map(|d| d.similarity).fold(f64::INFINITY, f64::min);
+                    let min_sim = dups
+                        .iter()
+                        .map(|d| d.similarity)
+                        .fold(f64::INFINITY, f64::min);
                     let max_sim = dups.iter().map(|d| d.similarity).fold(0.0_f64, f64::max);
                     output.push_str(&format!(
                         "  {}: {} functions ({:.0}-{:.0}%)\n",
@@ -331,7 +370,11 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
 
                 let shown_modules = module_entries.len().min(5);
                 if module_entries.len() > shown_modules {
-                    let remaining: usize = module_entries.iter().skip(shown_modules).map(|(_, d)| d.len()).sum();
+                    let remaining: usize = module_entries
+                        .iter()
+                        .skip(shown_modules)
+                        .map(|(_, d)| d.len())
+                        .sum();
                     output.push_str(&format!(
                         "  +{} more modules ({} duplicates)\n",
                         module_entries.len() - shown_modules,
@@ -342,7 +385,11 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
             }
 
             if total_clusters > paginated.len() {
-                output.push_str(&format!("\n... showing {} of {} clusters\n", paginated.len(), total_clusters));
+                output.push_str(&format!(
+                    "\n... showing {} of {} clusters\n",
+                    paginated.len(),
+                    total_clusters
+                ));
             }
         }
     }
@@ -351,7 +398,12 @@ fn run_find_duplicates(args: &ValidateArgs, cache: &CacheDir, ctx: &CommandConte
 }
 
 /// Check duplicates for a specific symbol by hash
-fn run_check_duplicates(hash: &str, threshold: f64, cache: &CacheDir, ctx: &CommandContext) -> Result<String> {
+fn run_check_duplicates(
+    hash: &str,
+    threshold: f64,
+    cache: &CacheDir,
+    ctx: &CommandContext,
+) -> Result<String> {
     // Load all signatures
     let signatures = load_signatures(cache)?;
 
@@ -368,7 +420,11 @@ fn run_check_duplicates(hash: &str, threshold: f64, cache: &CacheDir, ctx: &Comm
     let mut duplicates = detector.find_duplicates(target_sig, &signatures);
 
     // Sort by similarity descending
-    duplicates.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+    duplicates.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut output = String::new();
 
@@ -408,7 +464,9 @@ fn run_check_duplicates(hash: &str, threshold: f64, cache: &CacheDir, ctx: &Comm
                 for dup in &duplicates {
                     output.push_str(&format!(
                         "  - {} ({:.0}%)\n    {}\n",
-                        dup.symbol.name, dup.similarity * 100.0, dup.symbol.file
+                        dup.symbol.name,
+                        dup.similarity * 100.0,
+                        dup.symbol.file
                     ));
                 }
             }

@@ -3,9 +3,12 @@
 //! Tests for HTML, CSS, SCSS, and Markdown - document and styling
 //! markup languages.
 
+#![allow(unused_imports)]
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../common/mod.rs"]
 mod common;
-use common::{TestRepo, assertions::*};
+use common::{assertions::*, TestRepo};
 
 // =============================================================================
 // HTML TESTS
@@ -155,7 +158,10 @@ mod html_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/article.html", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle semantic HTML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle semantic HTML"
+        );
     }
 
     #[test]
@@ -165,7 +171,10 @@ mod html_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/empty.html", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty HTML file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty HTML file"
+        );
     }
 
     #[test]
@@ -211,7 +220,10 @@ mod html_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/embedded.html", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle HTML with embedded CSS/JS");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle HTML with embedded CSS/JS"
+        );
     }
 }
 
@@ -405,7 +417,10 @@ a:hover {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/animations.css", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle CSS animations");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle CSS animations"
+        );
     }
 
     #[test]
@@ -415,7 +430,10 @@ a:hover {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/empty.css", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty CSS file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty CSS file"
+        );
     }
 }
 
@@ -469,7 +487,10 @@ body {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/styles.scss", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle SCSS variables");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle SCSS variables"
+        );
     }
 
     #[test]
@@ -530,7 +551,10 @@ body {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/nesting.scss", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle SCSS nesting");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle SCSS nesting"
+        );
     }
 
     #[test]
@@ -604,7 +628,10 @@ $breakpoints: (
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/mixins.scss", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle SCSS mixins");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle SCSS mixins"
+        );
     }
 
     #[test]
@@ -663,7 +690,10 @@ $colors: (
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/functions.scss", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle SCSS functions");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle SCSS functions"
+        );
     }
 
     #[test]
@@ -673,7 +703,10 @@ $colors: (
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/empty.scss", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty SCSS file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty SCSS file"
+        );
     }
 }
 
@@ -735,7 +768,10 @@ MIT
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docs/README.md", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Markdown file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Markdown file"
+        );
     }
 
     #[test]
@@ -809,7 +845,10 @@ Reference-style [link][ref].
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docs/guide.md", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle extended Markdown");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle extended Markdown"
+        );
     }
 
     #[test]
@@ -879,7 +918,10 @@ The `main()` function is the entry point.
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docs/examples.md", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Markdown with code blocks");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Markdown with code blocks"
+        );
     }
 
     #[test]
@@ -889,7 +931,10 @@ The `main()` function is the entry point.
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docs/empty.md", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Markdown file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Markdown file"
+        );
     }
 
     #[test]
@@ -917,6 +962,9 @@ It supports all standard Markdown features.
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "docs/post.md", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Markdown with frontmatter");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Markdown with frontmatter"
+        );
     }
 }

@@ -160,9 +160,7 @@ impl SemforaConfig {
             ["cache", "dir"] => self.cache.dir.as_ref().map(|p| p.display().to_string()),
             ["logging", "level"] => Some(self.logging.level.clone()),
             ["patterns", "url"] => Some(self.patterns.url.clone()),
-            ["mcp", "configured_clients"] => {
-                Some(self.mcp.configured_clients.join(", "))
-            }
+            ["mcp", "configured_clients"] => Some(self.mcp.configured_clients.join(", ")),
             _ => None,
         }
     }
@@ -282,10 +280,7 @@ mod tests {
         assert_eq!(config.get("logging.level"), Some("debug".to_string()));
 
         config.set("cache.dir", "/custom/path").unwrap();
-        assert_eq!(
-            config.get("cache.dir"),
-            Some("/custom/path".to_string())
-        );
+        assert_eq!(config.get("cache.dir"), Some("/custom/path".to_string()));
     }
 
     #[test]

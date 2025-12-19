@@ -105,7 +105,7 @@ pub struct SymbolInfo {
     pub state_changes: Vec<StateChange>,
 
     /// Decorators/attributes applied to this symbol
-    /// Examples: C# [HttpGet], Python @decorator, Java @Annotation
+    /// Examples: C# \[HttpGet\], Python @decorator, Java @Annotation
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decorators: Vec<String>,
 
@@ -151,7 +151,13 @@ impl SymbolId {
     /// The hash is computed as two parts:
     /// - file_hash (8 chars): Hash of the file path for uniqueness
     /// - semantic_hash (16 chars): Hash of namespace:symbol:kind:arity for move detection
-    pub fn new(namespace: &str, symbol: &str, kind: SymbolKind, arity: usize, file_path: &str) -> Self {
+    pub fn new(
+        namespace: &str,
+        symbol: &str,
+        kind: SymbolKind,
+        arity: usize,
+        file_path: &str,
+    ) -> Self {
         // Semantic hash (existing formula - for move detection and duplicate finding)
         let semantic_input = format!("{}:{}:{}:{}", namespace, symbol, kind.as_str(), arity);
         let semantic_hash = format!("{:016x}", fnv1a_hash(&semantic_input));
@@ -177,7 +183,12 @@ impl SymbolId {
     /// NOTE: This produces only a semantic hash, not the two-part format.
     /// Prefer `new()` with file_path when possible.
     #[deprecated(note = "Use new() with file_path for unique hashes")]
-    pub fn new_semantic_only(namespace: &str, symbol: &str, kind: SymbolKind, arity: usize) -> Self {
+    pub fn new_semantic_only(
+        namespace: &str,
+        symbol: &str,
+        kind: SymbolKind,
+        arity: usize,
+    ) -> Self {
         let semantic_input = format!("{}:{}:{}:{}", namespace, symbol, kind.as_str(), arity);
         let semantic_hash = format!("{:016x}", fnv1a_hash(&semantic_input));
 
@@ -255,27 +266,15 @@ impl SymbolId {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SurfaceDelta {
     /// New state variable introduced
-    StateAddition {
-        name: String,
-        state_type: String,
-    },
+    StateAddition { name: String, state_type: String },
     /// State variable removed
-    StateRemoval {
-        name: String,
-    },
+    StateRemoval { name: String },
     /// New dependency/import added
-    DependencyAdded {
-        name: String,
-    },
+    DependencyAdded { name: String },
     /// Dependency/import removed
-    DependencyRemoved {
-        name: String,
-    },
+    DependencyRemoved { name: String },
     /// Control flow complexity changed
-    ControlFlowComplexityChanged {
-        before: usize,
-        after: usize,
-    },
+    ControlFlowComplexityChanged { before: usize, after: usize },
     /// Public API surface changed
     PublicApiChanged {
         /// Whether this is a breaking change
@@ -296,15 +295,9 @@ pub enum SurfaceDelta {
     /// Privilege/permission boundary changed
     PrivilegeBoundaryChanged,
     /// New symbol introduced
-    SymbolAdded {
-        name: String,
-        kind: SymbolKind,
-    },
+    SymbolAdded { name: String, kind: SymbolKind },
     /// Symbol removed
-    SymbolRemoved {
-        name: String,
-        kind: SymbolKind,
-    },
+    SymbolRemoved { name: String, kind: SymbolKind },
 }
 
 /// Semantic diff between two versions of a file
@@ -356,14 +349,18 @@ impl SemanticDiff {
                 // Check for persistence/network in new file
                 for insertion in &after.insertions {
                     let lower = insertion.to_lowercase();
-                    if lower.contains("database") || lower.contains("storage") || lower.contains("persist") {
+                    if lower.contains("database")
+                        || lower.contains("storage")
+                        || lower.contains("persist")
+                    {
                         deltas.push(SurfaceDelta::PersistenceIntroduced);
                         break;
                     }
                 }
                 for insertion in &after.insertions {
                     let lower = insertion.to_lowercase();
-                    if lower.contains("network") || lower.contains("fetch") || lower.contains("api") {
+                    if lower.contains("network") || lower.contains("fetch") || lower.contains("api")
+                    {
                         deltas.push(SurfaceDelta::NetworkIntroduced);
                         break;
                     }
@@ -402,22 +399,31 @@ impl SemanticDiff {
                 }
 
                 // Dependency changes
-                let before_deps: std::collections::HashSet<_> = before.added_dependencies.iter().collect();
-                let after_deps: std::collections::HashSet<_> = after.added_dependencies.iter().collect();
+                let before_deps: std::collections::HashSet<_> =
+                    before.added_dependencies.iter().collect();
+                let after_deps: std::collections::HashSet<_> =
+                    after.added_dependencies.iter().collect();
 
                 for dep in after_deps.difference(&before_deps) {
-                    deltas.push(SurfaceDelta::DependencyAdded { name: (*dep).clone() });
+                    deltas.push(SurfaceDelta::DependencyAdded {
+                        name: (*dep).clone(),
+                    });
                 }
                 for dep in before_deps.difference(&after_deps) {
-                    deltas.push(SurfaceDelta::DependencyRemoved { name: (*dep).clone() });
+                    deltas.push(SurfaceDelta::DependencyRemoved {
+                        name: (*dep).clone(),
+                    });
                 }
 
                 // State changes
-                let before_states: std::collections::HashSet<_> = before.state_changes.iter().map(|s| &s.name).collect();
-                let after_states: std::collections::HashSet<_> = after.state_changes.iter().map(|s| &s.name).collect();
+                let before_states: std::collections::HashSet<_> =
+                    before.state_changes.iter().map(|s| &s.name).collect();
+                let after_states: std::collections::HashSet<_> =
+                    after.state_changes.iter().map(|s| &s.name).collect();
 
                 for state_name in after_states.difference(&before_states) {
-                    if let Some(state) = after.state_changes.iter().find(|s| &s.name == *state_name) {
+                    if let Some(state) = after.state_changes.iter().find(|s| &s.name == *state_name)
+                    {
                         deltas.push(SurfaceDelta::StateAddition {
                             name: state.name.clone(),
                             state_type: state.state_type.clone(),
@@ -425,7 +431,9 @@ impl SemanticDiff {
                     }
                 }
                 for state_name in before_states.difference(&after_states) {
-                    deltas.push(SurfaceDelta::StateRemoval { name: (*state_name).clone() });
+                    deltas.push(SurfaceDelta::StateRemoval {
+                        name: (*state_name).clone(),
+                    });
                 }
 
                 // Control flow complexity
@@ -1053,7 +1061,13 @@ mod tests {
 
     #[test]
     fn test_symbol_id_creation() {
-        let id = SymbolId::new("components", "Button", SymbolKind::Component, 3, "src/components/Button.tsx");
+        let id = SymbolId::new(
+            "components",
+            "Button",
+            SymbolKind::Component,
+            3,
+            "src/components/Button.tsx",
+        );
         assert_eq!(id.namespace, "components");
         assert_eq!(id.symbol, "Button");
         assert_eq!(id.kind, SymbolKind::Component);
@@ -1068,13 +1082,31 @@ mod tests {
     #[test]
     fn test_symbol_id_deterministic() {
         // Same inputs should always produce the same hash
-        let id1 = SymbolId::new("components", "Button", SymbolKind::Component, 3, "src/components/Button.tsx");
-        let id2 = SymbolId::new("components", "Button", SymbolKind::Component, 3, "src/components/Button.tsx");
+        let id1 = SymbolId::new(
+            "components",
+            "Button",
+            SymbolKind::Component,
+            3,
+            "src/components/Button.tsx",
+        );
+        let id2 = SymbolId::new(
+            "components",
+            "Button",
+            SymbolKind::Component,
+            3,
+            "src/components/Button.tsx",
+        );
         assert_eq!(id1.hash, id2.hash);
         assert_eq!(id1.semantic_hash, id2.semantic_hash);
 
         // Different arity should produce different hashes
-        let id3 = SymbolId::new("components", "Button", SymbolKind::Component, 4, "src/components/Button.tsx");
+        let id3 = SymbolId::new(
+            "components",
+            "Button",
+            SymbolKind::Component,
+            4,
+            "src/components/Button.tsx",
+        );
         assert_ne!(id1.hash, id3.hash);
         assert_ne!(id1.semantic_hash, id3.semantic_hash);
     }
@@ -1082,9 +1114,27 @@ mod tests {
     #[test]
     fn test_symbol_id_unique_per_file() {
         // Same signature in different files should have different full hashes
-        let id1 = SymbolId::new("frameworks", "enhance", SymbolKind::Function, 3, "src/frameworks/nextjs.rs");
-        let id2 = SymbolId::new("frameworks", "enhance", SymbolKind::Function, 3, "src/frameworks/react.rs");
-        let id3 = SymbolId::new("frameworks", "enhance", SymbolKind::Function, 3, "src/frameworks/vue.rs");
+        let id1 = SymbolId::new(
+            "frameworks",
+            "enhance",
+            SymbolKind::Function,
+            3,
+            "src/frameworks/nextjs.rs",
+        );
+        let id2 = SymbolId::new(
+            "frameworks",
+            "enhance",
+            SymbolKind::Function,
+            3,
+            "src/frameworks/react.rs",
+        );
+        let id3 = SymbolId::new(
+            "frameworks",
+            "enhance",
+            SymbolKind::Function,
+            3,
+            "src/frameworks/vue.rs",
+        );
 
         // Full hashes should be unique (different files)
         assert_ne!(id1.hash, id2.hash);
@@ -1111,10 +1161,7 @@ mod tests {
         );
 
         // Root level file (uses filename)
-        assert_eq!(
-            SymbolId::namespace_from_path("src/main.rs"),
-            "main"
-        );
+        assert_eq!(SymbolId::namespace_from_path("src/main.rs"), "main");
 
         // Deep nesting
         assert_eq!(
@@ -1131,8 +1178,14 @@ mod tests {
             symbol: Some("Button".to_string()),
             symbol_kind: Some(SymbolKind::Component),
             props: vec![
-                Prop { name: "onClick".to_string(), ..Default::default() },
-                Prop { name: "children".to_string(), ..Default::default() },
+                Prop {
+                    name: "onClick".to_string(),
+                    ..Default::default()
+                },
+                Prop {
+                    name: "children".to_string(),
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         };
@@ -1147,23 +1200,47 @@ mod tests {
     #[test]
     fn test_symbol_id_file_move_detection() {
         // Moving a file changes the full hash but keeps semantic_hash the same
-        let id1 = SymbolId::new("components", "Button", SymbolKind::Component, 2, "src/components/Button.tsx");
-        let id2 = SymbolId::new("components", "Button", SymbolKind::Component, 2, "lib/components/Button.tsx");
+        let id1 = SymbolId::new(
+            "components",
+            "Button",
+            SymbolKind::Component,
+            2,
+            "src/components/Button.tsx",
+        );
+        let id2 = SymbolId::new(
+            "components",
+            "Button",
+            SymbolKind::Component,
+            2,
+            "lib/components/Button.tsx",
+        );
 
         // Full hashes should differ (different file paths)
-        assert_ne!(id1.hash, id2.hash, "Full hash should change when file moves");
+        assert_ne!(
+            id1.hash, id2.hash,
+            "Full hash should change when file moves"
+        );
 
         // Semantic hashes should match (same signature - can detect as potential move)
-        assert_eq!(id1.semantic_hash, id2.semantic_hash, "Semantic hash should match for potential move detection");
+        assert_eq!(
+            id1.semantic_hash, id2.semantic_hash,
+            "Semantic hash should match for potential move detection"
+        );
     }
 
     #[test]
     fn test_extract_semantic_hash() {
         // Two-part hash
-        assert_eq!(SymbolId::extract_semantic_hash("a1b2c3d4:8e021ca5a492c67d"), "8e021ca5a492c67d");
+        assert_eq!(
+            SymbolId::extract_semantic_hash("a1b2c3d4:8e021ca5a492c67d"),
+            "8e021ca5a492c67d"
+        );
 
         // Legacy single-part hash (backward compatibility)
-        assert_eq!(SymbolId::extract_semantic_hash("8e021ca5a492c67d"), "8e021ca5a492c67d");
+        assert_eq!(
+            SymbolId::extract_semantic_hash("8e021ca5a492c67d"),
+            "8e021ca5a492c67d"
+        );
     }
 
     #[test]
@@ -1198,9 +1275,18 @@ mod tests {
         assert_eq!(diff.risk_change, 1);
 
         // Check for expected deltas
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::SymbolAdded { name, .. } if name == "Button")));
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::DependencyAdded { name } if name == "useState")));
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::StateAddition { name, .. } if name == "open")));
+        assert!(diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::SymbolAdded { name, .. } if name == "Button")));
+        assert!(diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::DependencyAdded { name } if name == "useState")));
+        assert!(diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::StateAddition { name, .. } if name == "open")));
     }
 
     #[test]
@@ -1254,12 +1340,27 @@ mod tests {
         assert_eq!(diff.risk_change, 1);
 
         // Check for expected deltas
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::DependencyAdded { name } if name == "useCallback")));
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::StateAddition { name, .. } if name == "count")));
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::ControlFlowComplexityChanged { before: 0, after: 1 })));
+        assert!(diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::DependencyAdded { name } if name == "useCallback")));
+        assert!(diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::StateAddition { name, .. } if name == "count")));
+        assert!(diff.deltas.iter().any(|d| matches!(
+            d,
+            SurfaceDelta::ControlFlowComplexityChanged {
+                before: 0,
+                after: 1
+            }
+        )));
 
         // Should NOT have symbol added (same symbol)
-        assert!(!diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::SymbolAdded { .. })));
+        assert!(!diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::SymbolAdded { .. })));
     }
 
     #[test]
@@ -1280,7 +1381,13 @@ mod tests {
 
         let diff = SemanticDiff::from_summaries(Some(&before), &after);
 
-        assert!(diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::DependencyRemoved { name } if name == "foo")));
-        assert!(!diff.deltas.iter().any(|d| matches!(d, SurfaceDelta::DependencyRemoved { name } if name == "bar")));
+        assert!(diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::DependencyRemoved { name } if name == "foo")));
+        assert!(!diff
+            .deltas
+            .iter()
+            .any(|d| matches!(d, SurfaceDelta::DependencyRemoved { name } if name == "bar")));
     }
 }

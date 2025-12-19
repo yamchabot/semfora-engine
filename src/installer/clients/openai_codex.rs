@@ -55,10 +55,7 @@ impl McpClient for OpenAICodexClient {
                     .map(|c| json_utils::has_semfora_server(&c))
                     .unwrap_or(false);
 
-                return ClientStatus::Found {
-                    path,
-                    has_semfora,
-                };
+                return ClientStatus::Found { path, has_semfora };
             }
         }
 
@@ -82,9 +79,11 @@ impl McpClient for OpenAICodexClient {
     }
 
     fn configure(&self, config: &McpServerConfig, platform: &Platform) -> Result<(), McpDiffError> {
-        let config_path = self.config_path(platform).ok_or_else(|| McpDiffError::ConfigError {
-            message: "Could not determine OpenAI Codex config path".to_string(),
-        })?;
+        let config_path = self
+            .config_path(platform)
+            .ok_or_else(|| McpDiffError::ConfigError {
+                message: "Could not determine OpenAI Codex config path".to_string(),
+            })?;
 
         // Create backup
         self.backup_config(platform)?;

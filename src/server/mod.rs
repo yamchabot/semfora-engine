@@ -43,18 +43,18 @@
 //! - `sync` - Layer synchronization (SEM-104)
 
 pub mod ast_cache;
+pub mod events;
+pub mod git_poller;
 pub mod state;
 pub mod sync;
 pub mod watcher;
-pub mod git_poller;
-pub mod events;
 
 pub use ast_cache::{AstCache, AstCacheStats, ParseResult};
-pub use state::{ServerState, ServerStatus, LayerStatus};
+pub use events::{
+    emit_event, init_event_emitter, IndexingProgressEvent, LayerStaleEvent, LayerUpdatedEvent,
+    ServerStatusEvent,
+};
+pub use git_poller::GitPoller;
+pub use state::{LayerStatus, ServerState, ServerStatus};
 pub use sync::{LayerSynchronizer, LayerUpdateStats};
 pub use watcher::FileWatcher;
-pub use git_poller::GitPoller;
-pub use events::{
-    init_event_emitter, emit_event,
-    LayerUpdatedEvent, LayerStaleEvent, ServerStatusEvent, IndexingProgressEvent,
-};

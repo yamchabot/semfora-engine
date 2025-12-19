@@ -3,8 +3,8 @@
 //! Patterns for unsafe deserialization vulnerabilities across languages
 
 use crate::lang::Lang;
-use crate::security::{CVEPattern, PatternSource, Severity};
 use crate::security::compiler::fingerprinter::fingerprint_from_source;
+use crate::security::{CVEPattern, PatternSource};
 
 /// Deserialization vulnerable patterns
 pub fn patterns() -> Vec<CVEPattern> {
@@ -36,11 +36,12 @@ fn js_json_parse_eval() -> CVEPattern {
         vec!["CWE-502".into(), "CWE-94".into()],
         0,
     )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "eval".into(),
-        "Function".into(),
-    ])
+    .with_fingerprints(
+        fp.fingerprints.call,
+        fp.fingerprints.control_flow,
+        fp.fingerprints.state,
+    )
+    .with_vulnerable_calls(vec!["eval".into(), "Function".into()])
     .with_cvss(9.8)
     .with_description("Code execution via eval-based deserialization in JavaScript")
     .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
@@ -62,26 +63,26 @@ fn python_pickle_loads() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Python);
 
-    CVEPattern::new(
-        "CWE-502-PY-PICKLE",
-        vec!["CWE-502".into()],
-        1,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "loads".into(),
-        "load".into(),
-        "pickle".into(),
-        "cPickle".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Arbitrary code execution via pickle deserialization in Python")
-    .with_languages(vec![Lang::Python])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.95)
+    CVEPattern::new("CWE-502-PY-PICKLE", vec!["CWE-502".into()], 1)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "loads".into(),
+            "load".into(),
+            "pickle".into(),
+            "cPickle".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Arbitrary code execution via pickle deserialization in Python")
+        .with_languages(vec![Lang::Python])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.95)
 }
 
 /// Python yaml.load without safe loader
@@ -95,24 +96,21 @@ fn python_yaml_load() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Python);
 
-    CVEPattern::new(
-        "CWE-502-PY-YAML",
-        vec!["CWE-502".into()],
-        2,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "load".into(),
-        "yaml".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Code execution via unsafe YAML deserialization in Python")
-    .with_languages(vec![Lang::Python])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-502-PY-YAML", vec!["CWE-502".into()], 2)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["load".into(), "yaml".into()])
+        .with_cvss(9.8)
+        .with_description("Code execution via unsafe YAML deserialization in Python")
+        .with_languages(vec![Lang::Python])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// Java ObjectInputStream - arbitrary code execution
@@ -126,27 +124,27 @@ fn java_object_input_stream() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Java);
 
-    CVEPattern::new(
-        "CWE-502-JAVA-OIS",
-        vec!["CWE-502".into()],
-        3,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "ObjectInputStream".into(),
-        "readObject".into(),
-        "XMLDecoder".into(),
-        "XStream".into(),
-        "fromXML".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Arbitrary code execution via Java object deserialization")
-    .with_languages(vec![Lang::Java])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.90)
+    CVEPattern::new("CWE-502-JAVA-OIS", vec!["CWE-502".into()], 3)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "ObjectInputStream".into(),
+            "readObject".into(),
+            "XMLDecoder".into(),
+            "XStream".into(),
+            "fromXML".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Arbitrary code execution via Java object deserialization")
+        .with_languages(vec![Lang::Java])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.90)
 }
 
 /// C# BinaryFormatter - arbitrary code execution
@@ -160,32 +158,33 @@ fn csharp_binary_formatter() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::CSharp);
 
-    CVEPattern::new(
-        "CWE-502-CSHARP-BINARY",
-        vec!["CWE-502".into()],
-        4,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "BinaryFormatter".into(),
-        "Deserialize".into(),
-        "DeserializeObject".into(),
-        "JavaScriptSerializer".into(),
-        "TypeNameHandling".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Arbitrary code execution via BinaryFormatter deserialization in C#")
-    .with_languages(vec![Lang::CSharp])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.90)
+    CVEPattern::new("CWE-502-CSHARP-BINARY", vec!["CWE-502".into()], 4)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "BinaryFormatter".into(),
+            "Deserialize".into(),
+            "DeserializeObject".into(),
+            "JavaScriptSerializer".into(),
+            "TypeNameHandling".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Arbitrary code execution via BinaryFormatter deserialization in C#")
+        .with_languages(vec![Lang::CSharp])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.90)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::Severity;
 
     #[test]
     fn test_deserialization_patterns() {

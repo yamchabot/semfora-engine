@@ -155,8 +155,8 @@ fn run_setup_non_interactive(args: SetupArgs) -> Result<(), McpDiffError> {
     });
 
     // Build server config
-    let mut server_config = McpServerConfig::new(server_binary.clone())
-        .with_log_level(&args.log_level);
+    let mut server_config =
+        McpServerConfig::new(server_binary.clone()).with_log_level(&args.log_level);
 
     if let Some(cache_dir) = &args.cache_dir {
         server_config = server_config.with_cache_dir(cache_dir.clone());
@@ -199,7 +199,11 @@ fn run_setup_non_interactive(args: SetupArgs) -> Result<(), McpDiffError> {
         if let Some(client) = registry.find(client_name) {
             match client.configure(&server_config, &platform) {
                 Ok(()) => {
-                    println!("{} Configured {}", style("✓").green(), client.display_name());
+                    println!(
+                        "{} Configured {}",
+                        style("✓").green(),
+                        client.display_name()
+                    );
                     success_count += 1;
                 }
                 Err(e) => {
@@ -223,7 +227,11 @@ fn run_setup_non_interactive(args: SetupArgs) -> Result<(), McpDiffError> {
         let client = clients::CustomExportClient::new(export_path.clone());
         match client.configure(&server_config, &platform) {
             Ok(()) => {
-                println!("{} Exported to {}", style("✓").green(), export_path.display());
+                println!(
+                    "{} Exported to {}",
+                    style("✓").green(),
+                    export_path.display()
+                );
                 success_count += 1;
             }
             Err(e) => {
@@ -334,16 +342,21 @@ pub fn print_available_clients() {
     for client in registry.all() {
         let status = client.detect(&platform);
         let status_str = match status {
-            ClientStatus::Found { has_semfora: true, .. } => {
-                style("(configured)").green().to_string()
-            }
-            ClientStatus::Found { has_semfora: false, .. } => {
-                style("(detected)").cyan().to_string()
-            }
+            ClientStatus::Found {
+                has_semfora: true, ..
+            } => style("(configured)").green().to_string(),
+            ClientStatus::Found {
+                has_semfora: false, ..
+            } => style("(detected)").cyan().to_string(),
             ClientStatus::NotFound => style("(not detected)").dim().to_string(),
         };
 
-        println!("  {} - {} {}", client.name(), client.display_name(), status_str);
+        println!(
+            "  {} - {} {}",
+            client.name(),
+            client.display_name(),
+            status_str
+        );
     }
 
     println!();

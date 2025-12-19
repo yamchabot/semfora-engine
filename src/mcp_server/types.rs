@@ -20,7 +20,9 @@ pub struct AnalyzeRequest {
     pub path: Option<String>,
 
     /// Module name to retrieve from index (alternative to path)
-    #[schemars(description = "Module name to retrieve from index (e.g., 'api', 'components'). Alternative to path.")]
+    #[schemars(
+        description = "Module name to retrieve from index (e.g., 'api', 'components'). Alternative to path."
+    )]
     pub module: Option<String>,
 
     /// Output format: "toon" (default) or "json" (only for file analysis)
@@ -28,11 +30,15 @@ pub struct AnalyzeRequest {
     pub format: Option<String>,
 
     /// Maximum depth for directory analysis (default: 10)
-    #[schemars(description = "Maximum directory depth to traverse (default: 10, only for directory analysis)")]
+    #[schemars(
+        description = "Maximum directory depth to traverse (default: 10, only for directory analysis)"
+    )]
     pub max_depth: Option<usize>,
 
     /// Whether to include only the summary overview (directory analysis only)
-    #[schemars(description = "If true, only return the repository overview, not individual files (directory only)")]
+    #[schemars(
+        description = "If true, only return the repository overview, not individual files (directory only)"
+    )]
     pub summary_only: Option<bool>,
 
     /// File extensions to include for directory analysis
@@ -47,16 +53,22 @@ pub struct AnalyzeRequest {
 pub struct AnalyzeDiffRequest {
     /// The base branch or commit to compare against (e.g., "main", "HEAD~1").
     /// Use "HEAD" with target_ref "WORKING" to see uncommitted changes.
-    #[schemars(description = "Base branch or commit to compare against (e.g., 'main', 'HEAD~1'). Use 'HEAD' with target_ref='WORKING' for uncommitted changes.")]
+    #[schemars(
+        description = "Base branch or commit to compare against (e.g., 'main', 'HEAD~1'). Use 'HEAD' with target_ref='WORKING' for uncommitted changes."
+    )]
     pub base_ref: String,
 
     /// The target branch or commit. Use "WORKING" to compare against uncommitted changes in the working tree.
     /// Defaults to "HEAD" for committed changes.
-    #[schemars(description = "Target branch or commit (defaults to 'HEAD'). Use 'WORKING' to analyze uncommitted changes vs base_ref.")]
+    #[schemars(
+        description = "Target branch or commit (defaults to 'HEAD'). Use 'WORKING' to analyze uncommitted changes vs base_ref."
+    )]
     pub target_ref: Option<String>,
 
     /// Working directory (defaults to current directory)
-    #[schemars(description = "Working directory for git operations (defaults to current directory)")]
+    #[schemars(
+        description = "Working directory for git operations (defaults to current directory)"
+    )]
     pub working_dir: Option<String>,
 
     /// Maximum files to return per page (default: 20, max: 100)
@@ -68,7 +80,9 @@ pub struct AnalyzeDiffRequest {
     pub offset: Option<usize>,
 
     /// Return summary statistics only without per-file details (default: false)
-    #[schemars(description = "Return only summary statistics (file counts, risk breakdown, top modules) without per-file details. Use for large diffs to get overview first.")]
+    #[schemars(
+        description = "Return only summary statistics (file counts, risk breakdown, top modules) without per-file details. Use for large diffs to get overview first."
+    )]
     pub summary_only: Option<bool>,
 }
 
@@ -100,15 +114,21 @@ pub struct GetOverviewRequest {
     pub path: Option<String>,
 
     /// Maximum modules to include (default: 30, use 0 for no limit)
-    #[schemars(description = "Maximum modules to include in output (default: 30). Set to 0 for no limit. Modules are sorted by symbol count.")]
+    #[schemars(
+        description = "Maximum modules to include in output (default: 30). Set to 0 for no limit. Modules are sorted by symbol count."
+    )]
     pub max_modules: Option<usize>,
 
     /// Exclude test directories from module listing (default: true)
-    #[schemars(description = "Exclude test directories (tests, __tests__, test-repos) from module listing (default: true)")]
+    #[schemars(
+        description = "Exclude test directories (tests, __tests__, test-repos) from module listing (default: true)"
+    )]
     pub exclude_test_dirs: Option<bool>,
 
     /// Include git context (branch, last commit) in output (default: true)
-    #[schemars(description = "Include git context (branch, last commit) in output (default: true)")]
+    #[schemars(
+        description = "Include git context (branch, last commit) in output (default: true)"
+    )]
     pub include_git_context: Option<bool>,
 }
 
@@ -120,11 +140,15 @@ pub struct GetSymbolRequest {
     pub path: Option<String>,
 
     /// Symbol hash for single symbol lookup
-    #[schemars(description = "Symbol hash from the repo overview or module shard (for single symbol)")]
+    #[schemars(
+        description = "Symbol hash from the repo overview or module shard (for single symbol)"
+    )]
     pub symbol_hash: Option<String>,
 
     /// Symbol hashes for batch lookup (max 20) - takes precedence over symbol_hash
-    #[schemars(description = "Array of symbol hashes to retrieve (max 20). If provided, batch mode is used.")]
+    #[schemars(
+        description = "Array of symbol hashes to retrieve (max 20). If provided, batch mode is used."
+    )]
     pub hashes: Option<Vec<String>>,
 
     /// File path for location-based lookup (use with `line`)
@@ -132,7 +156,9 @@ pub struct GetSymbolRequest {
     pub file: Option<String>,
 
     /// Line number for location-based lookup (use with `file`)
-    #[schemars(description = "Line number to find symbol at (1-indexed, use with `file` parameter)")]
+    #[schemars(
+        description = "Line number to find symbol at (1-indexed, use with `file` parameter)"
+    )]
     pub line: Option<usize>,
 
     /// Include source code snippets (for batch mode, default: false)
@@ -140,7 +166,9 @@ pub struct GetSymbolRequest {
     pub include_source: Option<bool>,
 
     /// Context lines for source (batch mode, default: 3)
-    #[schemars(description = "Context lines before/after symbol source (batch mode only, default: 3)")]
+    #[schemars(
+        description = "Context lines before/after symbol source (batch mode only, default: 3)"
+    )]
     pub context: Option<usize>,
 }
 
@@ -191,19 +219,27 @@ pub struct GetCallgraphRequest {
     pub offset: Option<u32>,
 
     /// Return summary statistics only (no edge list)
-    #[schemars(description = "Return only statistics (edge count, top callers) without full edge list")]
+    #[schemars(
+        description = "Return only statistics (edge count, top callers) without full edge list"
+    )]
     pub summary_only: Option<bool>,
 
     /// Export format: "sqlite" to export to SQLite database (expensive operation)
-    #[schemars(description = "Export format: 'sqlite' to export call graph to SQLite database (expensive disk-writing operation)")]
+    #[schemars(
+        description = "Export format: 'sqlite' to export call graph to SQLite database (expensive disk-writing operation)"
+    )]
     pub export: Option<String>,
 
     /// Output path for export (only used when export is set)
-    #[schemars(description = "Output path for export file. Defaults to cache directory. Only used when export is set.")]
+    #[schemars(
+        description = "Output path for export file. Defaults to cache directory. Only used when export is set."
+    )]
     pub output_path: Option<String>,
 
     /// Batch size for export transactions (default: 5000)
-    #[schemars(description = "Rows per transaction batch for export (default: 5000). Only used when export is set.")]
+    #[schemars(
+        description = "Rows per transaction batch for export (default: 5000). Only used when export is set."
+    )]
     pub batch_size: Option<usize>,
 }
 
@@ -211,7 +247,9 @@ pub struct GetCallgraphRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetSourceRequest {
     /// Path to the source file (for file+lines mode)
-    #[schemars(description = "Path to the source file (for file+lines mode, optional if using hash/hashes)")]
+    #[schemars(
+        description = "Path to the source file (for file+lines mode, optional if using hash/hashes)"
+    )]
     pub file_path: Option<String>,
 
     /// Start line (1-indexed). If provided with end_line, reads that range.
@@ -227,7 +265,9 @@ pub struct GetSourceRequest {
     pub symbol_hash: Option<String>,
 
     /// Symbol hashes for batch source extraction (max 20)
-    #[schemars(description = "Array of symbol hashes for batch source extraction (max 20). More efficient than multiple calls.")]
+    #[schemars(
+        description = "Array of symbol hashes for batch source extraction (max 20). More efficient than multiple calls."
+    )]
     pub hashes: Option<Vec<String>>,
 
     /// Context lines to include before/after the symbol (default: 5)
@@ -252,7 +292,9 @@ pub struct SearchRequest {
 
     /// Search mode: "symbols" (exact name match), "semantic" (BM25 conceptual), "raw" (regex).
     /// Default (omit or null) runs hybrid mode: BOTH symbol AND semantic search combined.
-    #[schemars(description = "Search mode: 'symbols' (exact name match), 'semantic' (BM25 conceptual), 'raw' (regex). Default runs BOTH symbol and semantic (hybrid).")]
+    #[schemars(
+        description = "Search mode: 'symbols' (exact name match), 'semantic' (BM25 conceptual), 'raw' (regex). Default runs BOTH symbol and semantic (hybrid)."
+    )]
     pub mode: Option<String>,
 
     /// Repository path (defaults to current directory)
@@ -268,7 +310,9 @@ pub struct SearchRequest {
     pub kind: Option<String>,
 
     /// Filter by risk level (high, medium, low) - only for symbol/hybrid modes
-    #[schemars(description = "Filter by risk level (high, medium, low) - symbol/hybrid modes only")]
+    #[schemars(
+        description = "Filter by risk level (high, medium, low) - symbol/hybrid modes only"
+    )]
     pub risk: Option<String>,
 
     /// Maximum results to return (default: 20)
@@ -284,7 +328,6 @@ pub struct SearchRequest {
     pub context: Option<usize>,
 
     // --- Raw mode specific options ---
-
     /// File types to search (for raw mode, e.g., ["rs", "ts"])
     #[schemars(description = "File extensions to search (raw mode only, e.g., ['rs', 'ts'])")]
     pub file_types: Option<Vec<String>>,
@@ -313,7 +356,9 @@ pub struct ValidateRequest {
     pub symbol_hash: Option<String>,
 
     /// File path - with line number validates single symbol, without validates all symbols in file
-    #[schemars(description = "File path - with 'line' validates single symbol at location, without validates entire file")]
+    #[schemars(
+        description = "File path - with 'line' validates single symbol at location, without validates entire file"
+    )]
     pub file_path: Option<String>,
 
     /// Line number within file (used with file_path for single symbol validation)
@@ -321,7 +366,9 @@ pub struct ValidateRequest {
     pub line: Option<usize>,
 
     /// Module name for module-level validation (lowest priority)
-    #[schemars(description = "Module name - validates all symbols in module (e.g., 'api', 'components')")]
+    #[schemars(
+        description = "Module name - validates all symbols in module (e.g., 'api', 'components')"
+    )]
     pub module: Option<String>,
 
     /// Repository path (defaults to current directory)
@@ -333,11 +380,15 @@ pub struct ValidateRequest {
     pub duplicate_threshold: Option<f64>,
 
     /// Filter by symbol kind (fn, struct, component, etc.) - for file/module scope
-    #[schemars(description = "Filter by symbol kind - only for file/module scope (fn, struct, etc.)")]
+    #[schemars(
+        description = "Filter by symbol kind - only for file/module scope (fn, struct, etc.)"
+    )]
     pub kind: Option<String>,
 
     /// Maximum symbols to validate for file/module scope (default: 100)
-    #[schemars(description = "Maximum symbols to validate for file/module scope (default: 100, max: 500)")]
+    #[schemars(
+        description = "Maximum symbols to validate for file/module scope (default: 100, max: 500)"
+    )]
     pub limit: Option<usize>,
 
     /// Include source code in response (default: false)
@@ -354,7 +405,9 @@ pub struct IndexRequest {
     pub path: Option<String>,
 
     /// Force regeneration even if index appears fresh (default: false = smart refresh)
-    #[schemars(description = "Force regeneration even if index appears fresh (default: false = smart refresh)")]
+    #[schemars(
+        description = "Force regeneration even if index appears fresh (default: false = smart refresh)"
+    )]
     pub force: Option<bool>,
 
     /// Maximum directory depth for file collection (default: 10)
@@ -362,11 +415,15 @@ pub struct IndexRequest {
     pub max_depth: Option<usize>,
 
     /// File extensions to include (e.g., ["ts", "tsx", "rs"])
-    #[schemars(description = "File extensions to include. If empty, all supported extensions are included.")]
+    #[schemars(
+        description = "File extensions to include. If empty, all supported extensions are included."
+    )]
     pub extensions: Option<Vec<String>>,
 
     /// Maximum age in seconds before considered stale (default: 3600 = 1 hour)
-    #[schemars(description = "Maximum cache age in seconds for smart refresh (default: 3600 = 1 hour)")]
+    #[schemars(
+        description = "Maximum cache age in seconds for smart refresh (default: 3600 = 1 hour)"
+    )]
     pub max_age: Option<u64>,
 }
 
@@ -378,16 +435,22 @@ pub struct TestRequest {
     pub path: Option<String>,
 
     /// Only detect test frameworks without running tests (default: false)
-    #[schemars(description = "Only detect test frameworks without running (default: false = run tests)")]
+    #[schemars(
+        description = "Only detect test frameworks without running (default: false = run tests)"
+    )]
     pub detect_only: Option<bool>,
 
     /// Force a specific test framework (pytest, cargo, npm, vitest, jest, go)
     /// Only used when running tests (not for detect_only mode)
-    #[schemars(description = "Force a specific test framework (pytest, cargo, npm, vitest, jest, go). Auto-detects if not specified.")]
+    #[schemars(
+        description = "Force a specific test framework (pytest, cargo, npm, vitest, jest, go). Auto-detects if not specified."
+    )]
     pub framework: Option<String>,
 
     /// Filter tests by name pattern (passed to test runner)
-    #[schemars(description = "Filter tests by name pattern (e.g., 'test_auth' for pytest, 'auth' for cargo test)")]
+    #[schemars(
+        description = "Filter tests by name pattern (e.g., 'test_auth' for pytest, 'auth' for cargo test)"
+    )]
     pub filter: Option<String>,
 
     /// Run tests in verbose mode
@@ -416,7 +479,9 @@ pub struct SecurityRequest {
     pub update: Option<bool>,
 
     /// URL to fetch patterns from (for update mode)
-    #[schemars(description = "URL to fetch patterns from (for update mode, uses default if not provided)")]
+    #[schemars(
+        description = "URL to fetch patterns from (for update mode, uses default if not provided)"
+    )]
     pub url: Option<String>,
 
     /// Path to local pattern file (for update mode, alternative to URL)
@@ -428,7 +493,6 @@ pub struct SecurityRequest {
     pub force: Option<bool>,
 
     // --- Scan mode options ---
-
     /// Filter to a specific module
     #[schemars(description = "Filter CVE scan to a specific module")]
     pub module: Option<String>,
@@ -495,11 +559,15 @@ pub struct SearchSymbolsRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetFileRequest {
     /// Path to source file (mutually exclusive with module)
-    #[schemars(description = "Path to the source file to analyze (mutually exclusive with module)")]
+    #[schemars(
+        description = "Path to the source file to analyze (mutually exclusive with module)"
+    )]
     pub file_path: Option<String>,
 
     /// Module name (mutually exclusive with file_path)
-    #[schemars(description = "Module name to list symbols from (mutually exclusive with file_path)")]
+    #[schemars(
+        description = "Module name to list symbols from (mutually exclusive with file_path)"
+    )]
     pub module: Option<String>,
 
     /// Optional: filter by symbol kind
@@ -559,7 +627,9 @@ pub struct RawSearchRequest {
     pub path: Option<String>,
 
     /// File type filters (e.g., ["rs", "ts"])
-    #[schemars(description = "File extensions to search (e.g., ['rs', 'ts']). If empty, searches all files.")]
+    #[schemars(
+        description = "File extensions to search (e.g., ['rs', 'ts']). If empty, searches all files."
+    )]
     pub file_types: Option<Vec<String>>,
 
     /// Maximum results (default: 50, max: 200)
@@ -588,11 +658,15 @@ pub struct RunTestsRequest {
 
     /// Force a specific test framework (pytest, cargo, npm, vitest, jest, go)
     /// If not specified, auto-detects from project files
-    #[schemars(description = "Force a specific test framework (pytest, cargo, npm, vitest, jest, go). Auto-detects if not specified.")]
+    #[schemars(
+        description = "Force a specific test framework (pytest, cargo, npm, vitest, jest, go). Auto-detects if not specified."
+    )]
     pub framework: Option<String>,
 
     /// Filter tests by name pattern (passed to test runner)
-    #[schemars(description = "Filter tests by name pattern (e.g., 'test_auth' for pytest, 'auth' for cargo test)")]
+    #[schemars(
+        description = "Filter tests by name pattern (e.g., 'test_auth' for pytest, 'auth' for cargo test)"
+    )]
     pub filter: Option<String>,
 
     /// Run tests in verbose mode
@@ -624,7 +698,9 @@ pub struct DetectTestsRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ServerStatusRequest {
     /// Include detailed layer status (default: false)
-    #[schemars(description = "Include detailed layer status (requires persistent mode, default: false)")]
+    #[schemars(
+        description = "Include detailed layer status (requires persistent mode, default: false)"
+    )]
     pub include_layers: Option<bool>,
 }
 
@@ -638,7 +714,9 @@ pub struct ServerStatusRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct FindDuplicatesRequest {
     /// Symbol hash to check for duplicates (if provided, does single-symbol check instead of codebase scan)
-    #[schemars(description = "Symbol hash to check - if provided, returns duplicates for this symbol only; if omitted, scans entire codebase")]
+    #[schemars(
+        description = "Symbol hash to check - if provided, returns duplicates for this symbol only; if omitted, scans entire codebase"
+    )]
     pub symbol_hash: Option<String>,
 
     /// Minimum similarity threshold (default: 0.90)
@@ -670,7 +748,9 @@ pub struct FindDuplicatesRequest {
     pub offset: Option<u32>,
 
     /// Sort clusters by: "similarity" (default), "size", or "count" (only for codebase scan)
-    #[schemars(description = "Sort by: 'similarity' (highest first), 'size' (largest functions), 'count' (most duplicates)")]
+    #[schemars(
+        description = "Sort by: 'similarity' (highest first), 'size' (largest functions), 'count' (most duplicates)"
+    )]
     pub sort_by: Option<String>,
 }
 
@@ -683,7 +763,9 @@ pub struct FindDuplicatesRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SearchAndGetSymbolsRequest {
     /// Search query - supports partial match, wildcards (* for any chars, ? for single char)
-    #[schemars(description = "Search query - matches symbol names (case-insensitive, partial match)")]
+    #[schemars(
+        description = "Search query - matches symbol names (case-insensitive, partial match)"
+    )]
     pub query: String,
 
     /// Repository path (defaults to current directory)
@@ -703,7 +785,9 @@ pub struct SearchAndGetSymbolsRequest {
     pub risk: Option<String>,
 
     /// Maximum results to return (default: 10, max: 20)
-    #[schemars(description = "Maximum results to return (default: 10, max: 20 for token efficiency)")]
+    #[schemars(
+        description = "Maximum results to return (default: 10, max: 20 for token efficiency)"
+    )]
     pub limit: Option<usize>,
 
     /// Include source code for each symbol (default: true)
@@ -720,7 +804,9 @@ pub struct SearchAndGetSymbolsRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetCallersRequest {
     /// Symbol hash to find callers for
-    #[schemars(description = "Symbol hash to find callers for (from search_symbols or get_file_symbols)")]
+    #[schemars(
+        description = "Symbol hash to find callers for (from search_symbols or get_file_symbols)"
+    )]
     pub symbol_hash: String,
 
     /// Repository path (defaults to current directory)
@@ -728,7 +814,9 @@ pub struct GetCallersRequest {
     pub path: Option<String>,
 
     /// Maximum depth to traverse (default: 1, max: 3)
-    #[schemars(description = "How many levels of callers to find (default: 1 = direct callers only, max: 3)")]
+    #[schemars(
+        description = "How many levels of callers to find (default: 1 = direct callers only, max: 3)"
+    )]
     pub depth: Option<usize>,
 
     /// Maximum callers to return (default: 20, max: 50)
@@ -780,7 +868,9 @@ pub struct ValidateSymbolRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SemanticSearchRequest {
     /// Natural language query (e.g., "authentication", "error handling", "database connection")
-    #[schemars(description = "Natural language query - searches symbol names, comments, strings, file paths")]
+    #[schemars(
+        description = "Natural language query - searches symbol names, comments, strings, file paths"
+    )]
     pub query: String,
 
     /// Repository path (defaults to current directory)
@@ -889,15 +979,21 @@ pub struct CVEScanRequest {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateSecurityPatternsRequest {
     /// URL to fetch patterns from (defaults to SEMFORA_PATTERN_URL env or built-in default)
-    #[schemars(description = "URL to fetch patterns from. If not provided, uses SEMFORA_PATTERN_URL environment variable or the default pattern server.")]
+    #[schemars(
+        description = "URL to fetch patterns from. If not provided, uses SEMFORA_PATTERN_URL environment variable or the default pattern server."
+    )]
     pub url: Option<String>,
 
     /// Path to a local pattern file (alternative to URL)
-    #[schemars(description = "Path to a local security_patterns.bin file. If provided, loads from file instead of HTTP.")]
+    #[schemars(
+        description = "Path to a local security_patterns.bin file. If provided, loads from file instead of HTTP."
+    )]
     pub file_path: Option<String>,
 
     /// Force update even if versions match
-    #[schemars(description = "Force update even if the pattern version matches current version (default: false)")]
+    #[schemars(
+        description = "Force update even if the pattern version matches current version (default: false)"
+    )]
     pub force: Option<bool>,
 }
 
@@ -925,23 +1021,33 @@ pub struct PrepCommitRequest {
     pub path: Option<String>,
 
     /// Include complexity metrics (cognitive, cyclomatic, max nesting) for changed symbols
-    #[schemars(description = "Include complexity metrics (cognitive, cyclomatic, max nesting) for changed symbols (default: false)")]
+    #[schemars(
+        description = "Include complexity metrics (cognitive, cyclomatic, max nesting) for changed symbols (default: false)"
+    )]
     pub include_complexity: Option<bool>,
 
     /// Include all detailed metrics (complexity + fan-out, LOC, state mutations, I/O ops)
-    #[schemars(description = "Include all detailed metrics (complexity + fan-out, LOC, state mutations, I/O ops) (default: false)")]
+    #[schemars(
+        description = "Include all detailed metrics (complexity + fan-out, LOC, state mutations, I/O ops) (default: false)"
+    )]
     pub include_all_metrics: Option<bool>,
 
     /// Only show staged changes (default: false, shows both staged and unstaged)
-    #[schemars(description = "Only show staged changes, ignoring unstaged modifications (default: false, shows both)")]
+    #[schemars(
+        description = "Only show staged changes, ignoring unstaged modifications (default: false, shows both)"
+    )]
     pub staged_only: Option<bool>,
 
     /// Auto-refresh the index if stale before analysis
-    #[schemars(description = "Auto-refresh the semantic index if stale before analysis (default: true)")]
+    #[schemars(
+        description = "Auto-refresh the semantic index if stale before analysis (default: true)"
+    )]
     pub auto_refresh_index: Option<bool>,
 
     /// Show diff statistics (insertions/deletions per file)
-    #[schemars(description = "Show diff statistics (insertions/deletions per file) (default: true)")]
+    #[schemars(
+        description = "Show diff statistics (insertions/deletions per file) (default: true)"
+    )]
     pub show_diff_stats: Option<bool>,
 }
 

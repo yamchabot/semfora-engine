@@ -121,10 +121,7 @@ impl SetupWizard {
         let paths = SemforaPaths::for_platform(&self.platform);
 
         println!();
-        println!(
-            "  {} CLI-only mode selected",
-            style("✓").green()
-        );
+        println!("  {} CLI-only mode selected", style("✓").green());
         println!();
 
         let confirmed = Confirm::with_theme(&self.theme)
@@ -193,7 +190,9 @@ impl SetupWizard {
             .collect();
 
         let selections = MultiSelect::with_theme(&self.theme)
-            .with_prompt("Which AI tools would you like to configure? (Space to toggle, Enter to confirm)")
+            .with_prompt(
+                "Which AI tools would you like to configure? (Space to toggle, Enter to confirm)",
+            )
             .items(&client_names)
             .defaults(&defaults)
             .interact()
@@ -228,7 +227,13 @@ impl SetupWizard {
         let (log_level, cache_dir) = self.configure_options()?;
 
         // Show summary
-        self.show_summary(&selected_clients, &custom_paths, &paths, &log_level, &cache_dir)?;
+        self.show_summary(
+            &selected_clients,
+            &custom_paths,
+            &paths,
+            &log_level,
+            &cache_dir,
+        )?;
 
         let confirmed = Confirm::with_theme(&self.theme)
             .with_prompt("Proceed with installation?")
@@ -260,10 +265,7 @@ impl SetupWizard {
         let paths = SemforaPaths::for_platform(&self.platform);
 
         println!();
-        println!(
-            "  {} Uninstall mode",
-            style("⚠").yellow()
-        );
+        println!("  {} Uninstall mode", style("⚠").yellow());
         println!();
 
         let options = &[
@@ -382,7 +384,10 @@ impl SetupWizard {
         }
 
         println!();
-        println!("  Server binary: {}", style(paths.server_binary.display()).dim());
+        println!(
+            "  Server binary: {}",
+            style(paths.server_binary.display()).dim()
+        );
         println!("  Log level: {}", style(log_level).dim());
         println!(
             "  Cache: {}",
@@ -427,8 +432,8 @@ pub fn execute_plan(plan: &SetupPlan) -> Result<(), McpDiffError> {
     pb.enable_steady_tick(Duration::from_millis(80));
 
     // Configure MCP server settings
-    let mut server_config = McpServerConfig::new(plan.server_binary.clone())
-        .with_log_level(&plan.log_level);
+    let mut server_config =
+        McpServerConfig::new(plan.server_binary.clone()).with_log_level(&plan.log_level);
 
     if let Some(cache_dir) = &plan.cache_dir {
         server_config = server_config.with_cache_dir(cache_dir.clone());
@@ -489,7 +494,10 @@ pub fn execute_plan(plan: &SetupPlan) -> Result<(), McpDiffError> {
     println!();
     println!("{}", style("  Setup complete!").bold().green());
     println!();
-    println!("  {} Restart your AI tools for changes to take effect", style("→").cyan());
+    println!(
+        "  {} Restart your AI tools for changes to take effect",
+        style("→").cyan()
+    );
     println!(
         "  {} Look for \"semfora-engine\" in your tool's MCP servers",
         style("→").cyan()

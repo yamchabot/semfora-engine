@@ -62,7 +62,8 @@ fn test_mcp_missing_path_parameter() {
 fn test_mcp_invalid_path_parameter() {
     let repo = TestRepo::new();
 
-    let (stdout, stderr) = repo.run_cli_failure(&["analyze", "/nonexistent/path/that/does/not/exist"]);
+    let (stdout, stderr) =
+        repo.run_cli_failure(&["analyze", "/nonexistent/path/that/does/not/exist"]);
 
     // Should report file not found
     let combined = format!("{}{}", stdout, stderr);
@@ -164,7 +165,11 @@ fn test_mcp_limit_parameter() {
     let repo = TestRepo::new();
     // Create many symbols
     for i in 0..20 {
-        repo.add_ts_function(&format!("src/func{}.ts", i), &format!("func{}", i), "return 1;");
+        repo.add_ts_function(
+            &format!("src/func{}.ts", i),
+            &format!("func{}", i),
+            "return 1;",
+        );
     }
     repo.generate_index().unwrap();
 
@@ -182,7 +187,11 @@ fn test_mcp_limit_parameter() {
 fn test_mcp_pagination_with_limit() {
     let repo = TestRepo::new();
     for i in 0..20 {
-        repo.add_ts_function(&format!("src/func{}.ts", i), &format!("func{}", i), "return 1;");
+        repo.add_ts_function(
+            &format!("src/func{}.ts", i),
+            &format!("func{}", i),
+            "return 1;",
+        );
     }
     repo.generate_index().unwrap();
 
@@ -299,8 +308,7 @@ fn test_mcp_rapid_requests() {
 
     // Rapid sequential requests (can't truly test concurrent in this setup)
     for i in 0..5 {
-        let output =
-            repo.run_cli_success(&["search", &format!("main{}", i % 2), "-f", "json"]);
+        let output = repo.run_cli_success(&["search", &format!("main{}", i % 2), "-f", "json"]);
         assert_valid_json(&output, &format!("rapid request {}", i));
     }
 }
@@ -322,7 +330,11 @@ fn test_mcp_error_response_format() {
     let has_error = combined.to_lowercase().contains("error")
         || combined.to_lowercase().contains("unrecognized")
         || combined.to_lowercase().contains("invalid");
-    assert!(has_error, "Should report error for invalid command: {}", combined);
+    assert!(
+        has_error,
+        "Should report error for invalid command: {}",
+        combined
+    );
 }
 
 /// Test error response for invalid JSON

@@ -141,8 +141,7 @@ fn test_commit_prep_staged_only() {
 
     // Should only show staged changes
     assert!(
-        output.contains("staged")
-            || !output.is_empty(),
+        output.contains("staged") || !output.is_empty(),
         "Should show staged changes: {}",
         output
     );

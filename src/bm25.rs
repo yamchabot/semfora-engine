@@ -17,9 +17,9 @@
 //! - k1 = 1.2 (term frequency saturation)
 //! - b = 0.75 (document length normalization)
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 
 /// BM25 parameters
 const K1: f64 = 1.2;
@@ -207,7 +207,11 @@ impl Bm25Index {
             .collect();
 
         // Sort by score descending
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Limit results
         results.truncate(limit);
@@ -354,7 +358,8 @@ pub fn extract_terms_from_symbol(
             }
 
             // Extract from state changes
-            if trimmed.starts_with("state:") || trimmed.contains("let ") || trimmed.contains("var ") {
+            if trimmed.starts_with("state:") || trimmed.contains("let ") || trimmed.contains("var ")
+            {
                 for part in trimmed.split(|c: char| !c.is_alphanumeric() && c != '_') {
                     if part.len() >= 3 {
                         terms.extend(tokenize(part));
@@ -363,10 +368,19 @@ pub fn extract_terms_from_symbol(
             }
 
             // Extract from control flow keywords
-            if trimmed.starts_with("if") || trimmed.starts_with("for") ||
-               trimmed.starts_with("while") || trimmed.starts_with("match") ||
-               trimmed.starts_with("try") {
-                terms.push(trimmed.split_whitespace().next().unwrap_or("").to_lowercase());
+            if trimmed.starts_with("if")
+                || trimmed.starts_with("for")
+                || trimmed.starts_with("while")
+                || trimmed.starts_with("match")
+                || trimmed.starts_with("try")
+            {
+                terms.push(
+                    trimmed
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_lowercase(),
+                );
             }
         }
     }
@@ -437,7 +451,11 @@ mod tests {
                 risk: "low".to_string(),
                 doc_length: 0,
             },
-            vec!["authenticate".to_string(), "user".to_string(), "login".to_string()],
+            vec![
+                "authenticate".to_string(),
+                "user".to_string(),
+                "login".to_string(),
+            ],
         );
 
         index.add_document(
@@ -451,7 +469,11 @@ mod tests {
                 risk: "low".to_string(),
                 doc_length: 0,
             },
-            vec!["format".to_string(), "output".to_string(), "display".to_string()],
+            vec![
+                "format".to_string(),
+                "output".to_string(),
+                "display".to_string(),
+            ],
         );
 
         index.finalize();

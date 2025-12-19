@@ -12,6 +12,9 @@
 //! - typescript-language-server: npm install -g typescript-language-server typescript
 //! - rust-analyzer: rustup component add rust-analyzer
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use lsp_types::{
     DocumentSymbolParams, InitializeParams, InitializeResult, PartialResultParams,
@@ -24,8 +27,8 @@ use semfora_engine::socket_server::{index_directory, IndexOptions};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::process::{Child, Command, Stdio};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -136,7 +139,9 @@ impl LspClient {
 
         // Write request
         let stdin = self.process.stdin.as_mut().ok_or("No stdin")?;
-        stdin.write_all(message.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(message.as_bytes())
+            .map_err(|e| e.to_string())?;
         stdin.flush().map_err(|e| e.to_string())?;
 
         // Read responses, skipping notifications until we get our response
@@ -147,7 +152,8 @@ impl LspClient {
             let body = read_lsp_message(&mut reader)?;
 
             // Try to parse as a response with our id
-            let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+            let json: serde_json::Value =
+                serde_json::from_slice(&body).map_err(|e| e.to_string())?;
 
             // Check if this is a response to our request (has matching id)
             if let Some(response_id) = json.get("id") {
@@ -182,7 +188,9 @@ impl LspClient {
         let stdin = self.process.stdin.as_mut().ok_or("No stdin")?;
         let body = r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#;
         let message = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
-        stdin.write_all(message.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(message.as_bytes())
+            .map_err(|e| e.to_string())?;
         stdin.flush().map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -203,7 +211,10 @@ impl LspClient {
     }
 
     /// Search workspace symbols (equivalent to semfora's search_symbols)
-    fn workspace_symbols(&mut self, query: &str) -> Result<Vec<lsp_types::SymbolInformation>, String> {
+    fn workspace_symbols(
+        &mut self,
+        query: &str,
+    ) -> Result<Vec<lsp_types::SymbolInformation>, String> {
         let params = WorkspaceSymbolParams {
             query: query.to_string(),
             work_done_progress_params: WorkDoneProgressParams::default(),
@@ -334,7 +345,8 @@ fn bench_document_symbols_latency(c: &mut Criterion) {
             &file_uri,
             |b, file_uri| {
                 // Initialize LSP server once
-                let mut client = LspClient::spawn("typescript-language-server", &["--stdio"]).unwrap();
+                let mut client =
+                    LspClient::spawn("typescript-language-server", &["--stdio"]).unwrap();
                 let root_uri = format!("file://{}", repo_path.display());
                 client.initialize(&root_uri).unwrap();
                 client.initialized().unwrap();
@@ -349,7 +361,7 @@ fn bench_document_symbols_latency(c: &mut Criterion) {
         );
 
         // Benchmark semfora
-        let Some((cache, _)) = setup_semfora_index(repo_name) else {
+        let Some((_cache, _)) = setup_semfora_index(repo_name) else {
             continue;
         };
 
@@ -395,7 +407,8 @@ fn bench_symbol_search_latency(c: &mut Criterion) {
                 BenchmarkId::new(format!("{}/{}/lsp", repo_name, query), query),
                 &root_uri,
                 |b, root_uri| {
-                    let mut client = LspClient::spawn("typescript-language-server", &["--stdio"]).unwrap();
+                    let mut client =
+                        LspClient::spawn("typescript-language-server", &["--stdio"]).unwrap();
                     client.initialize(root_uri).unwrap();
                     client.initialized().unwrap();
                     std::thread::sleep(Duration::from_millis(500));
@@ -470,8 +483,14 @@ fn bench_information_richness(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new(*repo_name, "compare"), |b| {
             b.iter(|| {
                 // LSP fields available
-                let lsp_fields = vec![
-                    "name", "kind", "range", "selectionRange", "children", "deprecated", "detail",
+                let lsp_fields = [
+                    "name",
+                    "kind",
+                    "range",
+                    "selectionRange",
+                    "children",
+                    "deprecated",
+                    "detail",
                 ];
 
                 // Semfora fields available
@@ -510,7 +529,10 @@ fn bench_information_richness(c: &mut Criterion) {
                 eprintln!("          calls, state_changes, control_flow, behavioral_risk,");
                 eprintln!("          complexity, cognitive_complexity, dependencies");
                 eprintln!("\n  Additional data:");
-                eprintln!("    - Dependencies: {} items", summary.added_dependencies.len());
+                eprintln!(
+                    "    - Dependencies: {} items",
+                    summary.added_dependencies.len()
+                );
                 eprintln!("    - Calls: {} items", summary.calls.len());
                 eprintln!("    - State changes: {} items", summary.state_changes.len());
             }
@@ -599,7 +621,7 @@ fn bench_token_efficiency(c: &mut Criterion) {
         eprintln!("  Semfora tokens:  ~{}", semfora_json.len() / 4);
         eprintln!("  TOON tokens:     ~{}", toon_output.len() / 4);
 
-        if lsp_json.len() > 0 && toon_output.len() > 0 {
+        if !lsp_json.is_empty() && !toon_output.is_empty() {
             let savings = 100.0 * (1.0 - (toon_output.len() as f64 / lsp_json.len() as f64));
             eprintln!("\nTOON vs LSP savings: {:.1}%", savings);
         }

@@ -32,11 +32,7 @@ fn test_repos_dir() -> PathBuf {
 }
 
 /// Repos to use for incremental benchmarks
-const INCREMENTAL_REPOS: &[&str] = &[
-    "zod",
-    "react-realworld",
-    "express-examples",
-];
+const INCREMENTAL_REPOS: &[&str] = &["zod", "react-realworld", "express-examples"];
 
 /// Sample TypeScript content for new files
 const SAMPLE_TS_CONTENT: &str = r#"
@@ -255,7 +251,11 @@ fn bench_file_modification(c: &mut Criterion) {
             |b, (path, file, original)| {
                 b.iter(|| {
                     // Modify file
-                    let modified = format!("{}\n// Benchmark modification: {}", original, chrono::Utc::now());
+                    let modified = format!(
+                        "{}\n// Benchmark modification: {}",
+                        original,
+                        chrono::Utc::now()
+                    );
                     fs::write(file, &modified).unwrap();
 
                     // Reindex
@@ -303,12 +303,20 @@ fn bench_multi_file_change(c: &mut Criterion) {
 
         group.bench_with_input(
             BenchmarkId::new(*repo_name, "modify_5_files"),
-            &(repo_path.clone(), ts_files.clone(), original_contents.clone()),
+            &(
+                repo_path.clone(),
+                ts_files.clone(),
+                original_contents.clone(),
+            ),
             |b, (path, files, originals)| {
                 b.iter(|| {
                     // Modify all files
                     for (file, original) in files.iter().zip(originals.iter()) {
-                        let modified = format!("{}\n// Multi-file benchmark: {}", original, chrono::Utc::now());
+                        let modified = format!(
+                            "{}\n// Multi-file benchmark: {}",
+                            original,
+                            chrono::Utc::now()
+                        );
                         fs::write(file, &modified).unwrap();
                     }
 
@@ -483,11 +491,7 @@ export class UserService {
 
         b.iter(|| {
             // Edit and incremental parse
-            let _ = cache.parse_file(
-                black_box(&path),
-                black_box(source_edited),
-                Lang::TypeScript,
-            );
+            let _ = cache.parse_file(black_box(&path), black_box(source_edited), Lang::TypeScript);
             // Reset for next iteration
             let _ = cache.parse_file(
                 black_box(&path),
@@ -544,11 +548,7 @@ fn bench_incremental_parsing_large(c: &mut Criterion) {
             let cache = AstCache::new();
             b.iter(|| {
                 cache.clear();
-                let _ = cache.parse_file(
-                    black_box(&path),
-                    black_box(&content),
-                    Lang::TypeScript,
-                );
+                let _ = cache.parse_file(black_box(&path), black_box(&content), Lang::TypeScript);
             });
         });
 
@@ -562,11 +562,7 @@ fn bench_incremental_parsing_large(c: &mut Criterion) {
                     black_box(&edited_content),
                     Lang::TypeScript,
                 );
-                let _ = cache.parse_file(
-                    black_box(&path),
-                    black_box(&content),
-                    Lang::TypeScript,
-                );
+                let _ = cache.parse_file(black_box(&path), black_box(&content), Lang::TypeScript);
             });
         });
     }

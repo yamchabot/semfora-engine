@@ -119,7 +119,7 @@ fn parse_diff_for_vulnerable_code(diff: &str) -> Result<Vec<VulnerableCode>> {
     let mut current_removed_lines: Vec<String> = Vec::new();
     let mut current_start_line: u32 = 0;
     let mut in_hunk = false;
-    let mut line_number = 0u32;
+    let mut _line_number = 0u32;
 
     for line in diff.lines() {
         if line.starts_with("diff --git") {
@@ -153,9 +153,9 @@ fn parse_diff_for_vulnerable_code(diff: &str) -> Result<Vec<VulnerableCode>> {
                 if let Some(old_start) = old_range.trim().split(' ').next() {
                     if let Some(start) = old_start.strip_prefix('-') {
                         if let Some(num) = start.split(',').next() {
-                            line_number = num.parse().unwrap_or(0);
+                            _line_number = num.parse().unwrap_or(0);
                             if current_start_line == 0 {
-                                current_start_line = line_number;
+                                current_start_line = _line_number;
                             }
                         }
                     }
@@ -167,7 +167,7 @@ fn parse_diff_for_vulnerable_code(diff: &str) -> Result<Vec<VulnerableCode>> {
                 current_removed_lines.push(line[1..].to_string());
             }
             if !line.starts_with('+') {
-                line_number += 1;
+                _line_number += 1;
             }
         }
     }
@@ -247,7 +247,9 @@ fn extract_function_names(lines: &[String]) -> Vec<String> {
         }
 
         // Java/C# method
-        if (trimmed.contains("public ") || trimmed.contains("private ") || trimmed.contains("protected "))
+        if (trimmed.contains("public ")
+            || trimmed.contains("private ")
+            || trimmed.contains("protected "))
             && trimmed.contains("(")
         {
             if let Some(name) = extract_java_method_name(trimmed) {
@@ -264,7 +266,9 @@ fn extract_function_names(lines: &[String]) -> Vec<String> {
 fn extract_js_function_name(line: &str) -> Option<String> {
     // function name(...) or function name<T>(...)
     let after_fn = line.split("function ").nth(1)?;
-    let name = after_fn.split(|c| c == '(' || c == '<' || c == ' ').next()?;
+    let name = after_fn
+        .split(|c| c == '(' || c == '<' || c == ' ')
+        .next()?;
     if name.is_empty() || name.starts_with('(') {
         None
     } else {

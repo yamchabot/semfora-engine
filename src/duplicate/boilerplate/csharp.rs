@@ -6,7 +6,7 @@
 //! # Patterns Detected
 //!
 //! ## ASP.NET Core (4 patterns)
-//! - **AspNetController**: Controller action methods ([HttpGet], [HttpPost], IActionResult)
+//! - **AspNetController**: Controller action methods (\[HttpGet\], \[HttpPost\], IActionResult)
 //! - **AspNetMinimalApi**: Minimal API endpoints (app.MapGet, app.MapPost)
 //! - **AspNetMiddleware**: Middleware patterns (Invoke, InvokeAsync)
 //! - **AspNetDI**: DI registrations (services.AddScoped, AddSingleton, AddTransient)
@@ -18,8 +18,8 @@
 //! - **EFMigration**: Migration patterns (Up, Down methods)
 //!
 //! ## Testing (3 patterns)
-//! - **XUnitTest**: xUnit test methods ([Fact], [Theory])
-//! - **NUnitTest**: NUnit test methods ([Test], [TestCase])
+//! - **XUnitTest**: xUnit test methods (\[Fact\], \[Theory\])
+//! - **NUnitTest**: NUnit test methods (\[Test\], \[TestCase\])
 //! - **MoqSetup**: Moq mock setup patterns
 //!
 //! ## LINQ (2 patterns)
@@ -28,7 +28,7 @@
 //!
 //! ## Unity (3 patterns)
 //! - **UnityLifecycle**: MonoBehaviour lifecycle methods (Start, Update, Awake)
-//! - **UnitySerializedField**: [SerializeField] field patterns
+//! - **UnitySerializedField**: \[SerializeField\] field patterns
 //! - **UnityScriptableObject**: ScriptableObject configs (CreateAssetMenu)
 //!
 //! ## General C# (2 patterns)
@@ -176,7 +176,7 @@ pub static PATTERNS: &[PatternMatcher] = &[
 // Detection Functions - Testing
 // =============================================================================
 
-/// xUnit test: [Fact], [Theory] attributes or test naming patterns with Assert calls
+/// xUnit test: \[Fact\], \[Theory\] attributes or test naming patterns with Assert calls
 pub fn is_xunit_test(info: &SymbolInfo) -> bool {
     // Check for xUnit attributes in decorators
     let has_xunit_attr = info.decorators.iter().any(|d| {
@@ -205,20 +205,37 @@ pub fn is_xunit_test(info: &SymbolInfo) -> bool {
 
     // Should have xUnit-style Assert calls
     let has_xunit_assert = info.calls.iter().any(|c| {
-        matches!(c.name.as_str(),
-            "Equal" | "NotEqual" | "True" | "False" | "Null" | "NotNull"
-            | "Empty" | "NotEmpty" | "Contains" | "DoesNotContain"
-            | "Throws" | "ThrowsAsync" | "ThrowsAny" | "ThrowsAnyAsync"
-            | "Same" | "NotSame" | "IsType" | "IsNotType"
-            | "InRange" | "NotInRange" | "All" | "Collection"
-        )
-        || c.object.as_ref().map_or(false, |o| o == "Assert")
+        matches!(
+            c.name.as_str(),
+            "Equal"
+                | "NotEqual"
+                | "True"
+                | "False"
+                | "Null"
+                | "NotNull"
+                | "Empty"
+                | "NotEmpty"
+                | "Contains"
+                | "DoesNotContain"
+                | "Throws"
+                | "ThrowsAsync"
+                | "ThrowsAny"
+                | "ThrowsAnyAsync"
+                | "Same"
+                | "NotSame"
+                | "IsType"
+                | "IsNotType"
+                | "InRange"
+                | "NotInRange"
+                | "All"
+                | "Collection"
+        ) || c.object.as_ref().map_or(false, |o| o == "Assert")
     });
 
     has_xunit_assert
 }
 
-/// NUnit test: [Test], [TestCase] attributes or Assert.That/AreEqual calls
+/// NUnit test: \[Test\], \[TestCase\] attributes or Assert.That/AreEqual calls
 pub fn is_nunit_test(info: &SymbolInfo) -> bool {
     // Check for NUnit attributes
     let has_nunit_attr = info.decorators.iter().any(|d| {
@@ -236,14 +253,30 @@ pub fn is_nunit_test(info: &SymbolInfo) -> bool {
 
     // Fallback: Check for NUnit-style Assert calls
     let has_nunit_assert = info.calls.iter().any(|c| {
-        matches!(c.name.as_str(),
-            "That" | "AreEqual" | "AreNotEqual" | "AreSame" | "AreNotSame"
-            | "IsTrue" | "IsFalse" | "IsNull" | "IsNotNull"
-            | "IsEmpty" | "IsNotEmpty" | "Greater" | "Less"
-            | "GreaterOrEqual" | "LessOrEqual" | "Throws" | "DoesNotThrow"
-            | "Pass" | "Fail" | "Ignore" | "Inconclusive"
-        )
-        || c.object.as_ref().map_or(false, |o| o == "Assert")
+        matches!(
+            c.name.as_str(),
+            "That"
+                | "AreEqual"
+                | "AreNotEqual"
+                | "AreSame"
+                | "AreNotSame"
+                | "IsTrue"
+                | "IsFalse"
+                | "IsNull"
+                | "IsNotNull"
+                | "IsEmpty"
+                | "IsNotEmpty"
+                | "Greater"
+                | "Less"
+                | "GreaterOrEqual"
+                | "LessOrEqual"
+                | "Throws"
+                | "DoesNotThrow"
+                | "Pass"
+                | "Fail"
+                | "Ignore"
+                | "Inconclusive"
+        ) || c.object.as_ref().map_or(false, |o| o == "Assert")
     });
 
     // Check for test naming patterns
@@ -263,15 +296,32 @@ pub fn is_moq_setup(info: &SymbolInfo) -> bool {
         return false;
     }
 
-    let moq_calls = ["Setup", "SetupGet", "SetupSet", "SetupSequence",
-                     "Returns", "ReturnsAsync", "Throws", "ThrowsAsync",
-                     "Verify", "VerifyAll", "VerifyNoOtherCalls",
-                     "Callback", "CallBase"];
+    let moq_calls = [
+        "Setup",
+        "SetupGet",
+        "SetupSet",
+        "SetupSequence",
+        "Returns",
+        "ReturnsAsync",
+        "Throws",
+        "ThrowsAsync",
+        "Verify",
+        "VerifyAll",
+        "VerifyNoOtherCalls",
+        "Callback",
+        "CallBase",
+    ];
 
-    let moq_call_count = info.calls.iter().filter(|c| {
-        moq_calls.contains(&c.name.as_str())
-            || c.object.as_ref().map_or(false, |o| o.contains("Mock") || o.contains("mock"))
-    }).count();
+    let moq_call_count = info
+        .calls
+        .iter()
+        .filter(|c| {
+            moq_calls.contains(&c.name.as_str())
+                || c.object
+                    .as_ref()
+                    .map_or(false, |o| o.contains("Mock") || o.contains("mock"))
+        })
+        .count();
 
     // At least 60% of calls should be Moq-related
     let ratio = moq_call_count as f32 / info.calls.len() as f32;
@@ -286,31 +336,58 @@ pub fn is_moq_setup(info: &SymbolInfo) -> bool {
 pub fn is_unity_lifecycle(info: &SymbolInfo) -> bool {
     let lifecycle_methods = [
         // Core lifecycle
-        "Awake", "Start", "Update", "FixedUpdate", "LateUpdate",
-        "OnEnable", "OnDisable", "OnDestroy",
+        "Awake",
+        "Start",
+        "Update",
+        "FixedUpdate",
+        "LateUpdate",
+        "OnEnable",
+        "OnDisable",
+        "OnDestroy",
         // Physics callbacks
-        "OnTriggerEnter", "OnTriggerExit", "OnTriggerStay",
-        "OnTriggerEnter2D", "OnTriggerExit2D", "OnTriggerStay2D",
-        "OnCollisionEnter", "OnCollisionExit", "OnCollisionStay",
-        "OnCollisionEnter2D", "OnCollisionExit2D", "OnCollisionStay2D",
+        "OnTriggerEnter",
+        "OnTriggerExit",
+        "OnTriggerStay",
+        "OnTriggerEnter2D",
+        "OnTriggerExit2D",
+        "OnTriggerStay2D",
+        "OnCollisionEnter",
+        "OnCollisionExit",
+        "OnCollisionStay",
+        "OnCollisionEnter2D",
+        "OnCollisionExit2D",
+        "OnCollisionStay2D",
         // UI callbacks
-        "OnMouseEnter", "OnMouseExit", "OnMouseDown", "OnMouseUp",
-        "OnMouseOver", "OnMouseDrag",
+        "OnMouseEnter",
+        "OnMouseExit",
+        "OnMouseDown",
+        "OnMouseUp",
+        "OnMouseOver",
+        "OnMouseDrag",
         // Rendering
-        "OnRenderObject", "OnPreRender", "OnPostRender",
-        "OnBecameVisible", "OnBecameInvisible",
-        "OnWillRenderObject", "OnRenderImage",
+        "OnRenderObject",
+        "OnPreRender",
+        "OnPostRender",
+        "OnBecameVisible",
+        "OnBecameInvisible",
+        "OnWillRenderObject",
+        "OnRenderImage",
         // Application events
-        "OnApplicationFocus", "OnApplicationPause", "OnApplicationQuit",
+        "OnApplicationFocus",
+        "OnApplicationPause",
+        "OnApplicationQuit",
         // Other
-        "OnGUI", "OnDrawGizmos", "OnDrawGizmosSelected",
-        "OnValidate", "Reset",
+        "OnGUI",
+        "OnDrawGizmos",
+        "OnDrawGizmosSelected",
+        "OnValidate",
+        "Reset",
     ];
 
     lifecycle_methods.contains(&info.name.as_str())
 }
 
-/// Unity SerializeField: [SerializeField] attribute or field-like patterns
+/// Unity SerializeField: \[SerializeField\] attribute or field-like patterns
 pub fn is_unity_serialized_field(info: &SymbolInfo) -> bool {
     // Check for [SerializeField] attribute
     let has_serialize_field = info.decorators.iter().any(|d| {
@@ -343,11 +420,25 @@ pub fn is_unity_serialized_field(info: &SymbolInfo) -> bool {
         || name.starts_with("set_");
 
     // Common Unity component field names
-    let is_unity_field = matches!(name.as_str(),
-        "speed" | "health" | "damage" | "force" | "radius"
-        | "target" | "player" | "enemy" | "prefab" | "transform"
-        | "rigidbody" | "collider" | "animator" | "audioSource"
-        | "spriteRenderer" | "camera" | "light"
+    let is_unity_field = matches!(
+        name.as_str(),
+        "speed"
+            | "health"
+            | "damage"
+            | "force"
+            | "radius"
+            | "target"
+            | "player"
+            | "enemy"
+            | "prefab"
+            | "transform"
+            | "rigidbody"
+            | "collider"
+            | "animator"
+            | "audioSource"
+            | "spriteRenderer"
+            | "camera"
+            | "light"
     ) || name.ends_with("Prefab")
         || name.ends_with("Object")
         || name.ends_with("Transform")
@@ -356,7 +447,7 @@ pub fn is_unity_serialized_field(info: &SymbolInfo) -> bool {
     is_field_like || is_unity_field
 }
 
-/// Unity ScriptableObject: [CreateAssetMenu] attribute or ScriptableObject patterns
+/// Unity ScriptableObject: \[CreateAssetMenu\] attribute or ScriptableObject patterns
 pub fn is_unity_scriptable_object(info: &SymbolInfo) -> bool {
     // Check for [CreateAssetMenu] attribute
     let has_scriptable_attr = info.decorators.iter().any(|d| {
@@ -371,7 +462,9 @@ pub fn is_unity_scriptable_object(info: &SymbolInfo) -> bool {
     // Fallback: Check for ScriptableObject creation patterns
     let has_create_instance = info.calls.iter().any(|c| {
         c.name == "CreateInstance"
-            || c.object.as_ref().map_or(false, |o| o.contains("ScriptableObject"))
+            || c.object
+                .as_ref()
+                .map_or(false, |o| o.contains("ScriptableObject"))
     });
 
     if has_create_instance {
@@ -414,12 +507,29 @@ pub fn is_aspnet_controller(info: &SymbolInfo) -> bool {
 
     // Fallback: Check for ActionResult return patterns
     let has_action_result = info.calls.iter().any(|c| {
-        matches!(c.name.as_str(),
-            "Ok" | "BadRequest" | "NotFound" | "Created" | "CreatedAtAction"
-            | "CreatedAtRoute" | "NoContent" | "Accepted" | "AcceptedAtAction"
-            | "Unauthorized" | "Forbid" | "StatusCode" | "Json" | "Content"
-            | "View" | "PartialView" | "RedirectToAction" | "Redirect"
-            | "RedirectToRoute" | "LocalRedirect" | "File" | "PhysicalFile"
+        matches!(
+            c.name.as_str(),
+            "Ok" | "BadRequest"
+                | "NotFound"
+                | "Created"
+                | "CreatedAtAction"
+                | "CreatedAtRoute"
+                | "NoContent"
+                | "Accepted"
+                | "AcceptedAtAction"
+                | "Unauthorized"
+                | "Forbid"
+                | "StatusCode"
+                | "Json"
+                | "Content"
+                | "View"
+                | "PartialView"
+                | "RedirectToAction"
+                | "Redirect"
+                | "RedirectToRoute"
+                | "LocalRedirect"
+                | "File"
+                | "PhysicalFile"
         )
     });
 
@@ -452,12 +562,23 @@ pub fn is_aspnet_controller(info: &SymbolInfo) -> bool {
 
 /// ASP.NET Minimal API: app.MapGet/MapPost/MapPut/MapDelete
 pub fn is_aspnet_minimal_api(info: &SymbolInfo) -> bool {
-    let minimal_api_calls = ["MapGet", "MapPost", "MapPut", "MapDelete", "MapPatch",
-                             "MapMethods", "Map", "MapGroup", "MapFallback"];
+    let minimal_api_calls = [
+        "MapGet",
+        "MapPost",
+        "MapPut",
+        "MapDelete",
+        "MapPatch",
+        "MapMethods",
+        "Map",
+        "MapGroup",
+        "MapFallback",
+    ];
 
     let has_map_call = info.calls.iter().any(|c| {
         minimal_api_calls.contains(&c.name.as_str())
-            || c.object.as_ref().map_or(false, |o| o == "app" || o == "endpoints")
+            || c.object
+                .as_ref()
+                .map_or(false, |o| o == "app" || o == "endpoints")
     });
 
     has_map_call && info.calls.len() <= 5
@@ -472,8 +593,13 @@ pub fn is_aspnet_middleware(info: &SymbolInfo) -> bool {
 
     // Should call _next or next (the next middleware in pipeline)
     let calls_next = info.calls.iter().any(|c| {
-        c.name == "_next" || c.name == "next" || c.name == "Invoke" || c.name == "InvokeAsync"
-            || c.object.as_ref().map_or(false, |o| o == "_next" || o == "next")
+        c.name == "_next"
+            || c.name == "next"
+            || c.name == "Invoke"
+            || c.name == "InvokeAsync"
+            || c.object
+                .as_ref()
+                .map_or(false, |o| o == "_next" || o == "next")
     });
 
     calls_next
@@ -485,18 +611,40 @@ pub fn is_aspnet_di(info: &SymbolInfo) -> bool {
         return false;
     }
 
-    let di_calls = ["AddScoped", "AddSingleton", "AddTransient",
-                    "AddHostedService", "AddDbContext", "AddDbContextPool",
-                    "Configure", "AddOptions", "Bind",
-                    "AddControllers", "AddEndpointsApiExplorer", "AddSwaggerGen",
-                    "AddAuthentication", "AddAuthorization", "AddCors",
-                    "AddHttpClient", "AddMemoryCache", "AddDistributedMemoryCache",
-                    "AddMvc", "AddRazorPages", "AddSignalR"];
+    let di_calls = [
+        "AddScoped",
+        "AddSingleton",
+        "AddTransient",
+        "AddHostedService",
+        "AddDbContext",
+        "AddDbContextPool",
+        "Configure",
+        "AddOptions",
+        "Bind",
+        "AddControllers",
+        "AddEndpointsApiExplorer",
+        "AddSwaggerGen",
+        "AddAuthentication",
+        "AddAuthorization",
+        "AddCors",
+        "AddHttpClient",
+        "AddMemoryCache",
+        "AddDistributedMemoryCache",
+        "AddMvc",
+        "AddRazorPages",
+        "AddSignalR",
+    ];
 
-    let di_call_count = info.calls.iter().filter(|c| {
-        di_calls.contains(&c.name.as_str())
-            || c.object.as_ref().map_or(false, |o| o == "services" || o == "builder.Services")
-    }).count();
+    let di_call_count = info
+        .calls
+        .iter()
+        .filter(|c| {
+            di_calls.contains(&c.name.as_str())
+                || c.object
+                    .as_ref()
+                    .map_or(false, |o| o == "services" || o == "builder.Services")
+        })
+        .count();
 
     let ratio = di_call_count as f32 / info.calls.len() as f32;
     ratio >= 0.7 && info.control_flow.len() <= 1
@@ -535,17 +683,40 @@ pub fn is_ef_fluent_api(info: &SymbolInfo) -> bool {
         return false;
     }
 
-    let fluent_calls = ["HasKey", "HasOne", "HasMany", "HasIndex",
-                        "Property", "ToTable", "HasColumnName", "HasColumnType",
-                        "IsRequired", "HasMaxLength", "HasDefaultValue",
-                        "HasConversion", "HasForeignKey", "WithOne", "WithMany",
-                        "OnDelete", "HasPrecision", "HasComment",
-                        "Entity", "OwnsOne", "OwnsMany"];
+    let fluent_calls = [
+        "HasKey",
+        "HasOne",
+        "HasMany",
+        "HasIndex",
+        "Property",
+        "ToTable",
+        "HasColumnName",
+        "HasColumnType",
+        "IsRequired",
+        "HasMaxLength",
+        "HasDefaultValue",
+        "HasConversion",
+        "HasForeignKey",
+        "WithOne",
+        "WithMany",
+        "OnDelete",
+        "HasPrecision",
+        "HasComment",
+        "Entity",
+        "OwnsOne",
+        "OwnsMany",
+    ];
 
-    let fluent_call_count = info.calls.iter().filter(|c| {
-        fluent_calls.contains(&c.name.as_str())
-            || c.object.as_ref().map_or(false, |o| o.contains("modelBuilder") || o.contains("entity"))
-    }).count();
+    let fluent_call_count = info
+        .calls
+        .iter()
+        .filter(|c| {
+            fluent_calls.contains(&c.name.as_str())
+                || c.object.as_ref().map_or(false, |o| {
+                    o.contains("modelBuilder") || o.contains("entity")
+                })
+        })
+        .count();
 
     let ratio = fluent_call_count as f32 / info.calls.len() as f32;
     ratio >= 0.6
@@ -558,15 +729,32 @@ pub fn is_ef_migration(info: &SymbolInfo) -> bool {
         return false;
     }
 
-    let migration_calls = ["CreateTable", "DropTable", "AddColumn", "DropColumn",
-                           "AlterColumn", "RenameColumn", "AddForeignKey", "DropForeignKey",
-                           "CreateIndex", "DropIndex", "RenameTable", "RenameIndex",
-                           "AddPrimaryKey", "DropPrimaryKey", "InsertData", "DeleteData",
-                           "UpdateData", "Sql"];
+    let migration_calls = [
+        "CreateTable",
+        "DropTable",
+        "AddColumn",
+        "DropColumn",
+        "AlterColumn",
+        "RenameColumn",
+        "AddForeignKey",
+        "DropForeignKey",
+        "CreateIndex",
+        "DropIndex",
+        "RenameTable",
+        "RenameIndex",
+        "AddPrimaryKey",
+        "DropPrimaryKey",
+        "InsertData",
+        "DeleteData",
+        "UpdateData",
+        "Sql",
+    ];
 
     let has_migration_call = info.calls.iter().any(|c| {
         migration_calls.contains(&c.name.as_str())
-            || c.object.as_ref().map_or(false, |o| o.contains("migrationBuilder"))
+            || c.object
+                .as_ref()
+                .map_or(false, |o| o.contains("migrationBuilder"))
     });
 
     has_migration_call
@@ -578,17 +766,45 @@ pub fn is_ef_migration(info: &SymbolInfo) -> bool {
 
 /// LINQ Chain: 2+ LINQ calls (Select/Where/OrderBy/GroupBy) with <=1 control flow
 pub fn is_linq_chain(info: &SymbolInfo) -> bool {
-    let linq_methods = ["Select", "Where", "OrderBy", "OrderByDescending",
-                        "ThenBy", "ThenByDescending", "GroupBy", "Join",
-                        "SelectMany", "Distinct", "Take", "Skip",
-                        "First", "FirstOrDefault", "Single", "SingleOrDefault",
-                        "Last", "LastOrDefault", "Any", "All",
-                        "Count", "Sum", "Average", "Min", "Max",
-                        "Aggregate", "Zip", "Concat", "Union", "Intersect", "Except"];
+    let linq_methods = [
+        "Select",
+        "Where",
+        "OrderBy",
+        "OrderByDescending",
+        "ThenBy",
+        "ThenByDescending",
+        "GroupBy",
+        "Join",
+        "SelectMany",
+        "Distinct",
+        "Take",
+        "Skip",
+        "First",
+        "FirstOrDefault",
+        "Single",
+        "SingleOrDefault",
+        "Last",
+        "LastOrDefault",
+        "Any",
+        "All",
+        "Count",
+        "Sum",
+        "Average",
+        "Min",
+        "Max",
+        "Aggregate",
+        "Zip",
+        "Concat",
+        "Union",
+        "Intersect",
+        "Except",
+    ];
 
-    let linq_count = info.calls.iter().filter(|c| {
-        linq_methods.contains(&c.name.as_str())
-    }).count();
+    let linq_count = info
+        .calls
+        .iter()
+        .filter(|c| linq_methods.contains(&c.name.as_str()))
+        .count();
 
     linq_count >= 2 && info.control_flow.len() <= 1
 }
@@ -601,7 +817,10 @@ pub fn is_linq_projection(info: &SymbolInfo) -> bool {
 
     let has_select = info.calls.iter().any(|c| c.name == "Select");
     let has_materialization = info.calls.iter().any(|c| {
-        matches!(c.name.as_str(), "ToList" | "ToArray" | "ToDictionary" | "ToHashSet")
+        matches!(
+            c.name.as_str(),
+            "ToList" | "ToArray" | "ToDictionary" | "ToHashSet"
+        )
     });
 
     has_select && has_materialization && info.calls.len() <= 4
@@ -622,17 +841,24 @@ pub fn is_csharp_property(info: &SymbolInfo) -> bool {
     let is_pascal_case = info.name.chars().next().map_or(false, |c| c.is_uppercase());
 
     // Common property prefixes/patterns
-    let is_property_name = is_pascal_case
-        || info.name.starts_with("get_")
-        || info.name.starts_with("set_");
+    let is_property_name =
+        is_pascal_case || info.name.starts_with("get_") || info.name.starts_with("set_");
 
     is_property_name
 }
 
 /// C# Record: Equals/GetHashCode/ToString/Deconstruct with minimal logic
 pub fn is_csharp_record(info: &SymbolInfo) -> bool {
-    let record_methods = ["Equals", "GetHashCode", "ToString", "Deconstruct",
-                          "PrintMembers", "Clone", "op_Equality", "op_Inequality"];
+    let record_methods = [
+        "Equals",
+        "GetHashCode",
+        "ToString",
+        "Deconstruct",
+        "PrintMembers",
+        "Clone",
+        "op_Equality",
+        "op_Inequality",
+    ];
 
     if !record_methods.contains(&info.name.as_str()) {
         return false;
@@ -728,11 +954,8 @@ mod tests {
 
     #[test]
     fn test_xunit_test_prefix_with_assert() {
-        let symbol = make_symbol_with_object_calls(
-            "TestUserCreation",
-            vec![("NotNull", Some("Assert"))],
-            0,
-        );
+        let symbol =
+            make_symbol_with_object_calls("TestUserCreation", vec![("NotNull", Some("Assert"))], 0);
         assert!(is_xunit_test(&symbol));
     }
 
@@ -763,7 +986,8 @@ mod tests {
 
     #[test]
     fn test_xunit_theory_attribute() {
-        let symbol = make_symbol_with_decorators("DataDrivenTest", vec![], 0, vec!["Theory", "InlineData"]);
+        let symbol =
+            make_symbol_with_decorators("DataDrivenTest", vec![], 0, vec!["Theory", "InlineData"]);
         assert!(is_xunit_test(&symbol));
     }
 
@@ -785,11 +1009,7 @@ mod tests {
 
     #[test]
     fn test_nunit_assert_object() {
-        let symbol = make_symbol_with_object_calls(
-            "TestMethod",
-            vec![("That", Some("Assert"))],
-            0,
-        );
+        let symbol = make_symbol_with_object_calls("TestMethod", vec![("That", Some("Assert"))], 0);
         assert!(is_nunit_test(&symbol));
     }
 
@@ -843,7 +1063,11 @@ mod tests {
 
     #[test]
     fn test_moq_not_enough_moq_calls() {
-        let symbol = make_symbol("ProcessData", vec!["Setup", "Process", "Transform", "Save"], 0);
+        let symbol = make_symbol(
+            "ProcessData",
+            vec!["Setup", "Process", "Transform", "Save"],
+            0,
+        );
         assert!(!is_moq_setup(&symbol));
     }
 
@@ -911,13 +1135,19 @@ mod tests {
 
     #[test]
     fn test_unity_serialized_field_attribute() {
-        let symbol = make_symbol_with_decorators("someField", vec!["DoSomething"], 1, vec!["SerializeField"]);
+        let symbol = make_symbol_with_decorators(
+            "someField",
+            vec!["DoSomething"],
+            1,
+            vec!["SerializeField"],
+        );
         assert!(is_unity_serialized_field(&symbol));
     }
 
     #[test]
     fn test_unity_serialized_field_header_attribute() {
-        let symbol = make_symbol_with_decorators("_health", vec![], 0, vec!["Header", "SerializeField"]);
+        let symbol =
+            make_symbol_with_decorators("_health", vec![], 0, vec!["Header", "SerializeField"]);
         assert!(is_unity_serialized_field(&symbol));
     }
 
@@ -955,7 +1185,12 @@ mod tests {
 
     #[test]
     fn test_unity_scriptable_object_create_asset_menu_attribute() {
-        let symbol = make_symbol_with_decorators("WeaponData", vec!["Initialize"], 1, vec!["CreateAssetMenu"]);
+        let symbol = make_symbol_with_decorators(
+            "WeaponData",
+            vec!["Initialize"],
+            1,
+            vec!["CreateAssetMenu"],
+        );
         assert!(is_unity_scriptable_object(&symbol));
     }
 
@@ -999,19 +1234,34 @@ mod tests {
 
     #[test]
     fn test_aspnet_controller_httpget_attribute() {
-        let symbol = make_symbol_with_decorators("ProcessRequest", vec!["Service.DoWork"], 2, vec!["HttpGet"]);
+        let symbol = make_symbol_with_decorators(
+            "ProcessRequest",
+            vec!["Service.DoWork"],
+            2,
+            vec!["HttpGet"],
+        );
         assert!(is_aspnet_controller(&symbol));
     }
 
     #[test]
     fn test_aspnet_controller_httppost_attribute() {
-        let symbol = make_symbol_with_decorators("SubmitForm", vec!["Validate", "Save"], 1, vec!["HttpPost", "Route"]);
+        let symbol = make_symbol_with_decorators(
+            "SubmitForm",
+            vec!["Validate", "Save"],
+            1,
+            vec!["HttpPost", "Route"],
+        );
         assert!(is_aspnet_controller(&symbol));
     }
 
     #[test]
     fn test_aspnet_controller_authorize_attribute() {
-        let symbol = make_symbol_with_decorators("SecureEndpoint", vec!["GetData"], 0, vec!["Authorize", "HttpGet"]);
+        let symbol = make_symbol_with_decorators(
+            "SecureEndpoint",
+            vec!["GetData"],
+            0,
+            vec!["Authorize", "HttpGet"],
+        );
         assert!(is_aspnet_controller(&symbol));
     }
 
@@ -1165,7 +1415,11 @@ mod tests {
 
     #[test]
     fn test_ef_fluent_api_relationships() {
-        let symbol = make_symbol("ConfigureRelations", vec!["HasOne", "WithMany", "HasForeignKey"], 0);
+        let symbol = make_symbol(
+            "ConfigureRelations",
+            vec!["HasOne", "WithMany", "HasForeignKey"],
+            0,
+        );
         assert!(is_ef_fluent_api(&symbol));
     }
 
@@ -1177,7 +1431,10 @@ mod tests {
     fn test_ef_migration_up() {
         let symbol = make_symbol_with_object_calls(
             "Up",
-            vec![("CreateTable", Some("migrationBuilder")), ("AddColumn", None)],
+            vec![
+                ("CreateTable", Some("migrationBuilder")),
+                ("AddColumn", None),
+            ],
             0,
         );
         assert!(is_ef_migration(&symbol));
@@ -1311,12 +1568,8 @@ mod tests {
         use crate::lang::Lang;
 
         // xUnit test
-        let xunit = make_symbol_with_decorators(
-            "TestMethod",
-            vec!["Assert.True"],
-            0,
-            vec!["[Fact]"],
-        );
+        let xunit =
+            make_symbol_with_decorators("TestMethod", vec!["Assert.True"], 0, vec!["[Fact]"]);
         assert_eq!(
             classify_boilerplate_with_lang(&xunit, Some(Lang::CSharp), None),
             Some(BoilerplateCategory::XUnitTest)
@@ -1360,7 +1613,9 @@ mod tests {
 
     #[test]
     fn test_csharp_boilerplate_disabled() {
-        use crate::duplicate::boilerplate::{classify_boilerplate_with_lang, BoilerplateConfig, BuiltinBoilerplate};
+        use crate::duplicate::boilerplate::{
+            classify_boilerplate_with_lang, BoilerplateConfig, BuiltinBoilerplate,
+        };
         use crate::lang::Lang;
 
         let mut builtin = BuiltinBoilerplate::default();
@@ -1373,12 +1628,8 @@ mod tests {
         };
 
         // Should not match when disabled
-        let xunit = make_symbol_with_decorators(
-            "TestMethod",
-            vec!["Assert.True"],
-            0,
-            vec!["[Fact]"],
-        );
+        let xunit =
+            make_symbol_with_decorators("TestMethod", vec!["Assert.True"], 0, vec!["[Fact]"]);
         assert_ne!(
             classify_boilerplate_with_lang(&xunit, Some(Lang::CSharp), Some(&config)),
             Some(BoilerplateCategory::XUnitTest)

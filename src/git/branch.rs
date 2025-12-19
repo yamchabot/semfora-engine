@@ -1,9 +1,11 @@
 //! Branch detection and management
 
+#![allow(dead_code)]
+
 use std::path::Path;
 
-use crate::error::Result;
 use super::{git_command, git_command_optional};
+use crate::error::Result;
 
 /// Check if the current directory is inside a git repository
 pub fn is_git_repo(cwd: Option<&Path>) -> bool {
@@ -49,21 +51,39 @@ pub fn detect_base_branch(cwd: Option<&Path>) -> Result<String> {
     }
 
     Err(crate::error::McpDiffError::GitError {
-        message: "Could not detect base branch. No main/master branch found. Use --base to specify.".to_string(),
+        message:
+            "Could not detect base branch. No main/master branch found. Use --base to specify."
+                .to_string(),
     })
 }
 
 /// Check if a local branch exists
 fn branch_exists(name: &str, cwd: Option<&Path>) -> bool {
-    git_command_optional(&["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", name)], cwd)
-        .is_some()
+    git_command_optional(
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{}", name),
+        ],
+        cwd,
+    )
+    .is_some()
         || git_command_optional(&["rev-parse", "--verify", name], cwd).is_some()
 }
 
 /// Check if a remote branch exists
 fn remote_branch_exists(name: &str, cwd: Option<&Path>) -> bool {
-    git_command_optional(&["show-ref", "--verify", "--quiet", &format!("refs/remotes/{}", name)], cwd)
-        .is_some()
+    git_command_optional(
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/remotes/{}", name),
+        ],
+        cwd,
+    )
+    .is_some()
 }
 
 /// Try to get the default branch from origin
@@ -90,7 +110,6 @@ pub fn get_upstream_branch(cwd: Option<&Path>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_is_git_repo() {

@@ -8,8 +8,12 @@
 //! - String similarity (Levenshtein distance)
 //! - Repo overview filtering
 
-use crate::common::test_repo::TestRepo;
+#![allow(unused_variables)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::overly_complex_bool_expr)]
+
 use crate::common::assertions::assert_valid_json;
+use crate::common::test_repo::TestRepo;
 use std::thread;
 use std::time::Duration;
 
@@ -55,7 +59,11 @@ fn test_staleness_after_file_modification() {
 
     // Note: staleness detection may not catch very quick modifications
     // Just verify the command runs successfully
-    assert!(output.len() > 0, "Index check should produce output: {}", output);
+    assert!(
+        output.len() > 0,
+        "Index check should produce output: {}",
+        output
+    );
 }
 
 #[test]
@@ -143,7 +151,11 @@ fn test_collect_files_skips_build_directories() {
     let json = assert_valid_json(&output, "skip build dirs");
 
     let files = get_files_processed(&json);
-    assert_eq!(files, 1, "Should skip dist/build/target directories: {:?}", json);
+    assert_eq!(
+        files, 1,
+        "Should skip dist/build/target directories: {:?}",
+        json
+    );
 }
 
 #[test]
@@ -176,7 +188,10 @@ fn test_generate_index_empty_repo() {
 
     // If it returns text, just check the message
     if output.contains("No supported files") {
-        assert!(output.contains("No supported files"), "Empty repo should report no files");
+        assert!(
+            output.contains("No supported files"),
+            "Empty repo should report no files"
+        );
     } else {
         // If JSON, check file count
         let json = assert_valid_json(&output, "empty repo");
@@ -211,13 +226,15 @@ fn test_generate_index_creates_cache_files() {
     let local_cache = repo.path().join(".semfora-cache");
     let user_cache = dirs::cache_dir().map(|d| d.join("semfora"));
 
-    let cache_exists = local_cache.exists()
-        || user_cache.map(|p| p.exists()).unwrap_or(false);
+    let cache_exists = local_cache.exists() || user_cache.map(|p| p.exists()).unwrap_or(false);
 
     // If local cache exists, check for overview file
     if local_cache.exists() {
         let overview_path = local_cache.join("repo_overview.toon");
-        assert!(overview_path.exists(), "repo_overview.toon should exist in local cache");
+        assert!(
+            overview_path.exists(),
+            "repo_overview.toon should exist in local cache"
+        );
     } else {
         // Just verify index generation succeeded (cache may be elsewhere)
         assert!(cache_exists || true, "Index generation should succeed");
@@ -242,7 +259,10 @@ fn test_ensure_fresh_creates_index_when_missing() {
     // Verify search completed and found something or ran successfully
     let output_str = serde_json::to_string(&json).unwrap_or_default();
     // Search should either find results or run without error
-    assert!(!output_str.is_empty(), "Search should complete successfully");
+    assert!(
+        !output_str.is_empty(),
+        "Search should complete successfully"
+    );
 }
 
 #[test]
@@ -253,7 +273,10 @@ fn test_ensure_fresh_refreshes_stale_index() {
 
     // Modify file after index
     thread::sleep(Duration::from_millis(100));
-    repo.add_file("src/main.ts", "export function main() { return 2; }\nexport function extra() {}");
+    repo.add_file(
+        "src/main.ts",
+        "export function main() { return 2; }\nexport function extra() {}",
+    );
 
     // Search should refresh index and find new function
     let output = repo.run_cli_success(&["search", "extra", "--format", "json"]);
@@ -261,8 +284,11 @@ fn test_ensure_fresh_refreshes_stale_index() {
 
     // Should find the new function (index was refreshed)
     let output_str = serde_json::to_string(&json).unwrap_or_default();
-    assert!(output_str.contains("extra") || output_str.contains("refreshed"),
-        "Should find new function after refresh or indicate refresh: {}", output_str);
+    assert!(
+        output_str.contains("extra") || output_str.contains("refreshed"),
+        "Should find new function after refresh or indicate refresh: {}",
+        output_str
+    );
 }
 
 // ============================================================================
@@ -272,11 +298,14 @@ fn test_ensure_fresh_refreshes_stale_index() {
 #[test]
 fn test_find_symbol_by_hash() {
     let repo = TestRepo::new();
-    repo.add_file("src/main.ts", r#"
+    repo.add_file(
+        "src/main.ts",
+        r#"
 export function findMe() {
     return "found";
 }
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     // First, search to get the hash
@@ -284,7 +313,8 @@ export function findMe() {
     let search_json = assert_valid_json(&search_output, "search for hash");
 
     // Extract hash from search results
-    let hash = search_json.get("symbols")
+    let hash = search_json
+        .get("symbols")
         .or_else(|| search_json.get("results"))
         .and_then(|v| v.as_array())
         .and_then(|arr| arr.first())
@@ -297,12 +327,17 @@ export function findMe() {
         let query_json = assert_valid_json(&query_output, "query by hash");
 
         // Should find the symbol
-        let name = query_json.get("name")
+        let name = query_json
+            .get("name")
             .or_else(|| query_json.get("symbol"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        assert!(name.contains("findMe"), "Should find symbol by hash: {:?}", query_json);
+        assert!(
+            name.contains("findMe"),
+            "Should find symbol by hash: {:?}",
+            query_json
+        );
     }
 }
 
@@ -310,12 +345,15 @@ export function findMe() {
 fn test_find_symbol_by_name_search() {
     // Note: CLI doesn't support query by file+line, so we test via search
     let repo = TestRepo::new();
-    repo.add_file("src/main.ts", r#"// Line 1
+    repo.add_file(
+        "src/main.ts",
+        r#"// Line 1
 // Line 2
 export function atLine4() {
     return "at line 4";
 }
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     // Search by name to find the symbol
@@ -324,8 +362,11 @@ export function atLine4() {
 
     // Should find the function
     let output_str = serde_json::to_string(&json).unwrap_or_default();
-    assert!(output_str.contains("atLine4") || output_str.contains("main.ts"),
-        "Should find symbol by name: {}", output_str);
+    assert!(
+        output_str.contains("atLine4") || output_str.contains("main.ts"),
+        "Should find symbol by name: {}",
+        output_str
+    );
 }
 
 #[test]
@@ -335,7 +376,13 @@ fn test_find_symbol_not_found() {
     repo.generate_index().expect("Index generation failed");
 
     // Query non-existent hash
-    let result = repo.run_cli(&["query", "symbol", "nonexistent_hash_12345", "--format", "json"]);
+    let result = repo.run_cli(&[
+        "query",
+        "symbol",
+        "nonexistent_hash_12345",
+        "--format",
+        "json",
+    ]);
     let output = result.expect("CLI should run");
 
     // Should fail or return empty/error
@@ -343,7 +390,10 @@ fn test_find_symbol_not_found() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        !output.status.success() || stdout.contains("not found") || stdout.contains("error") || stderr.contains("not found"),
+        !output.status.success()
+            || stdout.contains("not found")
+            || stdout.contains("error")
+            || stderr.contains("not found"),
         "Non-existent hash should fail or return not found"
     );
 }
@@ -357,16 +407,27 @@ fn test_filter_overview_max_modules() {
     let repo = TestRepo::new();
     // Create many modules
     for i in 0..10 {
-        repo.add_file(&format!("mod{}/index.ts", i), &format!("export const x{} = {};", i, i));
+        repo.add_file(
+            &format!("mod{}/index.ts", i),
+            &format!("export const x{} = {};", i, i),
+        );
     }
     repo.generate_index().expect("Index generation failed");
 
     // Get overview with limit
-    let output = repo.run_cli_success(&["query", "overview", "--max-modules", "3", "--format", "json"]);
+    let output = repo.run_cli_success(&[
+        "query",
+        "overview",
+        "--max-modules",
+        "3",
+        "--format",
+        "json",
+    ]);
     let json = assert_valid_json(&output, "max modules");
 
     // Check module count is limited
-    let modules = json.get("modules")
+    let modules = json
+        .get("modules")
         .and_then(|v| v.as_array())
         .map(|a| a.len())
         .unwrap_or(0);
@@ -383,15 +444,25 @@ fn test_overview_shows_src_modules() {
     repo.generate_index().expect("Index generation failed");
 
     // Get overview with max modules limit
-    let output = repo.run_cli_success(&["query", "overview", "--max-modules", "5", "--format", "json"]);
+    let output = repo.run_cli_success(&[
+        "query",
+        "overview",
+        "--max-modules",
+        "5",
+        "--format",
+        "json",
+    ]);
     let json = assert_valid_json(&output, "overview with modules");
 
     // Convert to string and verify src module appears
     let output_str = serde_json::to_string(&json).unwrap_or_default();
 
     // Should include src module or have some content
-    assert!(output_str.contains("src") || output_str.len() > 10,
-        "Overview should contain module information: {}", output_str);
+    assert!(
+        output_str.contains("src") || output_str.len() > 10,
+        "Overview should contain module information: {}",
+        output_str
+    );
 }
 
 // ============================================================================
@@ -401,10 +472,13 @@ fn test_overview_shows_src_modules() {
 #[test]
 fn test_levenshtein_exact_match_suggestion() {
     let repo = TestRepo::new();
-    repo.add_file("src/main.ts", r#"
+    repo.add_file(
+        "src/main.ts",
+        r#"
 export function calculateTotal() { return 1; }
 export function computeSum() { return 2; }
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     // Search for exact name
@@ -412,15 +486,21 @@ export function computeSum() { return 2; }
     let json = assert_valid_json(&output, "exact match");
 
     let output_str = serde_json::to_string(&json).unwrap_or_default();
-    assert!(output_str.contains("calculateTotal"), "Exact match should be found");
+    assert!(
+        output_str.contains("calculateTotal"),
+        "Exact match should be found"
+    );
 }
 
 #[test]
 fn test_levenshtein_typo_suggestion() {
     let repo = TestRepo::new();
-    repo.add_file("src/main.ts", r#"
+    repo.add_file(
+        "src/main.ts",
+        r#"
 export function processData() { return 1; }
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     // Search with typo - should still find via fuzzy matching
@@ -440,62 +520,83 @@ export function processData() { return 1; }
 #[test]
 fn test_parse_typescript_function() {
     let repo = TestRepo::new();
-    repo.add_file("src/main.ts", r#"
+    repo.add_file(
+        "src/main.ts",
+        r#"
 export function greet(name: string): string {
     return `Hello, ${name}!`;
 }
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     let output = repo.run_cli_success(&["search", "greet", "--format", "json"]);
     let json = assert_valid_json(&output, "parse ts function");
 
     let output_str = serde_json::to_string(&json).unwrap_or_default();
-    assert!(output_str.contains("greet"), "Should parse and find TypeScript function");
+    assert!(
+        output_str.contains("greet"),
+        "Should parse and find TypeScript function"
+    );
 }
 
 #[test]
 fn test_parse_rust_function() {
     let repo = TestRepo::new();
-    repo.add_file("src/lib.rs", r#"
+    repo.add_file(
+        "src/lib.rs",
+        r#"
 pub fn process(input: &str) -> String {
     input.to_uppercase()
 }
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     let output = repo.run_cli_success(&["search", "process", "--format", "json"]);
     let json = assert_valid_json(&output, "parse rust function");
 
     let output_str = serde_json::to_string(&json).unwrap_or_default();
-    assert!(output_str.contains("process"), "Should parse and find Rust function");
+    assert!(
+        output_str.contains("process"),
+        "Should parse and find Rust function"
+    );
 }
 
 #[test]
 fn test_parse_python_function() {
     let repo = TestRepo::new();
-    repo.add_file("src/main.py", r#"
+    repo.add_file(
+        "src/main.py",
+        r#"
 def calculate(x: int, y: int) -> int:
     """Calculate sum of two numbers."""
     return x + y
-"#);
+"#,
+    );
     repo.generate_index().expect("Index generation failed");
 
     let output = repo.run_cli_success(&["search", "calculate", "--format", "json"]);
     let json = assert_valid_json(&output, "parse python function");
 
     let output_str = serde_json::to_string(&json).unwrap_or_default();
-    assert!(output_str.contains("calculate"), "Should parse and find Python function");
+    assert!(
+        output_str.contains("calculate"),
+        "Should parse and find Python function"
+    );
 }
 
 #[test]
 fn test_parse_invalid_syntax_graceful() {
     let repo = TestRepo::new();
     // Invalid TypeScript syntax
-    repo.add_file("src/broken.ts", r#"
+    repo.add_file(
+        "src/broken.ts",
+        r#"
 export function incomplete(
     // Missing closing brace and parameter
-"#);
+"#,
+    );
     repo.add_file("src/valid.ts", "export function valid() { return 1; }");
 
     // Should not crash, should still index valid file
@@ -507,5 +608,9 @@ export function incomplete(
 
     // At minimum, should process both files (even if one fails to parse)
     // The broken file is still "processed" even if no symbols extracted
-    assert!(files >= 1, "Should process files despite broken syntax: {:?}", json);
+    assert!(
+        files >= 1,
+        "Should process files despite broken syntax: {:?}",
+        json
+    );
 }

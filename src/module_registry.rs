@@ -293,11 +293,7 @@ mod tests {
         let mut reg = ModuleRegistrySqlite::open(&cache).unwrap();
 
         // First insert
-        let entries1 = vec![(
-            "src.old".to_string(),
-            "old".to_string(),
-            "".to_string(),
-        )];
+        let entries1 = vec![("src.old".to_string(), "old".to_string(), "".to_string())];
         reg.bulk_insert(&entries1, 1).unwrap();
         assert_eq!(reg.get_module_count(), 1);
         assert!(reg.has_short_name("old"));

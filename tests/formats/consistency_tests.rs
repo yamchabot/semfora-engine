@@ -6,6 +6,9 @@
 //! - Text format readability
 //! - Cross-format data equivalence
 
+#![allow(unused_variables)]
+#![allow(clippy::len_zero)]
+
 use crate::common::{assert_valid_json, TestRepo};
 
 // ============================================================================
@@ -204,7 +207,10 @@ fn test_text_validity_analyze() {
 
     let output = repo.run_cli_success(&["analyze", "src/main.ts", "-f", "text"]);
 
-    assert!(!output.is_empty(), "Text analyze output should not be empty");
+    assert!(
+        !output.is_empty(),
+        "Text analyze output should not be empty"
+    );
 }
 
 /// Test text output for search
@@ -393,8 +399,14 @@ fn test_formats_query_languages() {
         has_lang(&json) || json_parsed.is_array(),
         "JSON should list languages"
     );
-    assert!(has_lang(&toon) || !toon.is_empty(), "TOON should list languages");
-    assert!(has_lang(&text) || !text.is_empty(), "Text should list languages");
+    assert!(
+        has_lang(&toon) || !toon.is_empty(),
+        "TOON should list languages"
+    );
+    assert!(
+        has_lang(&text) || !text.is_empty(),
+        "Text should list languages"
+    );
 }
 
 /// Test all formats work with validate file

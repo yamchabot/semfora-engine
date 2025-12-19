@@ -37,8 +37,14 @@ fn run_hybrid_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String> 
     // Try to get semantic matches
     let semantic_results = get_semantic_matches(&cache, args);
 
-    let symbol_count = symbol_results.as_ref().map(|r| r.results.len()).unwrap_or(0);
-    let related_count = semantic_results.as_ref().map(|r| r.results.len()).unwrap_or(0);
+    let symbol_count = symbol_results
+        .as_ref()
+        .map(|r| r.results.len())
+        .unwrap_or(0);
+    let related_count = semantic_results
+        .as_ref()
+        .map(|r| r.results.len())
+        .unwrap_or(0);
 
     // Generate contextual hint for AI based on what was found
     let hint: Option<&str> = match (symbol_count > 0, related_count > 0) {
@@ -52,9 +58,18 @@ fn run_hybrid_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String> 
     let empty_symbols: Vec<SymbolEntry> = vec![];
     let empty_semantic: Vec<SemanticEntry> = vec![];
     let empty_suggestions: Vec<String> = vec![];
-    let symbol_matches = symbol_results.as_ref().map(|r| &r.results).unwrap_or(&empty_symbols);
-    let related_code = semantic_results.as_ref().map(|r| &r.results).unwrap_or(&empty_semantic);
-    let suggestions = semantic_results.as_ref().map(|r| &r.suggestions).unwrap_or(&empty_suggestions);
+    let symbol_matches = symbol_results
+        .as_ref()
+        .map(|r| &r.results)
+        .unwrap_or(&empty_symbols);
+    let related_code = semantic_results
+        .as_ref()
+        .map(|r| &r.results)
+        .unwrap_or(&empty_semantic);
+    let suggestions = semantic_results
+        .as_ref()
+        .map(|r| &r.suggestions)
+        .unwrap_or(&empty_suggestions);
 
     // Dynamic field ordering: show non-empty results first
     let json_value = if symbol_count > 0 || related_count == 0 {
@@ -114,7 +129,10 @@ fn run_hybrid_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String> 
                         ));
                         if ctx.verbose {
                             output.push_str(&format!("  hash: {}\n", entry.hash));
-                            output.push_str(&format!("  module: {} | risk: {}\n", entry.module, entry.risk));
+                            output.push_str(&format!(
+                                "  module: {} | risk: {}\n",
+                                entry.module, entry.risk
+                            ));
                         }
                     }
                 }
@@ -173,7 +191,9 @@ fn run_hybrid_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String> 
                 // Show source for top symbol matches
                 if let Some(ref results) = symbol_results {
                     for entry in results.results.iter().take(3) {
-                        if let Some(source) = get_source_snippet(&cache, &entry.file, &entry.lines, 2) {
+                        if let Some(source) =
+                            get_source_snippet(&cache, &entry.file, &entry.lines, 2)
+                        {
                             output.push_str(&format!("\n## {} ({})\n", entry.symbol, entry.kind));
                             output.push_str(&format!("# {}:{}\n", entry.file, entry.lines));
                             output.push_str(&source);
@@ -355,7 +375,10 @@ fn run_semantic_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String
                 output.push_str(&format!("module: {}\n", result.module));
                 output.push_str(&format!("risk: {}\n", result.risk));
                 output.push_str(&format!("score: {:.3}\n", result.score));
-                output.push_str(&format!("matched_terms: {}\n", result.matched_terms.join(", ")));
+                output.push_str(&format!(
+                    "matched_terms: {}\n",
+                    result.matched_terms.join(", ")
+                ));
 
                 if args.include_source {
                     if let Some(source) = get_source_snippet(&cache, &result.file, &result.lines, 2)
@@ -676,12 +699,7 @@ fn extract_symbol_name(content: &str) -> String {
 }
 
 /// Get source code snippet for a symbol
-fn get_source_snippet(
-    cache: &CacheDir,
-    file: &str,
-    lines: &str,
-    context: usize,
-) -> Option<String> {
+fn get_source_snippet(cache: &CacheDir, file: &str, lines: &str, context: usize) -> Option<String> {
     // Parse line range
     let parts: Vec<&str> = lines.split('-').collect();
     let start: usize = parts.first()?.parse().ok()?;

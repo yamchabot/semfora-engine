@@ -5,6 +5,8 @@
 //! - `cache clear` - Clear the cache for the current directory
 //! - `cache prune --days N` - Prune caches older than N days
 
+#![allow(unused_imports)]
+
 use crate::common::{assert_contains, assert_valid_json, TestRepo};
 
 // ============================================================================

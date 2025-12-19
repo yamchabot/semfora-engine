@@ -14,9 +14,7 @@ pub const MAX_FALLBACK_LEN: usize = 1000;
 
 /// Get text content of a node
 pub fn get_node_text(node: &Node, source: &str) -> String {
-    node.utf8_text(source.as_bytes())
-        .unwrap_or("")
-        .to_string()
+    node.utf8_text(source.as_bytes()).unwrap_or("").to_string()
 }
 
 /// Get text content of a node, normalized to single line (collapse whitespace)
@@ -43,24 +41,24 @@ where
 {
     let mut cursor = node.walk();
     let mut did_visit_children = false;
-    
+
     loop {
         if !did_visit_children {
             visitor(&cursor.node());
-            
+
             // Try to go to first child
             if cursor.goto_first_child() {
                 did_visit_children = false;
                 continue;
             }
         }
-        
+
         // Try to go to next sibling
         if cursor.goto_next_sibling() {
             did_visit_children = false;
             continue;
         }
-        
+
         // Go back to parent
         if !cursor.goto_parent() {
             break; // Reached the root, we're done
@@ -79,17 +77,21 @@ where
     let mut cursor = node.walk();
     let mut depth_stack: Vec<usize> = vec![0]; // Track depth at each level
     let mut did_visit_children = false;
-    
+
     loop {
         if !did_visit_children {
             let current_depth = *depth_stack.last().unwrap_or(&0);
             let current_node = cursor.node();
             visitor(&current_node, current_depth);
-            
+
             // Calculate depth for children
             let is_control_flow = control_flow_kinds.contains(&current_node.kind());
-            let child_depth = if is_control_flow { current_depth + 1 } else { current_depth };
-            
+            let child_depth = if is_control_flow {
+                current_depth + 1
+            } else {
+                current_depth
+            };
+
             // Try to go to first child
             if cursor.goto_first_child() {
                 depth_stack.push(child_depth);
@@ -97,13 +99,13 @@ where
                 continue;
             }
         }
-        
+
         // Try to go to next sibling
         if cursor.goto_next_sibling() {
             did_visit_children = false;
             continue;
         }
-        
+
         // Go back to parent
         if !cursor.goto_parent() {
             break; // Reached the root, we're done
@@ -202,9 +204,8 @@ pub fn compress_initializer(init: &str) -> String {
 /// Reorder insertions to put state hooks last (per spec)
 pub fn reorder_insertions(insertions: &mut Vec<String>) {
     // Separate state hook insertions from others
-    let (state_hooks, others): (Vec<_>, Vec<_>) = insertions
-        .drain(..)
-        .partition(|s| s.contains("state via"));
+    let (state_hooks, others): (Vec<_>, Vec<_>) =
+        insertions.drain(..).partition(|s| s.contains("state via"));
 
     // Put UI structure first, state hooks last
     insertions.extend(others);

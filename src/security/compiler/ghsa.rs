@@ -136,14 +136,21 @@ impl GhsaClient {
             let response = self
                 .client
                 .post("https://api.github.com/graphql")
-                .header("Authorization", format!("Bearer {}", self.token.as_ref().unwrap()))
+                .header(
+                    "Authorization",
+                    format!("Bearer {}", self.token.as_ref().unwrap()),
+                )
                 .header("User-Agent", "semfora-security-compiler")
                 .json(&serde_json::json!({ "query": query }))
                 .send()
                 .await?;
 
             if !response.status().is_success() {
-                tracing::warn!("GHSA API returned {}: {}", response.status(), response.text().await?);
+                tracing::warn!(
+                    "GHSA API returned {}: {}",
+                    response.status(),
+                    response.text().await?
+                );
                 break;
             }
 
@@ -182,17 +189,15 @@ impl GhsaClient {
                 found_matching += 1;
 
                 // Extract CVE ID from identifiers
-                let cve_id = node["identifiers"]
-                    .as_array()
-                    .and_then(|ids| {
-                        ids.iter().find_map(|id| {
-                            if id["type"].as_str() == Some("CVE") {
-                                id["value"].as_str().map(String::from)
-                            } else {
-                                None
-                            }
-                        })
-                    });
+                let cve_id = node["identifiers"].as_array().and_then(|ids| {
+                    ids.iter().find_map(|id| {
+                        if id["type"].as_str() == Some("CVE") {
+                            id["value"].as_str().map(String::from)
+                        } else {
+                            None
+                        }
+                    })
+                });
 
                 // Extract references
                 let references: Vec<String> = node["references"]
@@ -205,7 +210,8 @@ impl GhsaClient {
                     .unwrap_or_default();
 
                 // Find fix commit URL from references (prioritize commit over PR)
-                let fix_commit = references.iter()
+                let fix_commit = references
+                    .iter()
                     .find(|r| r.contains("/commit/"))
                     .or_else(|| references.iter().find(|r| r.contains("/pull/")))
                     .cloned();
@@ -232,7 +238,10 @@ impl GhsaClient {
 
             tracing::debug!(
                 "Page {}: {} advisories, {} matching {}",
-                page, nodes.len(), found_matching, cwe
+                page,
+                nodes.len(),
+                found_matching,
+                cwe
             );
 
             // Check if there are more pages
@@ -322,8 +331,16 @@ impl GhsaClient {
         let response = self
             .client
             .get("https://api.github.com/search/commits")
-            .query(&[("q", &query), ("sort", &"committer-date".to_string()), ("order", &"desc".to_string()), ("per_page", &"10".to_string())])
-            .header("Authorization", format!("Bearer {}", self.token.as_ref().unwrap()))
+            .query(&[
+                ("q", &query),
+                ("sort", &"committer-date".to_string()),
+                ("order", &"desc".to_string()),
+                ("per_page", &"10".to_string()),
+            ])
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.token.as_ref().unwrap()),
+            )
             .header("User-Agent", "semfora-security-compiler")
             .header("Accept", "application/vnd.github.cloak-preview+json") // Required for commit search
             .send()
@@ -369,7 +386,8 @@ impl GhsaClient {
                         if let Some(commit_url) = commits.first() {
                             tracing::debug!(
                                 "Found commit {} for {} via search",
-                                commit_url, cve_id
+                                commit_url,
+                                cve_id
                             );
                             advisory.fix_commit = Some(commit_url.clone());
                             enhanced += 1;
@@ -385,7 +403,8 @@ impl GhsaClient {
         if enhanced > 0 {
             tracing::info!(
                 "Enhanced {} advisories with commits via search for {}",
-                enhanced, cwe
+                enhanced,
+                cwe
             );
         }
 

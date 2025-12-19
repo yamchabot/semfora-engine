@@ -37,7 +37,9 @@ pub fn enhance(summary: &mut SemanticSummary, root: &Node, source: &str) {
 // =============================================================================
 
 /// HTTP methods supported by Express
-const HTTP_METHODS: &[&str] = &["get", "post", "put", "delete", "patch", "options", "head", "all"];
+const HTTP_METHODS: &[&str] = &[
+    "get", "post", "put", "delete", "patch", "options", "head", "all",
+];
 
 /// Extract Express route handlers
 ///
@@ -92,7 +94,8 @@ fn extract_route_info(node: &Node, source: &str) -> Option<(String, String)> {
         if HTTP_METHODS.contains(&method.as_str()) {
             // Extract the path from arguments
             if let Some(args) = node.child_by_field_name("arguments") {
-                if let Some(first_arg) = args.child(1) { // Skip '('
+                if let Some(first_arg) = args.child(1) {
+                    // Skip '('
                     let path = get_node_text(&first_arg, source);
                     let path = path.trim_matches('"').trim_matches('\'').trim_matches('`');
                     return Some((method, path.to_string()));
@@ -244,11 +247,7 @@ fn detect_common_patterns(summary: &mut SemanticSummary, source: &str) {
 
     // CORS
     if source.contains("cors(") || source.contains("cors()") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "CORS enabled".to_string(),
-            "CORS",
-        );
+        push_unique_insertion(&mut summary.insertions, "CORS enabled".to_string(), "CORS");
     }
 
     // Helmet security
@@ -362,7 +361,9 @@ mod tests {
 
     #[test]
     fn test_is_middleware_file() {
-        assert!(is_middleware_file("module.exports = (req, res, next) => { next(); }"));
+        assert!(is_middleware_file(
+            "module.exports = (req, res, next) => { next(); }"
+        ));
         assert!(!is_middleware_file("const handler = (data) => data;"));
     }
 }

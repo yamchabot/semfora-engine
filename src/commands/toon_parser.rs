@@ -83,7 +83,10 @@ pub fn parse_toon_to_json(content: &str) -> Value {
                 if let Some(brace_pos) = rest.find('{') {
                     if let Some(brace_end) = rest.find('}') {
                         let fields_str = &rest[brace_pos + 1..brace_end];
-                        let fields: Vec<String> = fields_str.split(',').map(|s| s.trim().to_string()).collect();
+                        let fields: Vec<String> = fields_str
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .collect();
                         current_table = Some((base_key.to_string(), fields, Vec::new()));
                         i += 1;
                         continue;
@@ -349,6 +352,7 @@ fn get_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
 }
 
 /// Get string with default
+#[allow(dead_code)]
 trait GetStrExt {
     fn to_string(self) -> String;
     fn unwrap_or(self, default: &str) -> String;
@@ -360,7 +364,8 @@ impl GetStrExt for Option<&str> {
     }
 
     fn unwrap_or(self, default: &str) -> String {
-        self.map(|s| s.to_string()).unwrap_or_else(|| default.to_string())
+        self.map(|s| s.to_string())
+            .unwrap_or_else(|| default.to_string())
     }
 }
 

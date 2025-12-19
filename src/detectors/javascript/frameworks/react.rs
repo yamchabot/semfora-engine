@@ -78,10 +78,9 @@ fn extract_hook_state(summary: &mut SemanticSummary, node: &Node, func_name: &st
                                 initializer: init,
                             });
 
-                            summary.insertions.push(format!(
-                                "local {} state via {}",
-                                state_name, func_name
-                            ));
+                            summary
+                                .insertions
+                                .push(format!("local {} state via {}", state_name, func_name));
                             break;
                         }
                     }
@@ -448,7 +447,12 @@ pub fn extract_jsx_insertions(summary: &mut SemanticSummary, root: &Node, source
     // This captures component usage like <Button />, <Header>, <Icons.Home />
     for tag_name in &jsx_tags {
         // Only capture PascalCase names (React components, not HTML elements)
-        if tag_name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        if tag_name
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
             // Only add if not already present
             if !summary.calls.iter().any(|c| c.name == *tag_name) {
                 summary.calls.push(Call {
@@ -514,9 +518,15 @@ fn detect_route_links(jsx_tags: &[String], summary: &mut SemanticSummary) {
 }
 
 /// Detect dropdown menu pattern
-fn detect_dropdown_pattern(jsx_tags: &[String], has_conditional: bool, summary: &mut SemanticSummary) {
+fn detect_dropdown_pattern(
+    jsx_tags: &[String],
+    has_conditional: bool,
+    summary: &mut SemanticSummary,
+) {
     if jsx_tags.iter().any(|t| t == "button" || t == "Button")
-        && jsx_tags.iter().any(|t| t == "div" || t == "menu" || t == "Menu")
+        && jsx_tags
+            .iter()
+            .any(|t| t == "div" || t == "menu" || t == "Menu")
         && has_conditional
     {
         push_unique_insertion(
@@ -547,7 +557,10 @@ fn detect_form_pattern(jsx_tags: &[String], summary: &mut SemanticSummary) {
 
 /// Detect list rendering pattern
 fn detect_list_pattern(jsx_tags: &[String], summary: &mut SemanticSummary) {
-    let list_items = jsx_tags.iter().filter(|t| *t == "li" || *t == "ListItem").count();
+    let list_items = jsx_tags
+        .iter()
+        .filter(|t| *t == "li" || *t == "ListItem")
+        .count();
     if list_items > 0 {
         if jsx_tags.iter().any(|t| t == "ul" || t == "ol") {
             push_unique_insertion(
@@ -679,7 +692,10 @@ mod tests {
         extract_effect_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("effect on mount")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("effect on mount")),
             "Should detect effect on mount, got: {:?}",
             summary.insertions
         );
@@ -700,7 +716,10 @@ mod tests {
         extract_effect_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("effect on [id]")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("effect on [id]")),
             "Should detect effect with dependency, got: {:?}",
             summary.insertions
         );
@@ -721,7 +740,10 @@ mod tests {
         extract_effect_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("effect on every render")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("effect on every render")),
             "Should detect effect on every render, got: {:?}",
             summary.insertions
         );
@@ -764,7 +786,10 @@ mod tests {
         extract_effect_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("layout effect")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("layout effect")),
             "Should detect layout effect, got: {:?}",
             summary.insertions
         );
@@ -783,7 +808,10 @@ mod tests {
         extract_memo_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("memoized") && i.contains("filtered")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("memoized") && i.contains("filtered")),
             "Should detect memoized value with name, got: {:?}",
             summary.insertions
         );
@@ -804,7 +832,10 @@ mod tests {
         extract_callback_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("memoized callback") && i.contains("handleClick")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("memoized callback") && i.contains("handleClick")),
             "Should detect memoized callback with name, got: {:?}",
             summary.insertions
         );
@@ -823,7 +854,10 @@ mod tests {
         extract_ref_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("ref:") && i.contains("inputRef")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("ref:") && i.contains("inputRef")),
             "Should detect DOM ref, got: {:?}",
             summary.insertions
         );
@@ -842,7 +876,10 @@ mod tests {
         extract_ref_hooks(&mut summary, &tree.root_node(), source);
 
         assert!(
-            summary.insertions.iter().any(|i| i.contains("mutable ref") && i.contains("countRef")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("mutable ref") && i.contains("countRef")),
             "Should detect mutable ref, got: {:?}",
             summary.insertions
         );
@@ -882,35 +919,50 @@ mod tests {
 
         // Check for useState
         assert!(
-            summary.insertions.iter().any(|i| i.contains("local count state")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("local count state")),
             "Should extract useState, got: {:?}",
             summary.insertions
         );
 
         // Check for useEffect
         assert!(
-            summary.insertions.iter().any(|i| i.contains("effect on [id]")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("effect on [id]")),
             "Should extract useEffect, got: {:?}",
             summary.insertions
         );
 
         // Check for useMemo
         assert!(
-            summary.insertions.iter().any(|i| i.contains("memoized") && i.contains("doubled")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("memoized") && i.contains("doubled")),
             "Should extract useMemo, got: {:?}",
             summary.insertions
         );
 
         // Check for useCallback
         assert!(
-            summary.insertions.iter().any(|i| i.contains("memoized callback")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("memoized callback")),
             "Should extract useCallback, got: {:?}",
             summary.insertions
         );
 
         // Check for useRef
         assert!(
-            summary.insertions.iter().any(|i| i.contains("ref") && i.contains("inputRef")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("ref") && i.contains("inputRef")),
             "Should extract useRef, got: {:?}",
             summary.insertions
         );

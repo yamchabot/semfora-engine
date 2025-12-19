@@ -158,7 +158,7 @@ pub enum BoilerplateCategory {
     // C# Patterns
     // =========================================================================
     // ASP.NET Core
-    /// ASP.NET Controller action methods ([HttpGet], [HttpPost], IActionResult)
+    /// ASP.NET Controller action methods (\[HttpGet\], \[HttpPost\], IActionResult)
     AspNetController,
     /// ASP.NET Minimal API endpoints (app.MapGet, app.MapPost)
     AspNetMinimalApi,
@@ -178,9 +178,9 @@ pub enum BoilerplateCategory {
     EFMigration,
 
     // Testing
-    /// xUnit test methods ([Fact], [Theory])
+    /// xUnit test methods (\[Fact\], \[Theory\])
     XUnitTest,
-    /// NUnit test methods ([Test], [TestCase])
+    /// NUnit test methods (\[Test\], \[TestCase\])
     NUnitTest,
     /// Moq mock setup patterns
     MoqSetup,
@@ -194,7 +194,7 @@ pub enum BoilerplateCategory {
     // Unity
     /// Unity MonoBehaviour lifecycle methods (Start, Update, Awake)
     UnityLifecycle,
-    /// Unity [SerializeField] field patterns
+    /// Unity \[SerializeField\] field patterns
     UnitySerializedField,
     /// Unity ScriptableObject configs (CreateAssetMenu)
     UnityScriptableObject,
@@ -1047,7 +1047,11 @@ mod tests {
         let patterns: Vec<_> = all_patterns().collect();
 
         // Should have patterns from both JS and Rust modules
-        assert!(patterns.iter().any(|p| p.category == BoilerplateCategory::ReactQuery));
-        assert!(patterns.iter().any(|p| p.category == BoilerplateCategory::RustTest));
+        assert!(patterns
+            .iter()
+            .any(|p| p.category == BoilerplateCategory::ReactQuery));
+        assert!(patterns
+            .iter()
+            .any(|p| p.category == BoilerplateCategory::RustTest));
     }
 }

@@ -124,11 +124,7 @@ impl DriftStatus {
 
     /// Add merge-base information (for branch layers)
     #[must_use]
-    pub fn with_merge_base(
-        mut self,
-        indexed: Option<String>,
-        current: Option<String>,
-    ) -> Self {
+    pub fn with_merge_base(mut self, indexed: Option<String>, current: Option<String>) -> Self {
         self.merge_base_changed = match (&indexed, &current) {
             (Some(i), Some(c)) => i != c,
             (None, Some(_)) => true,
@@ -361,10 +357,8 @@ impl DriftDetector {
 
         // Same SHA and merge-base = fresh
         if indexed_sha == current_sha && !merge_base_changed {
-            return Ok(DriftStatus::fresh(indexed_sha.to_string(), current_sha).with_merge_base(
-                stored_merge_base.map(String::from),
-                current_merge_base,
-            ));
+            return Ok(DriftStatus::fresh(indexed_sha.to_string(), current_sha)
+                .with_merge_base(stored_merge_base.map(String::from), current_merge_base));
         }
 
         // Get changed files
@@ -548,7 +542,10 @@ mod tests {
         assert_eq!(drift.current_sha.as_deref(), Some(new_sha.as_str()));
         assert!(!drift.changed_files.is_empty(), "Should have changed files");
         assert!(
-            drift.changed_files.iter().any(|p| p.ends_with("new_file.rs")),
+            drift
+                .changed_files
+                .iter()
+                .any(|p| p.ends_with("new_file.rs")),
             "Should include new_file.rs in changed files"
         );
     }
@@ -785,9 +782,7 @@ mod tests {
         let dir = setup_git_repo();
 
         let detector = DriftDetector::with_file_count(dir.path().to_path_buf(), 100);
-        let drift = detector
-            .check_drift(LayerKind::Base, None, None)
-            .unwrap();
+        let drift = detector.check_drift(LayerKind::Base, None, None).unwrap();
 
         assert!(drift.is_stale);
         assert!(drift.indexed_sha.is_none());
@@ -802,9 +797,7 @@ mod tests {
         let dir = setup_git_repo();
 
         let detector = DriftDetector::new(dir.path().to_path_buf());
-        let drift = detector
-            .check_drift(LayerKind::AI, None, None)
-            .unwrap();
+        let drift = detector.check_drift(LayerKind::AI, None, None).unwrap();
 
         assert!(!drift.is_stale, "AI layer should always be fresh");
     }
@@ -825,9 +818,11 @@ mod tests {
             .description()
             .contains("1 file"));
         // Plural "files" for multiple files
-        assert!(UpdateStrategy::Incremental(vec![PathBuf::from("a.rs"), PathBuf::from("b.rs")])
-            .description()
-            .contains("2 files"));
+        assert!(
+            UpdateStrategy::Incremental(vec![PathBuf::from("a.rs"), PathBuf::from("b.rs")])
+                .description()
+                .contains("2 files")
+        );
         assert_eq!(UpdateStrategy::Rebase.description(), "Rebase overlay");
         assert_eq!(
             UpdateStrategy::FullRebuild.description(),

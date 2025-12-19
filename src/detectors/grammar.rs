@@ -140,10 +140,11 @@ pub struct LangGrammar {
 /// Go: uppercase first letter = exported
 pub fn go_is_exported(node: &Node, source: &str) -> bool {
     if let Some(name_node) = node.child_by_field_name("name") {
-        let name = name_node
-            .utf8_text(source.as_bytes())
-            .unwrap_or("");
-        name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+        let name = name_node.utf8_text(source.as_bytes()).unwrap_or("");
+        name.chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
     } else {
         false
     }
@@ -164,9 +165,7 @@ pub fn rust_is_exported(node: &Node, source: &str) -> bool {
 /// Python: no underscore prefix = public
 pub fn python_is_exported(node: &Node, source: &str) -> bool {
     if let Some(name_node) = node.child_by_field_name("name") {
-        let name = name_node
-            .utf8_text(source.as_bytes())
-            .unwrap_or("");
+        let name = name_node.utf8_text(source.as_bytes()).unwrap_or("");
         !name.starts_with('_')
     } else {
         true
@@ -280,7 +279,7 @@ pub static RUST_GRAMMAR: LangGrammar = LangGrammar {
 pub static GO_GRAMMAR: LangGrammar = LangGrammar {
     name: "go",
     function_nodes: &["function_declaration", "method_declaration"],
-    class_nodes: &[], // Go uses struct_type inside type_declaration
+    class_nodes: &[],     // Go uses struct_type inside type_declaration
     interface_nodes: &[], // Go uses interface_type inside type_declaration
     enum_nodes: &[],
     control_flow_nodes: &[
@@ -343,8 +342,16 @@ pub static JAVA_GRAMMAR: LangGrammar = LangGrammar {
 
 pub static CSHARP_GRAMMAR: LangGrammar = LangGrammar {
     name: "csharp",
-    function_nodes: &["method_declaration", "constructor_declaration", "local_function_statement"],
-    class_nodes: &["class_declaration", "struct_declaration", "record_declaration"],
+    function_nodes: &[
+        "method_declaration",
+        "constructor_declaration",
+        "local_function_statement",
+    ],
+    class_nodes: &[
+        "class_declaration",
+        "struct_declaration",
+        "record_declaration",
+    ],
     interface_nodes: &["interface_declaration"],
     enum_nodes: &["enum_declaration"],
     control_flow_nodes: &[
@@ -357,7 +364,11 @@ pub static CSHARP_GRAMMAR: LangGrammar = LangGrammar {
         "switch_expression", // C# 8+ pattern matching switch
     ],
     try_nodes: &["try_statement"],
-    var_declaration_nodes: &["local_declaration_statement", "field_declaration", "property_declaration"],
+    var_declaration_nodes: &[
+        "local_declaration_statement",
+        "field_declaration",
+        "property_declaration",
+    ],
     assignment_nodes: &["assignment_expression"],
     call_nodes: &["invocation_expression"],
     await_nodes: &["await_expression"],
@@ -379,7 +390,7 @@ pub static PYTHON_GRAMMAR: LangGrammar = LangGrammar {
     function_nodes: &["function_definition"],
     class_nodes: &["class_definition"],
     interface_nodes: &[], // Python uses ABC, not interfaces
-    enum_nodes: &[], // Python enums are classes
+    enum_nodes: &[],      // Python enums are classes
     control_flow_nodes: &[
         "if_statement",
         "for_statement",

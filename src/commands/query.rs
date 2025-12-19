@@ -11,10 +11,17 @@ use crate::error::{McpDiffError, Result};
 /// Run the query command
 pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
     match &args.query_type {
-        QueryType::Overview { modules, max_modules } => {
-            run_overview(*modules, *max_modules, ctx)
-        }
-        QueryType::Module { name, symbols, kind, risk, limit } => {
+        QueryType::Overview {
+            modules,
+            max_modules,
+        } => run_overview(*modules, *max_modules, ctx),
+        QueryType::Module {
+            name,
+            symbols,
+            kind,
+            risk,
+            limit,
+        } => {
             if *symbols {
                 run_list_module_symbols(name, kind.as_deref(), risk.as_deref(), *limit, ctx)
             } else {
@@ -22,15 +29,33 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             }
         }
         QueryType::Symbol { hash, source } => run_get_symbol(hash, *source, ctx),
-        QueryType::Source { file, start, end, hash, context } => {
-            run_get_source(file, *start, *end, hash.as_deref(), *context, ctx)
-        }
-        QueryType::Callers { hash, depth, source, limit } => {
-            run_get_callers(hash, *depth, *source, *limit, ctx)
-        }
-        QueryType::Callgraph { module, symbol, export, stats_only, limit } => {
-            run_get_callgraph(module.as_deref(), symbol.as_deref(), export.as_deref(), *stats_only, *limit, ctx)
-        }
+        QueryType::Source {
+            file,
+            start,
+            end,
+            hash,
+            context,
+        } => run_get_source(file, *start, *end, hash.as_deref(), *context, ctx),
+        QueryType::Callers {
+            hash,
+            depth,
+            source,
+            limit,
+        } => run_get_callers(hash, *depth, *source, *limit, ctx),
+        QueryType::Callgraph {
+            module,
+            symbol,
+            export,
+            stats_only,
+            limit,
+        } => run_get_callgraph(
+            module.as_deref(),
+            symbol.as_deref(),
+            export.as_deref(),
+            *stats_only,
+            *limit,
+            ctx,
+        ),
         QueryType::File { path, source, kind } => {
             run_file_symbols(path, *source, kind.as_deref(), ctx)
         }
@@ -153,11 +178,17 @@ fn toon_to_json_overview(content: &str) -> serde_json::Value {
             // Skip, already added
         } else if line.starts_with("schema_version:") {
             if let Some(val) = line.strip_prefix("schema_version:") {
-                result.insert("schema_version".to_string(), serde_json::json!(val.trim().trim_matches('"')));
+                result.insert(
+                    "schema_version".to_string(),
+                    serde_json::json!(val.trim().trim_matches('"')),
+                );
             }
         } else if line.starts_with("framework:") {
             if let Some(val) = line.strip_prefix("framework:") {
-                result.insert("framework".to_string(), serde_json::json!(val.trim().trim_matches('"')));
+                result.insert(
+                    "framework".to_string(),
+                    serde_json::json!(val.trim().trim_matches('"')),
+                );
             }
         } else if line.starts_with("patterns[") {
             // Parse patterns array
@@ -222,10 +253,27 @@ fn run_get_module(name: &str, ctx: &CommandContext) -> Result<String> {
             if let Some(symbols) = cached.json.get("symbols").and_then(|s| s.as_array()) {
                 output.push_str(&format!("symbols[{}]:\n", symbols.len()));
                 for sym in symbols.iter().take(50) {
-                    let sym_name = sym.get("symbol").or_else(|| sym.get("s")).or_else(|| sym.get("name")).and_then(|s| s.as_str()).unwrap_or("?");
-                    let kind = sym.get("kind").or_else(|| sym.get("k")).and_then(|k| k.as_str()).unwrap_or("?");
-                    let file = sym.get("file").or_else(|| sym.get("f")).and_then(|f| f.as_str()).unwrap_or("?");
-                    let lines = sym.get("lines").or_else(|| sym.get("l")).and_then(|l| l.as_str()).unwrap_or("?");
+                    let sym_name = sym
+                        .get("symbol")
+                        .or_else(|| sym.get("s"))
+                        .or_else(|| sym.get("name"))
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("?");
+                    let kind = sym
+                        .get("kind")
+                        .or_else(|| sym.get("k"))
+                        .and_then(|k| k.as_str())
+                        .unwrap_or("?");
+                    let file = sym
+                        .get("file")
+                        .or_else(|| sym.get("f"))
+                        .and_then(|f| f.as_str())
+                        .unwrap_or("?");
+                    let lines = sym
+                        .get("lines")
+                        .or_else(|| sym.get("l"))
+                        .and_then(|l| l.as_str())
+                        .unwrap_or("?");
                     output.push_str(&format!("  {} ({}) - {}:{}\n", sym_name, kind, file, lines));
                 }
             }
@@ -376,7 +424,9 @@ fn run_get_symbol(hash: &str, include_source: bool, ctx: &CommandContext) -> Res
                 output.push_str(&format!("risk: {}\n", symbol.risk));
 
                 if include_source {
-                    if let Some(source) = get_source_for_symbol(&cache, &symbol.file, &symbol.lines, 3) {
+                    if let Some(source) =
+                        get_source_for_symbol(&cache, &symbol.file, &symbol.lines, 3)
+                    {
                         output.push_str("\n__source__:\n");
                         output.push_str(&source);
                     }
@@ -471,7 +521,12 @@ fn run_get_source(
             output.push_str(&format!("range: {}-{}\n", actual_start, actual_end));
             output.push_str("---\n");
 
-            for (i, line) in lines.iter().enumerate().skip(start_with_ctx).take(end_with_ctx - start_with_ctx) {
+            for (i, line) in lines
+                .iter()
+                .enumerate()
+                .skip(start_with_ctx)
+                .take(end_with_ctx - start_with_ctx)
+            {
                 let line_num = i + 1;
                 let prefix = if line_num >= actual_start && line_num <= actual_end {
                     ">"
@@ -515,7 +570,8 @@ fn run_get_callers(
     for (caller, callees) in &call_graph {
         // Check if our target hash is in this caller's callee list
         let is_caller = callees.iter().any(|callee| {
-            callee.to_lowercase().contains(&hash_lower) || hash_lower.contains(&callee.to_lowercase())
+            callee.to_lowercase().contains(&hash_lower)
+                || hash_lower.contains(&callee.to_lowercase())
         });
         if is_caller {
             callers.push(caller.clone());
@@ -553,7 +609,9 @@ fn run_get_callers(
 
                 if include_source {
                     if let Some(symbol) = load_symbol_from_cache(&cache, caller)? {
-                        if let Some(source) = get_source_for_symbol(&cache, &symbol.file, &symbol.lines, 1) {
+                        if let Some(source) =
+                            get_source_for_symbol(&cache, &symbol.file, &symbol.lines, 1)
+                        {
                             output.push_str(&format!("    # {}:{}\n", symbol.file, symbol.lines));
                             for line in source.lines().take(5) {
                                 output.push_str(&format!("    {}\n", line));
@@ -686,7 +744,11 @@ fn run_get_callgraph(
             for (caller, callees) in &filtered_edges {
                 // Show caller -> [callees] format
                 let callees_str = if callees.len() > 3 {
-                    format!("[{}, ... +{} more]", callees[..3].join(", "), callees.len() - 3)
+                    format!(
+                        "[{}, ... +{} more]",
+                        callees[..3].join(", "),
+                        callees.len() - 3
+                    )
                 } else {
                     format!("[{}]", callees.join(", "))
                 };
@@ -723,7 +785,12 @@ fn run_export_sqlite(path: &str, cache: &CacheDir, _ctx: &CommandContext) -> Res
 }
 
 /// Get all symbols in a file
-fn run_file_symbols(path: &str, include_source: bool, kind_filter: Option<&str>, ctx: &CommandContext) -> Result<String> {
+fn run_file_symbols(
+    path: &str,
+    include_source: bool,
+    kind_filter: Option<&str>,
+    ctx: &CommandContext,
+) -> Result<String> {
     let repo_dir = std::env::current_dir().map_err(|e| McpDiffError::FileNotFound {
         path: format!("current directory: {}", e),
     })?;
@@ -795,7 +862,10 @@ fn run_list_languages(ctx: &CommandContext) -> Result<String> {
         ("Json", vec!["json"]),
         ("Yaml", vec!["yaml", "yml"]),
         ("Toml", vec!["toml"]),
-        ("Xml", vec!["xml", "xsd", "xsl", "xslt", "svg", "plist", "pom"]),
+        (
+            "Xml",
+            vec!["xml", "xsd", "xsl", "xslt", "svg", "plist", "pom"],
+        ),
         ("Hcl", vec!["tf", "hcl", "tfvars"]),
         ("Markdown", vec!["md", "markdown"]),
         ("Vue", vec!["vue"]),
@@ -845,14 +915,45 @@ fn run_list_languages(ctx: &CommandContext) -> Result<String> {
 /// Handles both full JSON keys and abbreviated TOON keys (s, h, k, f, l, r)
 fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> SymbolIndexEntry {
     SymbolIndexEntry {
-        symbol: sym.get("symbol").or_else(|| sym.get("s")).or_else(|| sym.get("name")).and_then(|s| s.as_str()).unwrap_or("?").to_string(),
-        hash: sym.get("hash").or_else(|| sym.get("h")).and_then(|h| h.as_str()).unwrap_or("").to_string(),
+        symbol: sym
+            .get("symbol")
+            .or_else(|| sym.get("s"))
+            .or_else(|| sym.get("name"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("?")
+            .to_string(),
+        hash: sym
+            .get("hash")
+            .or_else(|| sym.get("h"))
+            .and_then(|h| h.as_str())
+            .unwrap_or("")
+            .to_string(),
         semantic_hash: String::new(),
-        kind: sym.get("kind").or_else(|| sym.get("k")).and_then(|k| k.as_str()).unwrap_or("?").to_string(),
+        kind: sym
+            .get("kind")
+            .or_else(|| sym.get("k"))
+            .and_then(|k| k.as_str())
+            .unwrap_or("?")
+            .to_string(),
         module: module_name.to_string(),
-        file: sym.get("file").or_else(|| sym.get("f")).and_then(|f| f.as_str()).unwrap_or("?").to_string(),
-        lines: sym.get("lines").or_else(|| sym.get("l")).and_then(|l| l.as_str()).unwrap_or("?").to_string(),
-        risk: sym.get("risk").or_else(|| sym.get("r")).and_then(|r| r.as_str()).unwrap_or("low").to_string(),
+        file: sym
+            .get("file")
+            .or_else(|| sym.get("f"))
+            .and_then(|f| f.as_str())
+            .unwrap_or("?")
+            .to_string(),
+        lines: sym
+            .get("lines")
+            .or_else(|| sym.get("l"))
+            .and_then(|l| l.as_str())
+            .unwrap_or("?")
+            .to_string(),
+        risk: sym
+            .get("risk")
+            .or_else(|| sym.get("r"))
+            .and_then(|r| r.as_str())
+            .unwrap_or("low")
+            .to_string(),
         cognitive_complexity: sym.get("cc").and_then(|c| c.as_u64()).unwrap_or(0) as usize,
         max_nesting: sym.get("nest").and_then(|n| n.as_u64()).unwrap_or(0) as usize,
     }
@@ -875,14 +976,26 @@ fn load_symbol_from_cache(cache: &CacheDir, hash: &str) -> Result<Option<SymbolI
         for entry in fs::read_dir(&modules_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map(|e| e == "toon" || e == "json").unwrap_or(false) {
+            if path
+                .extension()
+                .map(|e| e == "toon" || e == "json")
+                .unwrap_or(false)
+            {
                 // Use toon_parser to handle both formats
                 if let Ok(cached) = read_cached_file(&path) {
                     if let Some(symbols) = cached.json.get("symbols").and_then(|s| s.as_array()) {
                         for sym in symbols {
-                            let sym_hash = sym.get("hash").or_else(|| sym.get("h")).and_then(|h| h.as_str()).unwrap_or("");
-                            if sym_hash == hash || sym_hash.contains(hash) || hash.contains(sym_hash) {
-                                let module_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+                            let sym_hash = sym
+                                .get("hash")
+                                .or_else(|| sym.get("h"))
+                                .and_then(|h| h.as_str())
+                                .unwrap_or("");
+                            if sym_hash == hash
+                                || sym_hash.contains(hash)
+                                || hash.contains(sym_hash)
+                            {
+                                let module_name =
+                                    path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
                                 return Ok(Some(symbol_from_json(sym, module_name)));
                             }
                         }
@@ -896,7 +1009,11 @@ fn load_symbol_from_cache(cache: &CacheDir, hash: &str) -> Result<Option<SymbolI
 }
 
 /// Find all symbols in a specific file
-fn find_symbols_in_file(cache: &CacheDir, file_path: &str, kind_filter: Option<&str>) -> Result<Vec<SymbolIndexEntry>> {
+fn find_symbols_in_file(
+    cache: &CacheDir,
+    file_path: &str,
+    kind_filter: Option<&str>,
+) -> Result<Vec<SymbolIndexEntry>> {
     let mut symbols = Vec::new();
 
     let modules_dir = cache.modules_dir();
@@ -907,15 +1024,30 @@ fn find_symbols_in_file(cache: &CacheDir, file_path: &str, kind_filter: Option<&
     for entry in fs::read_dir(&modules_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map(|e| e == "toon" || e == "json").unwrap_or(false) {
+        if path
+            .extension()
+            .map(|e| e == "toon" || e == "json")
+            .unwrap_or(false)
+        {
             // Use toon_parser to handle both formats
             if let Ok(cached) = read_cached_file(&path) {
                 if let Some(sym_array) = cached.json.get("symbols").and_then(|s| s.as_array()) {
                     let module_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
                     for sym in sym_array {
-                        let sym_file = sym.get("file").or_else(|| sym.get("f")).and_then(|f| f.as_str()).unwrap_or("");
-                        if sym_file == file_path || sym_file.ends_with(file_path) || file_path.ends_with(sym_file) {
-                            let kind = sym.get("kind").or_else(|| sym.get("k")).and_then(|k| k.as_str()).unwrap_or("?");
+                        let sym_file = sym
+                            .get("file")
+                            .or_else(|| sym.get("f"))
+                            .and_then(|f| f.as_str())
+                            .unwrap_or("");
+                        if sym_file == file_path
+                            || sym_file.ends_with(file_path)
+                            || file_path.ends_with(sym_file)
+                        {
+                            let kind = sym
+                                .get("kind")
+                                .or_else(|| sym.get("k"))
+                                .and_then(|k| k.as_str())
+                                .unwrap_or("?");
 
                             if let Some(kf) = kind_filter {
                                 if !kind.eq_ignore_ascii_case(kf) {
@@ -935,7 +1067,12 @@ fn find_symbols_in_file(cache: &CacheDir, file_path: &str, kind_filter: Option<&
 }
 
 /// Helper to get source for a symbol
-fn get_source_for_symbol(cache: &CacheDir, file: &str, lines: &str, context: usize) -> Option<String> {
+fn get_source_for_symbol(
+    cache: &CacheDir,
+    file: &str,
+    lines: &str,
+    context: usize,
+) -> Option<String> {
     let parts: Vec<&str> = lines.split('-').collect();
     let start: usize = parts.first()?.parse().ok()?;
     let end: usize = parts.get(1).unwrap_or(&parts[0]).parse().ok()?;
@@ -948,9 +1085,18 @@ fn get_source_for_symbol(cache: &CacheDir, file: &str, lines: &str, context: usi
     let end_with_ctx = (end + context).min(all_lines.len());
 
     let mut snippet = String::new();
-    for (i, line) in all_lines.iter().enumerate().skip(start_with_ctx).take(end_with_ctx - start_with_ctx) {
+    for (i, line) in all_lines
+        .iter()
+        .enumerate()
+        .skip(start_with_ctx)
+        .take(end_with_ctx - start_with_ctx)
+    {
         let line_num = i + 1;
-        let prefix = if line_num >= start && line_num <= end { ">" } else { " " };
+        let prefix = if line_num >= start && line_num <= end {
+            ">"
+        } else {
+            " "
+        };
         snippet.push_str(&format!("{} {:>4} | {}\n", prefix, line_num, line));
     }
 

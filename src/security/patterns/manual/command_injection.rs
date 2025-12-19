@@ -3,8 +3,8 @@
 //! Patterns for command injection vulnerabilities across languages
 
 use crate::lang::Lang;
-use crate::security::{CVEPattern, PatternSource, Severity};
 use crate::security::compiler::fingerprinter::fingerprint_from_source;
+use crate::security::{CVEPattern, PatternSource};
 
 /// Command injection vulnerable patterns
 pub fn patterns() -> Vec<CVEPattern> {
@@ -33,25 +33,25 @@ fn js_child_process_exec() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::JavaScript);
 
-    CVEPattern::new(
-        "CWE-78-JS-EXEC",
-        vec!["CWE-78".into()],
-        0,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "exec".into(),
-        "execSync".into(),
-        "child_process".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Command injection via child_process.exec in Node.js")
-    .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.90)
+    CVEPattern::new("CWE-78-JS-EXEC", vec!["CWE-78".into()], 0)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "exec".into(),
+            "execSync".into(),
+            "child_process".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Command injection via child_process.exec in Node.js")
+        .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.90)
 }
 
 /// JavaScript shell spawn with string command
@@ -64,24 +64,21 @@ fn js_shell_spawn() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::JavaScript);
 
-    CVEPattern::new(
-        "CWE-78-JS-SPAWN",
-        vec!["CWE-78".into()],
-        1,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "spawn".into(),
-        "spawnSync".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Command injection via spawn with shell in Node.js")
-    .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-78-JS-SPAWN", vec!["CWE-78".into()], 1)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["spawn".into(), "spawnSync".into()])
+        .with_cvss(9.8)
+        .with_description("Command injection via spawn with shell in Node.js")
+        .with_languages(vec![Lang::JavaScript, Lang::TypeScript])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// Python os.system command injection
@@ -95,24 +92,21 @@ fn python_os_system() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Python);
 
-    CVEPattern::new(
-        "CWE-78-PY-SYSTEM",
-        vec!["CWE-78".into()],
-        2,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "system".into(),
-        "popen".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Command injection via os.system in Python")
-    .with_languages(vec![Lang::Python])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.90)
+    CVEPattern::new("CWE-78-PY-SYSTEM", vec!["CWE-78".into()], 2)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec!["system".into(), "popen".into()])
+        .with_cvss(9.8)
+        .with_description("Command injection via os.system in Python")
+        .with_languages(vec![Lang::Python])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.90)
 }
 
 /// Python subprocess with shell=True
@@ -126,27 +120,27 @@ fn python_subprocess_shell() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Python);
 
-    CVEPattern::new(
-        "CWE-78-PY-SUBPROCESS",
-        vec!["CWE-78".into()],
-        3,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "run".into(),
-        "call".into(),
-        "Popen".into(),
-        "check_output".into(),
-        "check_call".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Command injection via subprocess with shell=True in Python")
-    .with_languages(vec![Lang::Python])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-78-PY-SUBPROCESS", vec!["CWE-78".into()], 3)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "run".into(),
+            "call".into(),
+            "Popen".into(),
+            "check_output".into(),
+            "check_call".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Command injection via subprocess with shell=True in Python")
+        .with_languages(vec![Lang::Python])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 /// Rust Command with shell
@@ -163,27 +157,27 @@ fn rust_command_shell() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Rust);
 
-    CVEPattern::new(
-        "CWE-78-RUST-SHELL",
-        vec!["CWE-78".into()],
-        4,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "Command".into(),
-        "arg".into(),
-        "args".into(),
-        "spawn".into(),
-        "output".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Command injection via shell invocation in Rust")
-    .with_languages(vec![Lang::Rust])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.80)
+    CVEPattern::new("CWE-78-RUST-SHELL", vec!["CWE-78".into()], 4)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "Command".into(),
+            "arg".into(),
+            "args".into(),
+            "spawn".into(),
+            "output".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Command injection via shell invocation in Rust")
+        .with_languages(vec![Lang::Rust])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.80)
 }
 
 /// Java Runtime.exec command injection
@@ -197,31 +191,32 @@ fn java_runtime_exec() -> CVEPattern {
 
     let fp = fingerprint_from_source(source, Lang::Java);
 
-    CVEPattern::new(
-        "CWE-78-JAVA-EXEC",
-        vec!["CWE-78".into()],
-        5,
-    )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
-    .with_vulnerable_calls(vec![
-        "exec".into(),
-        "getRuntime".into(),
-        "ProcessBuilder".into(),
-        "start".into(),
-    ])
-    .with_cvss(9.8)
-    .with_description("Command injection via Runtime.exec in Java")
-    .with_languages(vec![Lang::Java])
-    .with_source(PatternSource::ManualCuration {
-        author: "Semfora Security Team".into(),
-        date: "2024-01-01".into(),
-    })
-    .with_confidence(0.85)
+    CVEPattern::new("CWE-78-JAVA-EXEC", vec!["CWE-78".into()], 5)
+        .with_fingerprints(
+            fp.fingerprints.call,
+            fp.fingerprints.control_flow,
+            fp.fingerprints.state,
+        )
+        .with_vulnerable_calls(vec![
+            "exec".into(),
+            "getRuntime".into(),
+            "ProcessBuilder".into(),
+            "start".into(),
+        ])
+        .with_cvss(9.8)
+        .with_description("Command injection via Runtime.exec in Java")
+        .with_languages(vec![Lang::Java])
+        .with_source(PatternSource::ManualCuration {
+            author: "Semfora Security Team".into(),
+            date: "2024-01-01".into(),
+        })
+        .with_confidence(0.85)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::Severity;
 
     #[test]
     fn test_command_injection_patterns() {

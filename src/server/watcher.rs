@@ -107,7 +107,11 @@ impl FileWatcher {
     /// Start watching for file changes with disk cache updates
     ///
     /// Same as `start`, but also updates the disk cache when files change.
-    pub fn start_with_cache(&self, state: Arc<ServerState>, cache_dir: Option<crate::cache::CacheDir>) -> Result<WatcherHandle> {
+    pub fn start_with_cache(
+        &self,
+        state: Arc<ServerState>,
+        cache_dir: Option<crate::cache::CacheDir>,
+    ) -> Result<WatcherHandle> {
         if self.running.swap(true, Ordering::SeqCst) {
             // Already running
             return Ok(WatcherHandle {
@@ -124,13 +128,12 @@ impl FileWatcher {
         let (tx, rx) = std::sync::mpsc::channel();
 
         // Create debounced watcher
-        let mut debouncer =
-            new_debouncer(debounce_duration, tx).map_err(|e| {
-                crate::error::McpDiffError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
+        let mut debouncer = new_debouncer(debounce_duration, tx).map_err(|e| {
+            crate::error::McpDiffError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
 
         // Start watching
         debouncer
@@ -174,7 +177,11 @@ impl FileWatcher {
                         let now = std::time::Instant::now();
 
                         for event in events {
-                            tracing::debug!("[WATCHER] Event kind: {:?}, path: {:?}", event.kind, event.path);
+                            tracing::debug!(
+                                "[WATCHER] Event kind: {:?}, path: {:?}",
+                                event.kind,
+                                event.path
+                            );
                             if matches!(event.kind, DebouncedEventKind::Any) {
                                 // Filter out ignored paths
                                 let path = event.path;
@@ -182,9 +189,14 @@ impl FileWatcher {
                                     // Convert to relative path
                                     if let Ok(rel_path) = path.strip_prefix(&repo_root) {
                                         // Check if file is in cooldown period
-                                        if let Some(processed_at) = recently_processed.get(rel_path) {
-                                            if now.duration_since(*processed_at) < cooldown_duration {
-                                                tracing::debug!("[WATCHER] Skipping {:?} (in cooldown)", rel_path);
+                                        if let Some(processed_at) = recently_processed.get(rel_path)
+                                        {
+                                            if now.duration_since(*processed_at) < cooldown_duration
+                                            {
+                                                tracing::debug!(
+                                                    "[WATCHER] Skipping {:?} (in cooldown)",
+                                                    rel_path
+                                                );
                                                 continue;
                                             }
                                         }
@@ -198,7 +210,11 @@ impl FileWatcher {
                         }
 
                         if !changed_files.is_empty() {
-                            tracing::info!("[WATCHER] Processing {} changed files: {:?}", changed_files.len(), changed_files);
+                            tracing::info!(
+                                "[WATCHER] Processing {} changed files: {:?}",
+                                changed_files.len(),
+                                changed_files
+                            );
 
                             // Mark files as recently processed BEFORE processing
                             // This prevents re-processing during the cooldown
@@ -212,13 +228,11 @@ impl FileWatcher {
 
                             // Trigger incremental update
                             let strategy = UpdateStrategy::Incremental(changed_files.clone());
-                            match synchronizer.update_layer(
-                                &state,
-                                LayerKind::Working,
-                                strategy,
-                            ) {
+                            match synchronizer.update_layer(&state, LayerKind::Working, strategy) {
                                 Ok(stats) => {
-                                    tracing::info!("[WATCHER] Layer updated successfully, emitting event");
+                                    tracing::info!(
+                                        "[WATCHER] Layer updated successfully, emitting event"
+                                    );
                                     // Emit event for CLI
                                     let event = super::events::LayerUpdatedEvent::from_stats(
                                         LayerKind::Working,
@@ -228,7 +242,10 @@ impl FileWatcher {
                                     tracing::info!("[WATCHER] Event emitted");
                                 }
                                 Err(e) => {
-                                    tracing::error!("[WATCHER] Failed to update working layer: {}", e);
+                                    tracing::error!(
+                                        "[WATCHER] Failed to update working layer: {}",
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -304,8 +321,8 @@ impl FileWatcher {
         if let Some(ext) = path.extension() {
             let ext = ext.to_string_lossy().to_lowercase();
             let supported = [
-                "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-                "html", "css", "scss", "json", "yaml", "yml", "toml", "md",
+                "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp", "html",
+                "css", "scss", "json", "yaml", "yml", "toml", "md",
             ];
             return supported.contains(&ext.as_str());
         }

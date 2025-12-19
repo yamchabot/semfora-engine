@@ -15,13 +15,11 @@ use crate::cache::CacheDir;
 use crate::fs_utils;
 use crate::server::watcher::{FileWatcher, WatcherHandle};
 use crate::server::ServerState;
-use crate::socket_server::protocol::{
-    ConnectionInfo, IndexInfo, IndexStatus, WorktreeInfo,
-};
+use crate::socket_server::indexer::{index_directory, needs_indexing, IndexOptions};
+use crate::socket_server::protocol::{ConnectionInfo, IndexInfo, IndexStatus, WorktreeInfo};
 use crate::socket_server::worktree::{
     discover_worktrees, get_current_branch, get_default_branch, get_repo_root,
 };
-use crate::socket_server::indexer::{index_directory, needs_indexing, IndexOptions};
 
 /// Unique identifier for a repository (hash of path or remote URL)
 pub type RepoHash = String;
@@ -92,7 +90,10 @@ impl RepoContext {
         // Auto-index base repo if no cache exists
         let index_options = IndexOptions::default();
         if needs_indexing(&cache_dir) {
-            tracing::info!("No index found for base repo {:?}, triggering auto-index...", base_repo_path);
+            tracing::info!(
+                "No index found for base repo {:?}, triggering auto-index...",
+                base_repo_path
+            );
             match index_directory(&base_repo_path, cache_dir.clone(), &index_options) {
                 Ok(result) => {
                     tracing::info!(
@@ -107,15 +108,21 @@ impl RepoContext {
                 }
             }
         } else {
-            tracing::info!("Using existing cache for base repo: {} ({} symbols)",
+            tracing::info!(
+                "Using existing cache for base repo: {} ({} symbols)",
                 cache_dir.repo_hash,
-                cache_dir.load_all_symbol_entries().map(|e| e.len()).unwrap_or(0)
+                cache_dir
+                    .load_all_symbol_entries()
+                    .map(|e| e.len())
+                    .unwrap_or(0)
             );
         }
 
         // Determine branches
-        let base_branch = get_default_branch(&base_repo_path).unwrap_or_else(|_| "main".to_string());
-        let current_branch = get_current_branch(&base_repo_path).unwrap_or_else(|_| base_branch.clone());
+        let base_branch =
+            get_default_branch(&base_repo_path).unwrap_or_else(|_| "main".to_string());
+        let current_branch =
+            get_current_branch(&base_repo_path).unwrap_or_else(|_| base_branch.clone());
         let feature_branch = if current_branch != base_branch {
             Some(current_branch.clone())
         } else {
@@ -152,7 +159,11 @@ impl RepoContext {
             // git worktree list includes the main repo as the first entry
             // Use normalize_path for Windows compatibility (strips \\?\ prefix)
             if fs_utils::normalize_path(&wt.path.canonicalize().unwrap_or_else(|_| wt.path.clone()))
-                == fs_utils::normalize_path(&base_repo_path.canonicalize().unwrap_or_else(|_| base_repo_path.clone()))
+                == fs_utils::normalize_path(
+                    &base_repo_path
+                        .canonicalize()
+                        .unwrap_or_else(|_| base_repo_path.clone()),
+                )
             {
                 tracing::debug!("Skipping main worktree (same as base repo): {:?}", wt.path);
                 continue;
@@ -163,7 +174,10 @@ impl RepoContext {
 
             // Auto-index worktree if no cache exists
             if needs_indexing(&wt_cache) {
-                tracing::info!("No index found for worktree {:?}, triggering auto-index...", wt.path);
+                tracing::info!(
+                    "No index found for worktree {:?}, triggering auto-index...",
+                    wt.path
+                );
                 match index_directory(&wt.path, wt_cache.clone(), &index_options) {
                     Ok(result) => {
                         tracing::info!(
@@ -182,7 +196,10 @@ impl RepoContext {
                     "Using existing cache for worktree {:?} -> {} ({} symbols)",
                     wt.path,
                     wt_cache.repo_hash,
-                    wt_cache.load_all_symbol_entries().map(|e| e.len()).unwrap_or(0)
+                    wt_cache
+                        .load_all_symbol_entries()
+                        .map(|e| e.len())
+                        .unwrap_or(0)
                 );
             }
 
@@ -236,7 +253,11 @@ impl RepoContext {
                         watched_paths.insert(wt.path.clone());
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to start file watcher for worktree {:?}: {}", wt.path, e);
+                        tracing::warn!(
+                            "Failed to start file watcher for worktree {:?}: {}",
+                            wt.path,
+                            e
+                        );
                     }
                 }
             }
@@ -288,7 +309,8 @@ impl RepoContext {
             // Get symbol count from this index's specific cache
             let symbol_count = if let Some(cache) = index_caches.get(id) {
                 if cache.has_symbol_index() {
-                    cache.load_all_symbol_entries()
+                    cache
+                        .load_all_symbol_entries()
                         .map(|entries| entries.len())
                         .unwrap_or(0)
                 } else {
@@ -297,7 +319,8 @@ impl RepoContext {
             } else {
                 // Fallback to base cache for backward compatibility
                 if self.cache_dir.has_symbol_index() {
-                    self.cache_dir.load_all_symbol_entries()
+                    self.cache_dir
+                        .load_all_symbol_entries()
                         .map(|entries| entries.len())
                         .unwrap_or(0)
                 } else {
@@ -310,12 +333,16 @@ impl RepoContext {
                 scope: match id {
                     IndexId::BaseBranch => format!("base_branch ({})", self.base_branch),
                     IndexId::FeatureBranch => {
-                        format!("feature_branch ({})", self.feature_branch.as_deref().unwrap_or("unknown"))
+                        format!(
+                            "feature_branch ({})",
+                            self.feature_branch.as_deref().unwrap_or("unknown")
+                        )
                     }
                     IndexId::Working(branch) => format!("working:{}", branch),
                     IndexId::Worktree(path) => {
                         // Get just the directory name for cleaner display
-                        let name = path.file_name()
+                        let name = path
+                            .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("worktree");
                         format!("worktree:{}", name)
@@ -332,7 +359,9 @@ impl RepoContext {
 
         // If no indexes exist but base cache does, show cache info
         if infos.is_empty() && self.cache_dir.exists() && self.cache_dir.has_symbol_index() {
-            let symbol_count = self.cache_dir.load_all_symbol_entries()
+            let symbol_count = self
+                .cache_dir
+                .load_all_symbol_entries()
                 .map(|entries| entries.len())
                 .unwrap_or(0);
 
@@ -391,7 +420,10 @@ impl RepoContext {
         // Parse the scope to find the matching IndexId
         let index_id = if scope_str.starts_with("worktree:") {
             let path_str = scope_str.strip_prefix("worktree:").unwrap_or("");
-            tracing::info!("[get_cache_for_scope] Looking for worktree with path_str={:?}", path_str);
+            tracing::info!(
+                "[get_cache_for_scope] Looking for worktree with path_str={:?}",
+                path_str
+            );
 
             // Check if it's a full path or just a directory name
             let path = PathBuf::from(path_str);
@@ -402,15 +434,24 @@ impl RepoContext {
             } else {
                 // Just a directory name - search worktrees to find the full path
                 let worktrees = self.worktrees.read();
-                tracing::info!("[get_cache_for_scope] Searching {} worktrees for match with path_str={:?}", worktrees.len(), path_str);
+                tracing::info!(
+                    "[get_cache_for_scope] Searching {} worktrees for match with path_str={:?}",
+                    worktrees.len(),
+                    path_str
+                );
                 for wt in worktrees.iter() {
                     let dir_name = wt.path.file_name().and_then(|n| n.to_str());
-                    tracing::info!("[get_cache_for_scope] Worktree: {:?}, dir_name={:?}", wt.path, dir_name);
+                    tracing::info!(
+                        "[get_cache_for_scope] Worktree: {:?}, dir_name={:?}",
+                        wt.path,
+                        dir_name
+                    );
                 }
 
                 // First try exact match
                 let found = worktrees.iter().find(|wt| {
-                    wt.path.file_name()
+                    wt.path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .map(|name| name == path_str)
                         .unwrap_or(false)
@@ -419,7 +460,8 @@ impl RepoContext {
                 // If no exact match, try partial match (but be careful about order)
                 let found = found.or_else(|| {
                     worktrees.iter().find(|wt| {
-                        wt.path.file_name()
+                        wt.path
+                            .file_name()
                             .and_then(|n| n.to_str())
                             .map(|name| path_str.contains(name) || name.contains(path_str))
                             .unwrap_or(false)
@@ -427,9 +469,15 @@ impl RepoContext {
                 });
 
                 if let Some(wt) = found {
-                    tracing::info!("[get_cache_for_scope] Found matching worktree: {:?}", wt.path);
+                    tracing::info!(
+                        "[get_cache_for_scope] Found matching worktree: {:?}",
+                        wt.path
+                    );
                 } else {
-                    tracing::warn!("[get_cache_for_scope] No matching worktree found for {:?}", path_str);
+                    tracing::warn!(
+                        "[get_cache_for_scope] No matching worktree found for {:?}",
+                        path_str
+                    );
                 }
                 found.map(|wt| IndexId::Worktree(wt.path.clone()))
             }
@@ -441,7 +489,8 @@ impl RepoContext {
             // Try to match by worktree directory name
             let worktrees = self.worktrees.read();
             let found = worktrees.iter().find(|wt| {
-                wt.path.file_name()
+                wt.path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .map(|name| scope_str.contains(name) || name.contains(scope_str))
                     .unwrap_or(false)
@@ -449,24 +498,41 @@ impl RepoContext {
             found.map(|wt| IndexId::Worktree(wt.path.clone()))
         };
 
-        tracing::info!("[get_cache_for_scope] scope={:?} -> index_id={:?}", scope_str, index_id);
+        tracing::info!(
+            "[get_cache_for_scope] scope={:?} -> index_id={:?}",
+            scope_str,
+            index_id
+        );
 
         // Look up the cache for this index
         if let Some(ref id) = index_id {
             let index_caches = self.index_caches.read();
-            tracing::info!("[get_cache_for_scope] index_caches has {} entries", index_caches.len());
+            tracing::info!(
+                "[get_cache_for_scope] index_caches has {} entries",
+                index_caches.len()
+            );
             for (k, v) in index_caches.iter() {
                 tracing::info!("[get_cache_for_scope] Cache entry: {:?} -> {:?}", k, v.root);
             }
             if let Some(cache) = index_caches.get(id) {
-                tracing::info!("[get_cache_for_scope] Found cache for {:?} at {:?}", id, cache.root);
+                tracing::info!(
+                    "[get_cache_for_scope] Found cache for {:?} at {:?}",
+                    id,
+                    cache.root
+                );
                 cache.clone()
             } else {
-                tracing::warn!("[get_cache_for_scope] No cache found for {:?}, falling back to base", id);
+                tracing::warn!(
+                    "[get_cache_for_scope] No cache found for {:?}, falling back to base",
+                    id
+                );
                 self.cache_dir.clone()
             }
         } else {
-            tracing::warn!("[get_cache_for_scope] Could not parse scope {:?}, falling back to base", scope_str);
+            tracing::warn!(
+                "[get_cache_for_scope] Could not parse scope {:?}, falling back to base",
+                scope_str
+            );
             self.cache_dir.clone()
         }
     }
@@ -500,7 +566,10 @@ impl RepoRegistry {
 
     /// Subscribe to events
     pub fn subscribe_events(&self) -> Option<tokio::sync::broadcast::Receiver<String>> {
-        self.event_broadcaster.read().as_ref().map(|s| s.subscribe())
+        self.event_broadcaster
+            .read()
+            .as_ref()
+            .map(|s| s.subscribe())
     }
 
     /// Get or create a RepoContext for a path

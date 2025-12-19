@@ -22,10 +22,7 @@ use tracing_subscriber::{self, EnvFilter};
 
 // Import the MCP server and persistent server components
 use semfora_engine::mcp_server::McpDiffServer;
-use semfora_engine::server::{
-    ServerState, FileWatcher, GitPoller,
-    init_event_emitter,
-};
+use semfora_engine::server::{init_event_emitter, FileWatcher, GitPoller, ServerState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -41,13 +38,17 @@ async fn main() -> Result<()> {
 
     // Parse arguments
     let args: Vec<String> = std::env::args().collect();
-    let repo_path = args.iter()
+    let repo_path = args
+        .iter()
         .position(|arg| arg == "--repo" || arg == "-r")
         .and_then(|i| args.get(i + 1))
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
-    tracing::info!("Starting semfora-engine MCP server v{}", env!("CARGO_PKG_VERSION"));
+    tracing::info!(
+        "Starting semfora-engine MCP server v{}",
+        env!("CARGO_PKG_VERSION")
+    );
     tracing::info!("Repository path: {}", repo_path.display());
 
     // Disable event emitter for MCP mode - stdout must be pure JSON-RPC

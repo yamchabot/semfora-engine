@@ -43,9 +43,10 @@ impl VSCodeClient {
         }
 
         let temp_path = path.with_extension("tmp");
-        let content = serde_json::to_string_pretty(value).map_err(|e| McpDiffError::ConfigError {
-            message: format!("Failed to serialize JSON: {}", e),
-        })?;
+        let content =
+            serde_json::to_string_pretty(value).map_err(|e| McpDiffError::ConfigError {
+                message: format!("Failed to serialize JSON: {}", e),
+            })?;
 
         fs::write(&temp_path, &content).map_err(|e| McpDiffError::IoError {
             path: temp_path.clone(),
@@ -62,7 +63,10 @@ impl VSCodeClient {
 
     /// Check if semfora-engine is in VS Code servers config
     fn has_semfora(config: &JsonValue) -> bool {
-        config.get("servers").and_then(|s| s.get("semfora-engine")).is_some()
+        config
+            .get("servers")
+            .and_then(|s| s.get("semfora-engine"))
+            .is_some()
     }
 
     /// Add semfora-engine to VS Code servers
@@ -75,9 +79,11 @@ impl VSCodeClient {
             .entry("servers")
             .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
 
-        let servers_obj = servers.as_object_mut().ok_or_else(|| McpDiffError::ConfigError {
-            message: "servers is not an object".to_string(),
-        })?;
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| McpDiffError::ConfigError {
+                message: "servers is not an object".to_string(),
+            })?;
 
         servers_obj.insert("semfora-engine".to_string(), server_config.clone());
         Ok(())
@@ -151,9 +157,10 @@ impl McpClient for VSCodeClient {
         let config_path = if PathBuf::from(".vscode").exists() {
             PathBuf::from(".vscode/mcp.json")
         } else {
-            self.config_path(platform).ok_or_else(|| McpDiffError::ConfigError {
-                message: "Could not determine VS Code config path".to_string(),
-            })?
+            self.config_path(platform)
+                .ok_or_else(|| McpDiffError::ConfigError {
+                    message: "Could not determine VS Code config path".to_string(),
+                })?
         };
 
         // Create backup

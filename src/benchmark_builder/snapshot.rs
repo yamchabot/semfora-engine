@@ -69,7 +69,8 @@ fn capture_with_cache(
         // Parse with or without cache
         let parse_start = Instant::now();
         let tree = if let Some(ref cache) = ast_cache {
-            let (tree, result) = cache.parse_file(file_path, &source, lang)
+            let (tree, result) = cache
+                .parse_file(file_path, &source, lang)
                 .map_err(|e| format!("Cache parse failed: {}", e))?;
             match result {
                 crate::server::ParseResult::Cached => cache_hits += 1,
@@ -158,7 +159,14 @@ fn capture_without_cache(output_dir: &Path) -> Result<TimingData, String> {
 /// Analyze project and extract symbols, call graph, and complexity
 fn analyze_project(
     output_dir: &Path,
-) -> Result<(Vec<SymbolSnapshot>, HashMap<String, Vec<String>>, ComplexitySnapshot), String> {
+) -> Result<
+    (
+        Vec<SymbolSnapshot>,
+        HashMap<String, Vec<String>>,
+        ComplexitySnapshot,
+    ),
+    String,
+> {
     let files = collect_ts_files(output_dir);
     let mut all_summaries: Vec<SemanticSummary> = Vec::new();
     let mut symbols: Vec<SymbolSnapshot> = Vec::new();
@@ -226,7 +234,11 @@ fn analyze_project(
     // Calculate complexity metrics
     let total_cognitive: usize = complexity_entries.iter().map(|e| e.cognitive).sum();
     let total_cyclomatic: usize = complexity_entries.iter().map(|e| e.cyclomatic).sum();
-    let max_cognitive = complexity_entries.iter().map(|e| e.cognitive).max().unwrap_or(0);
+    let max_cognitive = complexity_entries
+        .iter()
+        .map(|e| e.cognitive)
+        .max()
+        .unwrap_or(0);
     let avg_cognitive = if !complexity_entries.is_empty() {
         total_cognitive as f64 / complexity_entries.len() as f64
     } else {

@@ -44,9 +44,8 @@ fn run_generate(
     extensions: Vec<String>,
     ctx: &CommandContext,
 ) -> Result<String> {
-    let repo_dir = path.unwrap_or_else(|| {
-        std::env::current_dir().expect("Failed to get current directory")
-    });
+    let repo_dir =
+        path.unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
     let cache = CacheDir::for_repo(&repo_dir)?;
 
@@ -115,7 +114,12 @@ fn run_full_index(
 
     for (i, file_path) in files.iter().enumerate() {
         if ctx.progress && i % 50 == 0 {
-            eprintln!("Progress: {}/{} ({:.0}%)", i, files.len(), (i as f64 / files.len() as f64) * 100.0);
+            eprintln!(
+                "Progress: {}/{} ({:.0}%)",
+                i,
+                files.len(),
+                (i as f64 / files.len() as f64) * 100.0
+            );
         }
 
         match process_file_for_index(file_path) {
@@ -188,14 +192,21 @@ fn run_check(auto_refresh: bool, max_age: u64, ctx: &CommandContext) -> Result<S
         if auto_refresh {
             return run_full_index(&repo_dir, &cache, 10, &[], ctx);
         }
-        return Ok("Index metadata not found. Run `semfora index generate` to regenerate.".to_string());
+        return Ok(
+            "Index metadata not found. Run `semfora index generate` to regenerate.".to_string(),
+        );
     }
 
     let meta_content = fs::read_to_string(&meta_path)?;
-    let meta: serde_json::Value = serde_json::from_str(&meta_content)
-        .map_err(|e| McpDiffError::GitError { message: format!("Parse error: {}", e) })?;
+    let meta: serde_json::Value =
+        serde_json::from_str(&meta_content).map_err(|e| McpDiffError::GitError {
+            message: format!("Parse error: {}", e),
+        })?;
 
-    let indexed_at = meta.get("indexed_at").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let indexed_at = meta
+        .get("indexed_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
 
     let is_stale = if let Ok(indexed_time) = chrono::DateTime::parse_from_rfc3339(indexed_at) {
         let age = chrono::Utc::now().signed_duration_since(indexed_time);
@@ -229,7 +240,10 @@ fn run_check(auto_refresh: bool, max_age: u64, ctx: &CommandContext) -> Result<S
         OutputFormat::Text => {
             output.push_str(&format!("path: {}\n", repo_dir.display()));
             output.push_str(&format!("indexed_at: {}\n", indexed_at));
-            output.push_str(&format!("status: {}\n", if is_stale { "STALE" } else { "FRESH" }));
+            output.push_str(&format!(
+                "status: {}\n",
+                if is_stale { "STALE" } else { "FRESH" }
+            ));
             if is_stale {
                 output.push_str("\nRun `semfora index generate` to refresh.\n");
             }
@@ -330,16 +344,29 @@ fn collect_files_recursive(
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Skip hidden files and common non-source directories
-        if file_name.starts_with('.') || file_name == "node_modules" || file_name == "target" || file_name == "dist" || file_name == "build" {
+        if file_name.starts_with('.')
+            || file_name == "node_modules"
+            || file_name == "target"
+            || file_name == "dist"
+            || file_name == "build"
+        {
             continue;
         }
 
         if path.is_dir() {
-            collect_files_recursive(_root, &path, max_depth, current_depth + 1, extensions, files)?;
+            collect_files_recursive(
+                _root,
+                &path,
+                max_depth,
+                current_depth + 1,
+                extensions,
+                files,
+            )?;
         } else if path.is_file() {
             // Check extension filter
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if !extensions.is_empty() && !extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)) {
+                if !extensions.is_empty() && !extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
+                {
                     continue;
                 }
 
@@ -367,9 +394,11 @@ fn process_file_for_index(file_path: &std::path::Path) -> Result<crate::Semantic
             message: format!("Failed to set language for {}: {}", file_path.display(), e),
         })?;
 
-    let tree = parser.parse(&source, None).ok_or_else(|| McpDiffError::ParseFailure {
-        message: format!("Failed to parse file: {}", file_path.display()),
-    })?;
+    let tree = parser
+        .parse(&source, None)
+        .ok_or_else(|| McpDiffError::ParseFailure {
+            message: format!("Failed to parse file: {}", file_path.display()),
+        })?;
 
     // Extract
     crate::extract::extract(file_path, &source, &tree, lang)

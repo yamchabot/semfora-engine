@@ -160,10 +160,15 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
 /// Detect API route handlers
 fn detect_api_routes(summary: &mut SemanticSummary, file_lower: &str, _source: &str) {
     // App Router API routes
-    if file_lower.contains("/api/") && (file_lower.ends_with("/route.ts") || file_lower.ends_with("/route.js")) {
+    if file_lower.contains("/api/")
+        && (file_lower.ends_with("/route.ts") || file_lower.ends_with("/route.js"))
+    {
         if let Some(ref sym) = summary.symbol {
             let method = sym.to_uppercase();
-            if matches!(method.as_str(), "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS") {
+            if matches!(
+                method.as_str(),
+                "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS"
+            ) {
                 push_unique_insertion(
                     &mut summary.insertions,
                     format!("Next.js API route ({})", method),
@@ -176,7 +181,10 @@ fn detect_api_routes(summary: &mut SemanticSummary, file_lower: &str, _source: &
         let mut methods = Vec::new();
         for symbol in &summary.symbols {
             let name_upper = symbol.name.to_uppercase();
-            if matches!(name_upper.as_str(), "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS") {
+            if matches!(
+                name_upper.as_str(),
+                "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS"
+            ) {
                 methods.push(name_upper);
             }
         }
@@ -280,7 +288,9 @@ fn detect_config_files(summary: &mut SemanticSummary, file_lower: &str, source: 
 /// Detect Server vs Client components
 fn detect_server_client_components(summary: &mut SemanticSummary, source: &str) {
     // Client component directive
-    if source.trim_start().starts_with("'use client'") || source.trim_start().starts_with("\"use client\"") {
+    if source.trim_start().starts_with("'use client'")
+        || source.trim_start().starts_with("\"use client\"")
+    {
         push_unique_insertion(
             &mut summary.insertions,
             "client component".to_string(),
@@ -289,7 +299,9 @@ fn detect_server_client_components(summary: &mut SemanticSummary, source: &str) 
     }
 
     // Server component directive (explicit)
-    if source.trim_start().starts_with("'use server'") || source.trim_start().starts_with("\"use server\"") {
+    if source.trim_start().starts_with("'use server'")
+        || source.trim_start().starts_with("\"use server\"")
+    {
         push_unique_insertion(
             &mut summary.insertions,
             "server actions".to_string(),
@@ -323,7 +335,8 @@ fn detect_data_fetching(summary: &mut SemanticSummary, source: &str) {
     }
 
     // Cache configuration
-    if source.contains("cache:") || source.contains("'no-store'") || source.contains("\"no-store\"") {
+    if source.contains("cache:") || source.contains("'no-store'") || source.contains("\"no-store\"")
+    {
         push_unique_insertion(
             &mut summary.insertions,
             "cache configuration".to_string(),
@@ -414,9 +427,21 @@ mod tests {
     #[test]
     fn test_extract_route_path() {
         assert_eq!(extract_route_path("/app/page.tsx"), Some("/".to_string()));
-        assert_eq!(extract_route_path("/app/dashboard/page.tsx"), Some("/dashboard".to_string()));
-        assert_eq!(extract_route_path("/app/api/users/route.ts"), Some("/api/users".to_string()));
-        assert_eq!(extract_route_path("/pages/index.tsx"), Some("/".to_string()));
-        assert_eq!(extract_route_path("/pages/about.tsx"), Some("/about".to_string()));
+        assert_eq!(
+            extract_route_path("/app/dashboard/page.tsx"),
+            Some("/dashboard".to_string())
+        );
+        assert_eq!(
+            extract_route_path("/app/api/users/route.ts"),
+            Some("/api/users".to_string())
+        );
+        assert_eq!(
+            extract_route_path("/pages/index.tsx"),
+            Some("/".to_string())
+        );
+        assert_eq!(
+            extract_route_path("/pages/about.tsx"),
+            Some("/about".to_string())
+        );
     }
 }

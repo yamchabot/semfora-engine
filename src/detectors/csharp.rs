@@ -32,11 +32,12 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Resu
 mod tests {
     use super::*;
     use crate::lang::Lang;
-    use std::path::PathBuf;
 
     fn parse_source(source: &str) -> tree_sitter::Tree {
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Lang::CSharp.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Lang::CSharp.tree_sitter_language())
+            .unwrap();
         parser.parse(source, None).unwrap()
     }
 
@@ -174,7 +175,10 @@ public class Calculator
         extract(&mut summary, source, &tree).unwrap();
 
         // Should detect control flow
-        assert!(!summary.symbols.is_empty(), "Should detect methods with control flow");
+        assert!(
+            !summary.symbols.is_empty(),
+            "Should detect methods with control flow"
+        );
     }
 
     #[test]
@@ -195,9 +199,13 @@ public class TestController : Controller
 "#;
         fn print_ast(node: &tree_sitter::Node, depth: usize) {
             let indent = "  ".repeat(depth);
-            println!("{}{} [L{}-L{}]", indent, node.kind(),
+            println!(
+                "{}{} [L{}-L{}]",
+                indent,
+                node.kind(),
                 node.start_position().row + 1,
-                node.end_position().row + 1);
+                node.end_position().row + 1
+            );
 
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -219,14 +227,19 @@ public class TestController : Controller
 
         println!("\n=== Extracted Symbols ===");
         for sym in &summary.symbols {
-            println!("  {} ({:?}) lines {}-{}", sym.name, sym.kind, sym.start_line, sym.end_line);
+            println!(
+                "  {} ({:?}) lines {}-{}",
+                sym.name, sym.kind, sym.start_line, sym.end_line
+            );
         }
         println!("=========================\n");
 
         // We should find: class + 2 methods = 3 symbols
-        assert!(summary.symbols.len() >= 3,
+        assert!(
+            summary.symbols.len() >= 3,
             "Expected at least 3 symbols (class + 2 methods), got {}",
-            summary.symbols.len());
+            summary.symbols.len()
+        );
     }
 
     #[test]
@@ -253,6 +266,9 @@ public class Matcher
         extract(&mut summary, source, &tree).unwrap();
 
         // Should detect switch expression
-        assert!(!summary.symbols.is_empty(), "Should detect pattern matching");
+        assert!(
+            !summary.symbols.is_empty(),
+            "Should detect pattern matching"
+        );
     }
 }

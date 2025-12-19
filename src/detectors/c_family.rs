@@ -6,7 +6,7 @@
 use tree_sitter::Tree;
 
 use crate::detectors::generic::extract_with_grammar;
-use crate::detectors::grammar::{C_GRAMMAR, CPP_GRAMMAR};
+use crate::detectors::grammar::{CPP_GRAMMAR, C_GRAMMAR};
 use crate::error::Result;
 use crate::schema::SemanticSummary;
 

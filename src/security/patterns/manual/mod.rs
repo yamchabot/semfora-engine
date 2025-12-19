@@ -3,12 +3,12 @@
 //! These patterns are handcrafted for high-profile CVEs that may not have
 //! easily extractable code samples, or where we want very specific detection.
 
+mod command_injection;
+mod deserialization;
 mod log4shell;
 mod spring4shell;
 mod sql_injection;
 mod xss;
-mod deserialization;
-mod command_injection;
 
 use crate::security::CVEPattern;
 

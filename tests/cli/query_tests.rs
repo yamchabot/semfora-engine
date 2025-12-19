@@ -12,6 +12,8 @@
 //!
 //! Note: Some query outputs may return TOON format even with -f json
 
+#![allow(unused_imports)]
+
 use crate::common::{
     assert_contains, assert_symbol_exists, assert_valid_json, assert_valid_toon,
     extract_symbol_hashes, extract_symbol_names, TestRepo,
@@ -75,10 +77,7 @@ fn test_query_overview_max_modules() {
     let output = repo.run_cli_success(&["query", "overview", "--max-modules", "5"]);
 
     // Should produce output
-    assert!(
-        !output.is_empty(),
-        "Max modules should produce output"
-    );
+    assert!(!output.is_empty(), "Max modules should produce output");
 }
 
 #[test]
@@ -91,10 +90,7 @@ fn test_query_overview_text_format() {
     let output = repo.run_cli_success(&["query", "overview", "-f", "text"]);
 
     // Text format should be readable
-    assert!(
-        !output.is_empty(),
-        "Text overview should have content"
-    );
+    assert!(!output.is_empty(), "Text overview should have content");
 }
 
 #[test]
@@ -159,10 +155,7 @@ export const VALUE = 1;
     let output = repo.run_cli_success(&["query", "module", "src", "--kind", "fn"]);
 
     // Should filter by kind - check it doesn't error
-    assert!(
-        !output.is_empty(),
-        "Kind filter should produce output"
-    );
+    assert!(!output.is_empty(), "Kind filter should produce output");
 }
 
 #[test]
@@ -202,10 +195,7 @@ fn test_query_symbol_by_hash() {
                 let output = repo.run_cli_success(&["query", "symbol", hash, "-f", "json"]);
 
                 // Should return symbol details
-                assert!(
-                    !output.is_empty(),
-                    "Symbol query should return details"
-                );
+                assert!(!output.is_empty(), "Symbol query should return details");
             }
         }
     }
@@ -415,10 +405,7 @@ export function helper() { return "help"; }
     let output = repo.run_cli_success(&["query", "callgraph", "--module", "src"]);
 
     // Should produce output
-    assert!(
-        !output.is_empty(),
-        "Should show filtered callgraph"
-    );
+    assert!(!output.is_empty(), "Should show filtered callgraph");
 }
 
 #[test]
@@ -432,7 +419,10 @@ fn test_query_callgraph_summary() {
 
     // Should contain some stats
     assert!(
-        output.contains("edge") || output.contains("stat") || output.contains("count") || !output.is_empty(),
+        output.contains("edge")
+            || output.contains("stat")
+            || output.contains("count")
+            || !output.is_empty(),
         "Summary should contain statistics: {}",
         output
     );
@@ -526,10 +516,7 @@ fn test_query_languages_text_format() {
     let output = repo.run_cli_success(&["query", "languages", "-f", "text"]);
 
     // Should list languages in readable format
-    assert!(
-        !output.is_empty(),
-        "Should have language list"
-    );
+    assert!(!output.is_empty(), "Should have language list");
 }
 
 // ============================================================================

@@ -14,10 +14,7 @@ use crate::socket_server::protocol::{ClientMessage, EventFilter, ServerMessage};
 use crate::socket_server::repo_registry::{RepoContext, RepoEvent, RepoRegistry};
 
 /// Handle a single WebSocket connection
-pub async fn handle_connection(
-    stream: TcpStream,
-    registry: Arc<RepoRegistry>,
-) {
+pub async fn handle_connection(stream: TcpStream, registry: Arc<RepoRegistry>) {
     let addr = stream.peer_addr().ok();
     tracing::info!("New connection from {:?}", addr);
 
@@ -51,7 +48,10 @@ struct ConnectionState {
 
 impl ConnectionState {
     fn new(ws: WebSocketStream<TcpStream>, registry: Arc<RepoRegistry>) -> Self {
-        let client_id = format!("cli_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap());
+        let client_id = format!(
+            "cli_{}",
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+        );
         // Subscribe to global events
         let global_event_rx = registry.subscribe_events();
         Self {
@@ -168,7 +168,8 @@ impl ConnectionState {
                 }
 
                 let confirmed: Vec<String> = parsed.iter().map(|f| format!("{:?}", f)).collect();
-                self.send(&ServerMessage::Subscribed { events: confirmed }).await?;
+                self.send(&ServerMessage::Subscribed { events: confirmed })
+                    .await?;
             }
 
             ClientMessage::Unsubscribe { events } => {
@@ -182,17 +183,20 @@ impl ConnectionState {
                 }
 
                 let confirmed: Vec<String> = parsed.iter().map(|f| format!("{:?}", f)).collect();
-                self.send(&ServerMessage::Unsubscribed { events: confirmed }).await?;
+                self.send(&ServerMessage::Unsubscribed { events: confirmed })
+                    .await?;
             }
 
             ClientMessage::Query { id, method, params } => {
                 let result = self.handle_query(&method, params).await;
                 match result {
                     Ok(value) => {
-                        self.send(&ServerMessage::Response { id, result: value }).await?;
+                        self.send(&ServerMessage::Response { id, result: value })
+                            .await?;
                     }
                     Err(e) => {
-                        self.send_error(Some(id), "query_error", &e.to_string()).await?;
+                        self.send_error(Some(id), "query_error", &e.to_string())
+                            .await?;
                     }
                 }
             }
@@ -205,8 +209,14 @@ impl ConnectionState {
         Ok(())
     }
 
-    async fn handle_query(&self, method: &str, params: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-        let ctx = self.repo_context.as_ref()
+    async fn handle_query(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let ctx = self
+            .repo_context
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not connected to a repository"))?;
 
         // Extract scope parameter if provided (e.g., "base_branch", "worktree:/path/to/wt")
@@ -242,32 +252,33 @@ impl ConnectionState {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                         Ok(json)
                     } else {
-                        Ok(serde_json::json!({ "raw": content, "scope": scope.unwrap_or("base_branch") }))
+                        Ok(
+                            serde_json::json!({ "raw": content, "scope": scope.unwrap_or("base_branch") }),
+                        )
                     }
                 } else {
-                    Err(anyhow::anyhow!("No index found for scope '{}'. Run semfora-engine --shard first.", scope.unwrap_or("base_branch")))
+                    Err(anyhow::anyhow!(
+                        "No index found for scope '{}'. Run semfora-engine --shard first.",
+                        scope.unwrap_or("base_branch")
+                    ))
                 }
             }
 
             "search_symbols" => {
-                let query = params.get("query")
+                let query = params
+                    .get("query")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
 
-                let limit = params.get("limit")
+                let limit = params
+                    .get("limit")
                     .and_then(|v| v.as_u64())
                     .map(|v| v as usize)
                     .unwrap_or(20);
 
                 // Get the cache for the requested scope
                 let cache = ctx.get_cache_for_scope(scope);
-                let results = cache.search_symbols_with_fallback(
-                    query,
-                    None,
-                    None,
-                    None,
-                    limit,
-                )?;
+                let results = cache.search_symbols_with_fallback(query, None, None, None, limit)?;
 
                 if results.fallback_used {
                     Ok(serde_json::json!({
@@ -285,7 +296,8 @@ impl ConnectionState {
 
             "list_all_symbols" => {
                 // Get ALL symbols from the index (for call graph viewer)
-                let limit = params.get("limit")
+                let limit = params
+                    .get("limit")
                     .and_then(|v| v.as_u64())
                     .map(|v| v as usize)
                     .unwrap_or(1000);
@@ -295,7 +307,10 @@ impl ConnectionState {
                 tracing::info!("[list_all_symbols] Using cache at: {:?}", cache.root);
 
                 let all_entries = cache.load_all_symbol_entries()?;
-                tracing::info!("[list_all_symbols] Loaded {} entries from cache", all_entries.len());
+                tracing::info!(
+                    "[list_all_symbols] Loaded {} entries from cache",
+                    all_entries.len()
+                );
 
                 // Optionally limit results
                 let symbols: Vec<_> = all_entries.into_iter().take(limit).collect();
@@ -310,7 +325,8 @@ impl ConnectionState {
             }
 
             "get_symbol" => {
-                let hash = params.get("hash")
+                let hash = params
+                    .get("hash")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
 
@@ -319,9 +335,15 @@ impl ConnectionState {
                 let symbol_path = cache.symbol_path(hash);
                 if symbol_path.exists() {
                     let content = std::fs::read_to_string(&symbol_path)?;
-                    Ok(serde_json::json!({ "symbol": content, "scope": scope.unwrap_or("base_branch") }))
+                    Ok(
+                        serde_json::json!({ "symbol": content, "scope": scope.unwrap_or("base_branch") }),
+                    )
                 } else {
-                    Err(anyhow::anyhow!("Symbol not found: {} in scope '{}'", hash, scope.unwrap_or("base_branch")))
+                    Err(anyhow::anyhow!(
+                        "Symbol not found: {} in scope '{}'",
+                        hash,
+                        scope.unwrap_or("base_branch")
+                    ))
                 }
             }
 
@@ -334,7 +356,8 @@ impl ConnectionState {
 
             "get_symbol_callees" => {
                 // Get what this symbol calls (fan-out)
-                let hash = params.get("hash")
+                let hash = params
+                    .get("hash")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
 
@@ -344,7 +367,8 @@ impl ConnectionState {
 
                 // Enrich with symbol names if available
                 let symbol_index = cache.load_all_symbol_entries()?;
-                let hash_to_name: std::collections::HashMap<String, String> = symbol_index.iter()
+                let hash_to_name: std::collections::HashMap<String, String> = symbol_index
+                    .iter()
                     .map(|e| (e.hash.clone(), e.symbol.clone()))
                     .collect();
 
@@ -367,7 +391,8 @@ impl ConnectionState {
 
             "get_symbol_callers" => {
                 // Get what calls this symbol (fan-in)
-                let hash = params.get("hash")
+                let hash = params
+                    .get("hash")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
 
@@ -384,7 +409,8 @@ impl ConnectionState {
 
                 // Enrich with symbol names
                 let symbol_index = cache.load_all_symbol_entries()?;
-                let hash_to_name: std::collections::HashMap<String, String> = symbol_index.iter()
+                let hash_to_name: std::collections::HashMap<String, String> = symbol_index
+                    .iter()
                     .map(|e| (e.hash.clone(), e.symbol.clone()))
                     .collect();
 
@@ -407,27 +433,37 @@ impl ConnectionState {
 
             "get_call_graph_for_symbol" => {
                 // Get bidirectional call graph centered on a symbol
-                let hash = params.get("hash")
+                let hash = params
+                    .get("hash")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'hash' parameter"))?;
 
-                let depth = params.get("depth")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(2) as usize;
+                let depth = params.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
 
                 let cache = ctx.get_cache_for_scope(scope);
                 let graph = cache.load_call_graph()?;
                 let symbol_index = cache.load_all_symbol_entries()?;
 
-                let hash_to_info: std::collections::HashMap<String, (&str, &str, &str)> = symbol_index.iter()
-                    .map(|e| (e.hash.clone(), (e.symbol.as_str(), e.kind.as_str(), e.module.as_str())))
-                    .collect();
+                let hash_to_info: std::collections::HashMap<String, (&str, &str, &str)> =
+                    symbol_index
+                        .iter()
+                        .map(|e| {
+                            (
+                                e.hash.clone(),
+                                (e.symbol.as_str(), e.kind.as_str(), e.module.as_str()),
+                            )
+                        })
+                        .collect();
 
                 // Build reverse map for callers
-                let mut reverse_graph: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+                let mut reverse_graph: std::collections::HashMap<String, Vec<String>> =
+                    std::collections::HashMap::new();
                 for (caller_hash, callees) in &graph {
                     for callee in callees {
-                        reverse_graph.entry(callee.clone()).or_default().push(caller_hash.clone());
+                        reverse_graph
+                            .entry(callee.clone())
+                            .or_default()
+                            .push(caller_hash.clone());
                     }
                 }
 
@@ -440,7 +476,10 @@ impl ConnectionState {
                     visited: &mut std::collections::HashSet<String>,
                 ) -> serde_json::Value {
                     if depth == 0 || visited.contains(hash) {
-                        let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                        let (name, kind, module) = hash_to_info
+                            .get(hash)
+                            .copied()
+                            .unwrap_or((hash, "unknown", ""));
                         return serde_json::json!({
                             "hash": hash,
                             "name": name,
@@ -451,10 +490,16 @@ impl ConnectionState {
                     }
                     visited.insert(hash.to_string());
 
-                    let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                    let (name, kind, module) = hash_to_info
+                        .get(hash)
+                        .copied()
+                        .unwrap_or((hash, "unknown", ""));
                     let callees = graph.get(hash).cloned().unwrap_or_default();
-                    let children: Vec<serde_json::Value> = callees.iter()
-                        .map(|callee| collect_callees(graph, hash_to_info, callee, depth - 1, visited))
+                    let children: Vec<serde_json::Value> = callees
+                        .iter()
+                        .map(|callee| {
+                            collect_callees(graph, hash_to_info, callee, depth - 1, visited)
+                        })
                         .collect();
 
                     serde_json::json!({
@@ -475,7 +520,10 @@ impl ConnectionState {
                     visited: &mut std::collections::HashSet<String>,
                 ) -> serde_json::Value {
                     if depth == 0 || visited.contains(hash) {
-                        let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                        let (name, kind, module) = hash_to_info
+                            .get(hash)
+                            .copied()
+                            .unwrap_or((hash, "unknown", ""));
                         return serde_json::json!({
                             "hash": hash,
                             "name": name,
@@ -486,10 +534,16 @@ impl ConnectionState {
                     }
                     visited.insert(hash.to_string());
 
-                    let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                    let (name, kind, module) = hash_to_info
+                        .get(hash)
+                        .copied()
+                        .unwrap_or((hash, "unknown", ""));
                     let callers = reverse_graph.get(hash).cloned().unwrap_or_default();
-                    let parents: Vec<serde_json::Value> = callers.iter()
-                        .map(|caller| collect_callers(reverse_graph, hash_to_info, caller, depth - 1, visited))
+                    let parents: Vec<serde_json::Value> = callers
+                        .iter()
+                        .map(|caller| {
+                            collect_callers(reverse_graph, hash_to_info, caller, depth - 1, visited)
+                        })
                         .collect();
 
                     serde_json::json!({
@@ -501,22 +555,37 @@ impl ConnectionState {
                     })
                 }
 
-                let (name, kind, module) = hash_to_info.get(hash).copied().unwrap_or((hash, "unknown", ""));
+                let (name, kind, module) = hash_to_info
+                    .get(hash)
+                    .copied()
+                    .unwrap_or((hash, "unknown", ""));
 
                 // Get downstream (callees) tree
                 let mut visited_down = std::collections::HashSet::new();
                 visited_down.insert(hash.to_string());
                 let callees = graph.get(hash).cloned().unwrap_or_default();
-                let downstream: Vec<serde_json::Value> = callees.iter()
-                    .map(|callee| collect_callees(&graph, &hash_to_info, callee, depth - 1, &mut visited_down))
+                let downstream: Vec<serde_json::Value> = callees
+                    .iter()
+                    .map(|callee| {
+                        collect_callees(&graph, &hash_to_info, callee, depth - 1, &mut visited_down)
+                    })
                     .collect();
 
                 // Get upstream (callers) tree
                 let mut visited_up = std::collections::HashSet::new();
                 visited_up.insert(hash.to_string());
                 let callers = reverse_graph.get(hash).cloned().unwrap_or_default();
-                let upstream: Vec<serde_json::Value> = callers.iter()
-                    .map(|caller| collect_callers(&reverse_graph, &hash_to_info, caller, depth - 1, &mut visited_up))
+                let upstream: Vec<serde_json::Value> = callers
+                    .iter()
+                    .map(|caller| {
+                        collect_callers(
+                            &reverse_graph,
+                            &hash_to_info,
+                            caller,
+                            depth - 1,
+                            &mut visited_up,
+                        )
+                    })
                     .collect();
 
                 Ok(serde_json::json!({
@@ -539,15 +608,13 @@ impl ConnectionState {
                 Ok(serde_json::json!({ "worktrees": worktrees }))
             }
 
-            "get_repo_info" => {
-                Ok(serde_json::json!({
-                    "repo_hash": ctx.repo_hash,
-                    "base_repo_path": ctx.base_repo_path,
-                    "base_branch": ctx.base_branch,
-                    "feature_branch": ctx.feature_branch,
-                    "client_count": ctx.client_count(),
-                }))
-            }
+            "get_repo_info" => Ok(serde_json::json!({
+                "repo_hash": ctx.repo_hash,
+                "base_repo_path": ctx.base_repo_path,
+                "base_branch": ctx.base_branch,
+                "feature_branch": ctx.feature_branch,
+                "client_count": ctx.client_count(),
+            })),
 
             "get_index_info" => {
                 // Get fresh index info (reads from disk caches)
@@ -558,55 +625,66 @@ impl ConnectionState {
                 }))
             }
 
-
             "get_module_call_graph" => {
                 // Get module-level aggregated call graph
                 // Groups symbols by module and shows module-to-module dependencies
                 let cache = ctx.get_cache_for_scope(scope);
-                
+
                 // Load symbol index to map hashes to modules
                 let symbol_index = cache.load_all_symbol_entries()?;
-                let hash_to_module: std::collections::HashMap<String, String> = symbol_index.iter()
+                let hash_to_module: std::collections::HashMap<String, String> = symbol_index
+                    .iter()
                     .map(|e| (e.hash.clone(), e.module.clone()))
                     .collect();
-                
+
                 // Count symbols per module for sizing
-                let mut module_symbol_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+                let mut module_symbol_count: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
                 for entry in &symbol_index {
                     *module_symbol_count.entry(entry.module.clone()).or_default() += 1;
                 }
-                
+
                 // Load call graph and aggregate to module level
                 let graph = cache.load_call_graph()?;
-                let mut module_graph: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
-                let mut edge_count: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
-                
+                let mut module_graph: std::collections::HashMap<
+                    String,
+                    std::collections::HashSet<String>,
+                > = std::collections::HashMap::new();
+                let mut edge_count: std::collections::HashMap<(String, String), usize> =
+                    std::collections::HashMap::new();
+
                 for (caller_hash, callees) in &graph {
-                    let caller_module = hash_to_module.get(caller_hash)
+                    let caller_module = hash_to_module
+                        .get(caller_hash)
                         .cloned()
                         .unwrap_or_else(|| "external".to_string());
-                    
+
                     for callee_hash in callees {
                         let callee_module = if callee_hash.starts_with("ext:") {
                             "external".to_string()
                         } else {
-                            hash_to_module.get(callee_hash)
+                            hash_to_module
+                                .get(callee_hash)
                                 .cloned()
                                 .unwrap_or_else(|| "external".to_string())
                         };
-                        
+
                         // Skip self-references within same module
                         if caller_module != callee_module {
-                            module_graph.entry(caller_module.clone())
+                            module_graph
+                                .entry(caller_module.clone())
                                 .or_default()
                                 .insert(callee_module.clone());
-                            *edge_count.entry((caller_module.clone(), callee_module.clone())).or_default() += 1;
+                            *edge_count
+                                .entry((caller_module.clone(), callee_module.clone()))
+                                .or_default() += 1;
                         }
                     }
                 }
-                
+
                 // Convert to JSON format with edge weights
-                let nodes: Vec<serde_json::Value> = module_symbol_count.iter()
+                let nodes: Vec<serde_json::Value> = module_symbol_count
+                    .iter()
                     .map(|(module, count)| {
                         let outgoing = module_graph.get(module).map(|s| s.len()).unwrap_or(0);
                         serde_json::json!({
@@ -616,8 +694,9 @@ impl ConnectionState {
                         })
                     })
                     .collect();
-                
-                let edges: Vec<serde_json::Value> = edge_count.iter()
+
+                let edges: Vec<serde_json::Value> = edge_count
+                    .iter()
                     .map(|((from, to), weight)| {
                         serde_json::json!({
                             "from": from,
@@ -626,7 +705,7 @@ impl ConnectionState {
                         })
                     })
                     .collect();
-                
+
                 Ok(serde_json::json!({
                     "nodes": nodes,
                     "edges": edges,
@@ -640,8 +719,9 @@ impl ConnectionState {
                 // List all modules with symbol counts
                 let cache = ctx.get_cache_for_scope(scope);
                 let symbol_index = cache.load_all_symbol_entries()?;
-                
-                let mut module_stats: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+
+                let mut module_stats: std::collections::HashMap<String, (usize, usize)> =
+                    std::collections::HashMap::new();
                 for entry in &symbol_index {
                     let (count, high_risk) = module_stats.entry(entry.module.clone()).or_default();
                     *count += 1;
@@ -649,8 +729,9 @@ impl ConnectionState {
                         *high_risk += 1;
                     }
                 }
-                
-                let modules: Vec<serde_json::Value> = module_stats.iter()
+
+                let modules: Vec<serde_json::Value> = module_stats
+                    .iter()
                     .map(|(name, (count, high_risk))| {
                         serde_json::json!({
                             "name": name,
@@ -659,7 +740,7 @@ impl ConnectionState {
                         })
                     })
                     .collect();
-                
+
                 Ok(serde_json::json!({
                     "modules": modules,
                     "total_modules": modules.len(),
@@ -669,39 +750,38 @@ impl ConnectionState {
 
             "get_module_symbols" => {
                 // Get symbols for a specific module with pagination
-                let module = params.get("module")
+                let module = params
+                    .get("module")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'module' parameter"))?;
-                
-                let limit = params.get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(100) as usize;
-                
-                let offset = params.get("offset")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                
+
+                let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+
+                let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
                 let cache = ctx.get_cache_for_scope(scope);
                 let symbol_index = cache.load_all_symbol_entries()?;
-                
-                let module_symbols: Vec<&crate::cache::SymbolIndexEntry> = symbol_index.iter()
-                    .filter(|e| e.module == module)
-                    .collect();
-                
+
+                let module_symbols: Vec<&crate::cache::SymbolIndexEntry> =
+                    symbol_index.iter().filter(|e| e.module == module).collect();
+
                 let total = module_symbols.len();
-                let page: Vec<serde_json::Value> = module_symbols.iter()
+                let page: Vec<serde_json::Value> = module_symbols
+                    .iter()
                     .skip(offset)
                     .take(limit)
-                    .map(|e| serde_json::json!({
-                        "hash": e.hash,
-                        "symbol": e.symbol,
-                        "kind": e.kind,
-                        "file": e.file,
-                        "lines": e.lines,
-                        "risk": e.risk
-                    }))
+                    .map(|e| {
+                        serde_json::json!({
+                            "hash": e.hash,
+                            "symbol": e.symbol,
+                            "kind": e.kind,
+                            "file": e.file,
+                            "lines": e.lines,
+                            "risk": e.risk
+                        })
+                    })
                     .collect();
-                
+
                 Ok(serde_json::json!({
                     "module": module,
                     "symbols": page,
@@ -722,12 +802,18 @@ impl ConnectionState {
         Ok(())
     }
 
-    async fn send_error(&mut self, id: Option<u64>, code: &str, message: &str) -> anyhow::Result<()> {
+    async fn send_error(
+        &mut self,
+        id: Option<u64>,
+        code: &str,
+        message: &str,
+    ) -> anyhow::Result<()> {
         self.send(&ServerMessage::Error {
             id,
             code: code.to_string(),
             message: message.to_string(),
-        }).await
+        })
+        .await
     }
 
     async fn cleanup(&mut self) {

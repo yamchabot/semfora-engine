@@ -15,12 +15,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::prelude::*;
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
-use crate::bm25::{Bm25Document, Bm25Index, extract_terms_from_symbol};
+use crate::bm25::{extract_terms_from_symbol, Bm25Document, Bm25Index};
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
 use crate::duplicate::FunctionSignature;
 use crate::error::Result;
 use crate::module_registry::ModuleRegistrySqlite;
-use crate::schema::{RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind, SCHEMA_VERSION};
+use crate::schema::{
+    RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind, SCHEMA_VERSION,
+};
 use crate::toon::{encode_toon, generate_repo_overview_with_modules, is_meaningful_call};
 
 // ============================================================================
@@ -269,20 +271,15 @@ pub fn compute_full_module_path(file_path: &str) -> String {
     // Convert path to components, filtering out empty and common root paths
     let components: Vec<&str> = parent
         .components()
-        .filter_map(|c| {
-            match c {
-                std::path::Component::Normal(s) => s.to_str(),
-                _ => None,
-            }
+        .filter_map(|c| match c {
+            std::path::Component::Normal(s) => s.to_str(),
+            _ => None,
         })
         .collect();
 
     if components.is_empty() {
         // File is in root directory - use filename without extension
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("root");
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("root");
 
         // Skip generic names
         if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
@@ -391,10 +388,7 @@ impl ShardWriter {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => {
                 // File in root - use filename without extension
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("root");
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("root");
 
                 // Skip generic names
                 if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
@@ -660,11 +654,13 @@ impl ShardWriter {
                     let (cc, nest) = if !symbol_info.control_flow.is_empty() {
                         (
                             calculate_cognitive_complexity(&symbol_info.control_flow),
-                            max_nesting_depth(&symbol_info.control_flow)
+                            max_nesting_depth(&symbol_info.control_flow),
                         )
                     } else {
                         // Filter file-level control flow by symbol's line range
-                        let symbol_cf: Vec<_> = summary.control_flow_changes.iter()
+                        let symbol_cf: Vec<_> = summary
+                            .control_flow_changes
+                            .iter()
                             .filter(|cf| {
                                 cf.location.line >= symbol_info.start_line
                                     && cf.location.line <= symbol_info.end_line
@@ -673,7 +669,7 @@ impl ShardWriter {
                             .collect();
                         (
                             calculate_cognitive_complexity(&symbol_cf),
-                            max_nesting_depth(&symbol_cf)
+                            max_nesting_depth(&symbol_cf),
                         )
                     };
 
@@ -691,10 +687,11 @@ impl ShardWriter {
                     };
 
                     // Write as JSONL (one JSON object per line)
-                    let json = serde_json::to_string(&entry)
-                        .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                    let json = serde_json::to_string(&entry).map_err(|e| {
+                        crate::McpDiffError::ExtractionFailure {
                             message: format!("Failed to serialize symbol index entry: {}", e),
-                        })?;
+                        }
+                    })?;
                     writeln!(file, "{}", json)?;
 
                     stats.index_entries += 1;
@@ -708,7 +705,8 @@ impl ShardWriter {
                     symbol: summary.symbol.clone().unwrap_or_default(),
                     hash: symbol_id.hash.clone(),
                     semantic_hash: symbol_id.semantic_hash.clone(),
-                    kind: summary.symbol_kind
+                    kind: summary
+                        .symbol_kind
                         .map(|k| format!("{:?}", k).to_lowercase())
                         .unwrap_or_else(|| "unknown".to_string()),
                     module: module_name,
@@ -724,10 +722,11 @@ impl ShardWriter {
                 };
 
                 // Write as JSONL (one JSON object per line)
-                let json = serde_json::to_string(&entry)
-                    .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                let json = serde_json::to_string(&entry).map_err(|e| {
+                    crate::McpDiffError::ExtractionFailure {
                         message: format!("Failed to serialize symbol index entry: {}", e),
-                    })?;
+                    }
+                })?;
                 writeln!(file, "{}", json)?;
 
                 stats.index_entries += 1;
@@ -779,10 +778,11 @@ impl ShardWriter {
                     );
 
                     // Write as JSONL (one JSON object per line)
-                    let json = serde_json::to_string(&signature)
-                        .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                    let json = serde_json::to_string(&signature).map_err(|e| {
+                        crate::McpDiffError::ExtractionFailure {
                             message: format!("Failed to serialize signature: {}", e),
-                        })?;
+                        }
+                    })?;
                     writeln!(file, "{}", json)?;
 
                     stats.signature_entries += 1;
@@ -817,10 +817,11 @@ impl ShardWriter {
                         None,
                     );
 
-                    let json = serde_json::to_string(&signature)
-                        .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                    let json = serde_json::to_string(&signature).map_err(|e| {
+                        crate::McpDiffError::ExtractionFailure {
                             message: format!("Failed to serialize signature: {}", e),
-                        })?;
+                        }
+                    })?;
                     writeln!(file, "{}", json)?;
 
                     stats.signature_entries += 1;
@@ -877,7 +878,8 @@ impl ShardWriter {
                 }
             } else if let Some(ref symbol_id) = summary.symbol_id {
                 // Fallback to old single-symbol format
-                let kind_str = summary.symbol_kind
+                let kind_str = summary
+                    .symbol_kind
                     .map(|k| format!("{:?}", k).to_lowercase())
                     .unwrap_or_else(|| "unknown".to_string());
 
@@ -977,7 +979,13 @@ pub struct ShardStats {
 impl ShardStats {
     /// Total bytes written
     pub fn total_bytes(&self) -> usize {
-        self.overview_bytes + self.module_bytes + self.symbol_bytes + self.graph_bytes + self.index_bytes + self.signature_bytes + self.bm25_bytes
+        self.overview_bytes
+            + self.module_bytes
+            + self.symbol_bytes
+            + self.graph_bytes
+            + self.index_bytes
+            + self.signature_bytes
+            + self.bm25_bytes
     }
 }
 
@@ -1002,13 +1010,24 @@ fn encode_repo_overview_with_meta(overview: &RepoOverview, progress: &IndexingSt
 
     // Patterns
     if !overview.patterns.is_empty() {
-        let patterns: Vec<String> = overview.patterns.iter().map(|p| format!("\"{}\"", p)).collect();
-        lines.push(format!("patterns[{}]: {}", overview.patterns.len(), patterns.join(",")));
+        let patterns: Vec<String> = overview
+            .patterns
+            .iter()
+            .map(|p| format!("\"{}\"", p))
+            .collect();
+        lines.push(format!(
+            "patterns[{}]: {}",
+            overview.patterns.len(),
+            patterns.join(",")
+        ));
     }
 
     // Modules summary
     if !overview.modules.is_empty() {
-        lines.push(format!("modules[{}]{{name,purpose,files,risk}}:", overview.modules.len()));
+        lines.push(format!(
+            "modules[{}]{{name,purpose,files,risk}}:",
+            overview.modules.len()
+        ));
         for m in &overview.modules {
             lines.push(format!(
                 "  {},\"{}\",{},{}",
@@ -1029,8 +1048,16 @@ fn encode_repo_overview_with_meta(overview: &RepoOverview, progress: &IndexingSt
 
     // Entry points
     if !overview.entry_points.is_empty() {
-        let entries: Vec<String> = overview.entry_points.iter().map(|e| e.to_string()).collect();
-        lines.push(format!("entry_points[{}]: {}", entries.len(), entries.join(",")));
+        let entries: Vec<String> = overview
+            .entry_points
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
+        lines.push(format!(
+            "entry_points[{}]: {}",
+            entries.len(),
+            entries.join(",")
+        ));
     }
 
     // Indexing status (if in progress)
@@ -1051,7 +1078,11 @@ fn encode_repo_overview_with_meta(overview: &RepoOverview, progress: &IndexingSt
 /// Encode a module shard with all its files
 ///
 /// Now lists ALL symbols from each file's summary.symbols, not just the primary one.
-pub(crate) fn encode_module_shard(module_name: &str, summaries: &[SemanticSummary], repo_root: &Path) -> String {
+pub(crate) fn encode_module_shard(
+    module_name: &str,
+    summaries: &[SemanticSummary],
+    repo_root: &Path,
+) -> String {
     let mut lines = Vec::new();
 
     lines.push(format!("_type: module_shard"));
@@ -1109,11 +1140,17 @@ pub(crate) fn encode_module_shard(module_name: &str, summaries: &[SemanticSummar
         }
     }
 
-    lines.push(format!("risk_breakdown: \"high:{},medium:{},low:{}\"", high, medium, low));
+    lines.push(format!(
+        "risk_breakdown: \"high:{},medium:{},low:{}\"",
+        high, medium, low
+    ));
 
     // List all symbols with expanded info
     if !all_symbols.is_empty() {
-        lines.push(format!("symbols[{}]{{hash,name,kind,lines,risk}}:", all_symbols.len()));
+        lines.push(format!(
+            "symbols[{}]{{hash,name,kind,lines,risk}}:",
+            all_symbols.len()
+        ));
         for (hash, name, kind, lines_str, risk) in &all_symbols {
             lines.push(format!(
                 "  {},\"{}\",{},{},{}",
@@ -1128,7 +1165,10 @@ pub(crate) fn encode_module_shard(module_name: &str, summaries: &[SemanticSummar
 
     // Add source file info for staleness detection
     lines.push(format!("_meta:"));
-    lines.push(format!("  generated_at: \"{}\"", chrono::Utc::now().to_rfc3339()));
+    lines.push(format!(
+        "  generated_at: \"{}\"",
+        chrono::Utc::now().to_rfc3339()
+    ));
     lines.push(format!("  source_files[{}]:", summaries.len()));
     for s in summaries {
         if let Some(info) = SourceFileInfo::from_path(Path::new(&s.file), repo_root) {
@@ -1172,13 +1212,19 @@ pub(crate) fn encode_symbol_shard_from_info(
     lines.push(format!("symbol_namespace: \"{}\"", symbol_id.namespace));
     lines.push(format!("symbol: {}", symbol_info.name));
     lines.push(format!("symbol_kind: {}", symbol_info.kind.as_str()));
-    lines.push(format!("lines: \"{}-{}\"", symbol_info.start_line, symbol_info.end_line));
+    lines.push(format!(
+        "lines: \"{}-{}\"",
+        symbol_info.start_line, symbol_info.end_line
+    ));
 
     if symbol_info.is_exported {
         lines.push(format!("public_surface_changed: true"));
     }
 
-    lines.push(format!("behavioral_risk: {}", symbol_info.behavioral_risk.as_str()));
+    lines.push(format!(
+        "behavioral_risk: {}",
+        symbol_info.behavioral_risk.as_str()
+    ));
 
     // Arguments
     if !symbol_info.arguments.is_empty() {
@@ -1237,16 +1283,22 @@ pub(crate) fn encode_symbol_shard_from_info(
             .collect();
 
         if !meaningful_calls.is_empty() {
-            lines.push(format!("calls[{}]{{name,obj,await,try,count}}:", meaningful_calls.len()));
+            lines.push(format!(
+                "calls[{}]{{name,obj,await,try,count}}:",
+                meaningful_calls.len()
+            ));
 
             // Deduplicate calls
-            let mut call_counts: HashMap<String, (Option<String>, bool, bool, usize)> = HashMap::new();
+            let mut call_counts: HashMap<String, (Option<String>, bool, bool, usize)> =
+                HashMap::new();
             for call in &meaningful_calls {
                 let key = format!("{}:{:?}", call.name, call.object);
-                call_counts
-                    .entry(key)
-                    .and_modify(|e| e.3 += 1)
-                    .or_insert((call.object.clone(), call.is_awaited, call.in_try, 1));
+                call_counts.entry(key).and_modify(|e| e.3 += 1).or_insert((
+                    call.object.clone(),
+                    call.is_awaited,
+                    call.in_try,
+                    1,
+                ));
             }
 
             for (key, (obj, is_awaited, in_try, count)) in call_counts {
@@ -1259,7 +1311,10 @@ pub(crate) fn encode_symbol_shard_from_info(
                 } else {
                     "_".to_string()
                 };
-                lines.push(format!("  {},{},{},{},{}", name, obj_str, await_str, try_str, count_str));
+                lines.push(format!(
+                    "  {},{},{},{},{}",
+                    name, obj_str, await_str, try_str, count_str
+                ));
             }
         }
     }
@@ -1272,7 +1327,11 @@ pub(crate) fn encode_symbol_shard_from_info(
             .take(20) // Limit to avoid huge output
             .cloned()
             .collect();
-        lines.push(format!("added_dependencies[{}]: {}", deps.len(), deps.join(",")));
+        lines.push(format!(
+            "added_dependencies[{}]: {}",
+            deps.len(),
+            deps.join(",")
+        ));
     }
 
     lines.join("\n")
@@ -1337,7 +1396,10 @@ fn resolve_call_to_hash(
 
 /// Build call graph from summaries with resolved symbol hashes
 /// Parallelized with Rayon for better performance on large codebases
-fn build_call_graph(summaries: &[SemanticSummary], show_progress: bool) -> HashMap<String, Vec<String>> {
+fn build_call_graph(
+    summaries: &[SemanticSummary],
+    show_progress: bool,
+) -> HashMap<String, Vec<String>> {
     use crate::overlay::compute_symbol_hash;
 
     let total = summaries.len();
@@ -1357,7 +1419,12 @@ fn build_call_graph(summaries: &[SemanticSummary], show_progress: bool) -> HashM
         .map(|summary| {
             let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
             if show_progress && total > 100 && (current % 500 == 0 || current == total) {
-                eprintln!("  Call graph progress: {}/{} ({:.1}%)", current, total, (current as f64 / total as f64) * 100.0);
+                eprintln!(
+                    "  Call graph progress: {}/{} ({:.1}%)",
+                    current,
+                    total,
+                    (current as f64 / total as f64) * 100.0
+                );
             }
 
             let mut entries: Vec<(String, Vec<String>)> = Vec::new();
@@ -1481,7 +1548,6 @@ fn extract_call_from_initializer(init: &str) -> Option<String> {
     // Look for function call pattern: something(...)
     // Use split_once for guaranteed UTF-8 safety
     if let Some((before_paren, _)) = trimmed.split_once('(') {
-
         // Handle method chains: take the last part
         // e.g., "self.cache.repo_overview_path()" -> "repo_overview_path"
         let call_part = before_paren
@@ -1491,7 +1557,12 @@ fn extract_call_from_initializer(init: &str) -> Option<String> {
             .trim();
 
         // Skip if it's a type constructor (starts with uppercase)
-        if call_part.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+        if call_part
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+        {
             // But allow things like Vec::new, HashMap::new
             if call_part == "new" || call_part == "default" {
                 // Try to get the type name
@@ -1509,9 +1580,27 @@ fn extract_call_from_initializer(init: &str) -> Option<String> {
 
         // Skip common noise
         let noise = [
-            "iter", "map", "filter", "collect", "clone", "to_string", "len",
-            "is_empty", "unwrap", "unwrap_or", "ok", "err", "as_ref", "as_str",
-            "into", "from", "push", "pop", "get", "insert", "remove",
+            "iter",
+            "map",
+            "filter",
+            "collect",
+            "clone",
+            "to_string",
+            "len",
+            "is_empty",
+            "unwrap",
+            "unwrap_or",
+            "ok",
+            "err",
+            "as_ref",
+            "as_str",
+            "into",
+            "from",
+            "push",
+            "pop",
+            "get",
+            "insert",
+            "remove",
         ];
         if noise.contains(&call_part) {
             return None;
@@ -1532,7 +1621,11 @@ fn encode_call_graph(graph: &HashMap<String, Vec<String>>) -> String {
     lines.push(format!("edges: {}", graph.len()));
 
     for (symbol_hash, calls) in graph {
-        let calls_str = calls.iter().map(|c| format!("\"{}\"", c)).collect::<Vec<_>>().join(",");
+        let calls_str = calls
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(",");
         lines.push(format!("{}: [{}]", symbol_hash, calls_str));
     }
 
@@ -1561,7 +1654,11 @@ fn encode_import_graph(graph: &HashMap<String, Vec<String>>) -> String {
     lines.push(format!("files: {}", graph.len()));
 
     for (file, imports) in graph {
-        let imports_str = imports.iter().map(|i| format!("\"{}\"", i)).collect::<Vec<_>>().join(",");
+        let imports_str = imports
+            .iter()
+            .map(|i| format!("\"{}\"", i))
+            .collect::<Vec<_>>()
+            .join(",");
         lines.push(format!("\"{}\": [{}]", file, imports_str));
     }
 
@@ -1569,7 +1666,9 @@ fn encode_import_graph(graph: &HashMap<String, Vec<String>>) -> String {
 }
 
 /// Build module dependency graph
-fn build_module_graph(modules: &HashMap<String, Vec<SemanticSummary>>) -> HashMap<String, Vec<String>> {
+fn build_module_graph(
+    modules: &HashMap<String, Vec<SemanticSummary>>,
+) -> HashMap<String, Vec<String>> {
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
 
     for (module_name, summaries) in modules {
@@ -1601,7 +1700,11 @@ fn encode_module_graph(graph: &HashMap<String, Vec<String>>) -> String {
     lines.push(format!("modules: {}", graph.len()));
 
     for (module, deps) in graph {
-        let deps_str = deps.iter().map(|d| format!("\"{}\"", d)).collect::<Vec<_>>().join(",");
+        let deps_str = deps
+            .iter()
+            .map(|d| format!("\"{}\"", d))
+            .collect::<Vec<_>>()
+            .join(",");
         lines.push(format!("\"{}\": [{}]", module, deps_str));
     }
 
@@ -1688,9 +1791,7 @@ pub fn extract_module_name(file_path: &str) -> String {
     }
 
     // File is directly in src/ - use filename without extension
-    let stem = path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("root");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("root");
 
     // Skip generic names
     if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
@@ -1787,9 +1888,15 @@ mod tests {
     fn test_extract_module_name() {
         // Files in subdirectories get dotted namespace from directory path
         assert_eq!(extract_module_name("src/api/users.ts"), "api");
-        assert_eq!(extract_module_name("src/components/Button.tsx"), "components");
+        assert_eq!(
+            extract_module_name("src/components/Button.tsx"),
+            "components"
+        );
         assert_eq!(extract_module_name("src/utils/format.ts"), "utils");
-        assert_eq!(extract_module_name("src/features/auth/login.ts"), "features.auth");
+        assert_eq!(
+            extract_module_name("src/features/auth/login.ts"),
+            "features.auth"
+        );
 
         // Files directly in src/ use filename as namespace
         assert_eq!(extract_module_name("src/cache.rs"), "cache");
@@ -1800,33 +1907,75 @@ mod tests {
         assert_eq!(extract_module_name("src/main.rs"), "root");
 
         // Absolute paths - extracts after /src/
-        assert_eq!(extract_module_name("/home/user/project/src/git/branch.rs"), "git");
-        assert_eq!(extract_module_name("/home/user/project/src/mcp_server/mod.rs"), "mcp_server");
-        assert_eq!(extract_module_name("/home/user/my-test-worktree/src/App.tsx"), "App");
-        assert_eq!(extract_module_name("/home/user/my-test-worktree/src/utils/format.ts"), "utils");
+        assert_eq!(
+            extract_module_name("/home/user/project/src/git/branch.rs"),
+            "git"
+        );
+        assert_eq!(
+            extract_module_name("/home/user/project/src/mcp_server/mod.rs"),
+            "mcp_server"
+        );
+        assert_eq!(
+            extract_module_name("/home/user/my-test-worktree/src/App.tsx"),
+            "App"
+        );
+        assert_eq!(
+            extract_module_name("/home/user/my-test-worktree/src/utils/format.ts"),
+            "utils"
+        );
 
         // Nested directories use dots
-        assert_eq!(extract_module_name("/project/src/server/api/handlers/users.ts"), "server.api.handlers");
+        assert_eq!(
+            extract_module_name("/project/src/server/api/handlers/users.ts"),
+            "server.api.handlers"
+        );
 
         // Unity paths (Assets/Scripts/)
-        assert_eq!(extract_module_name("/project/Assets/Scripts/Game/Player.cs"), "Game");
-        assert_eq!(extract_module_name("/project/Assets/Scripts/UI/MainMenu.cs"), "UI");
-        assert_eq!(extract_module_name("Assets/Scripts/Entities/Enemy.cs"), "Entities");
+        assert_eq!(
+            extract_module_name("/project/Assets/Scripts/Game/Player.cs"),
+            "Game"
+        );
+        assert_eq!(
+            extract_module_name("/project/Assets/Scripts/UI/MainMenu.cs"),
+            "UI"
+        );
+        assert_eq!(
+            extract_module_name("Assets/Scripts/Entities/Enemy.cs"),
+            "Entities"
+        );
 
         // Unity fallback (Assets/ without Scripts)
-        assert_eq!(extract_module_name("/project/Assets/Editor/BuildTools.cs"), "Editor");
+        assert_eq!(
+            extract_module_name("/project/Assets/Editor/BuildTools.cs"),
+            "Editor"
+        );
 
         // Unreal paths (Source/)
-        assert_eq!(extract_module_name("/project/Source/MyGame/Character.cpp"), "MyGame");
-        assert_eq!(extract_module_name("Source/Game/Weapons/Gun.h"), "Game.Weapons");
+        assert_eq!(
+            extract_module_name("/project/Source/MyGame/Character.cpp"),
+            "MyGame"
+        );
+        assert_eq!(
+            extract_module_name("Source/Game/Weapons/Gun.h"),
+            "Game.Weapons"
+        );
 
         // Godot paths (scripts/)
-        assert_eq!(extract_module_name("/project/scripts/player/movement.gd"), "player");
+        assert_eq!(
+            extract_module_name("/project/scripts/player/movement.gd"),
+            "player"
+        );
         assert_eq!(extract_module_name("scripts/enemies/boss.gd"), "enemies");
 
         // Monorepo paths (packages/)
-        assert_eq!(extract_module_name("/repo/packages/core/utils/format.ts"), "core.utils");
-        assert_eq!(extract_module_name("packages/api/handlers/auth.ts"), "api.handlers");
+        assert_eq!(
+            extract_module_name("/repo/packages/core/utils/format.ts"),
+            "core.utils"
+        );
+        assert_eq!(
+            extract_module_name("packages/api/handlers/auth.ts"),
+            "api.handlers"
+        );
 
         // Absolute paths with project subdirectories (tests/, docs/, etc.)
         // These should be detected as project-relative
@@ -1884,8 +2033,14 @@ mod tests {
     #[test]
     fn test_strip_first_component() {
         // Normal stripping
-        assert_eq!(strip_first_component("src.game.player"), Some("game.player".to_string()));
-        assert_eq!(strip_first_component("game.player"), Some("player".to_string()));
+        assert_eq!(
+            strip_first_component("src.game.player"),
+            Some("game.player".to_string())
+        );
+        assert_eq!(
+            strip_first_component("game.player"),
+            Some("player".to_string())
+        );
         assert_eq!(strip_first_component("a.b.c.d"), Some("b.c.d".to_string()));
 
         // Single component can't be stripped
@@ -1967,7 +2122,7 @@ mod tests {
     fn test_compute_optimal_names_single_component_does_not_block() {
         // Single-component modules should NOT block stripping for multi-component ones
         let paths = vec![
-            "root".to_string(),         // Single component - preserved as-is
+            "root".to_string(), // Single component - preserved as-is
             "src.game.player".to_string(),
             "src.game.enemy".to_string(),
         ];
@@ -1976,43 +2131,39 @@ mod tests {
 
         // Single-component is preserved, multi-component modules are stripped
         // "player" and "enemy" are unique so they get fully stripped
-        assert_eq!(result[0], "root");  // Unchanged
+        assert_eq!(result[0], "root"); // Unchanged
         assert_eq!(result[1], "player"); // Stripped from src.game.player
-        assert_eq!(result[2], "enemy");  // Stripped from src.game.enemy
-        assert_eq!(depth, 2);  // Multi-component modules got stripped twice
+        assert_eq!(result[2], "enemy"); // Stripped from src.game.enemy
+        assert_eq!(depth, 2); // Multi-component modules got stripped twice
     }
 
     #[test]
     fn test_compute_optimal_names_mixed_single_multi_with_conflict() {
         // Single-component + multi-component with conflict at final level
         let paths = vec![
-            "main".to_string(),             // Single component
+            "main".to_string(), // Single component
             "src.game.player".to_string(),
-            "src.map.player".to_string(),   // Conflicts with game.player at "player" level
+            "src.map.player".to_string(), // Conflicts with game.player at "player" level
         ];
 
         let (result, depth) = compute_optimal_names(&paths);
 
         // Single-component preserved, multi-component stripped until conflict
-        assert_eq!(result[0], "main");       // Unchanged
+        assert_eq!(result[0], "main"); // Unchanged
         assert_eq!(result[1], "game.player"); // Stripped to game.player (conflict prevents further)
-        assert_eq!(result[2], "map.player");  // Stripped to map.player (conflict prevents further)
-        assert_eq!(depth, 1);  // Only stripped "src." due to conflict at next level
+        assert_eq!(result[2], "map.player"); // Stripped to map.player (conflict prevents further)
+        assert_eq!(depth, 1); // Only stripped "src." due to conflict at next level
     }
 
     #[test]
     fn test_compute_optimal_names_all_single_component() {
         // All single-component - nothing to strip
-        let paths = vec![
-            "root".to_string(),
-            "main".to_string(),
-            "lib".to_string(),
-        ];
+        let paths = vec!["root".to_string(), "main".to_string(), "lib".to_string()];
 
         let (result, depth) = compute_optimal_names(&paths);
 
-        assert_eq!(result, paths);  // All unchanged
-        assert_eq!(depth, 0);       // No stripping occurred
+        assert_eq!(result, paths); // All unchanged
+        assert_eq!(depth, 0); // No stripping occurred
     }
 
     #[test]
@@ -2053,12 +2204,24 @@ mod tests {
         let registry = ModuleRegistry::from_full_paths(&paths);
 
         // With conflict, stops at game.player/map.player level
-        assert_eq!(registry.get_short("src.game.player"), Some(&"game.player".to_string()));
-        assert_eq!(registry.get_short("src.game.enemy"), Some(&"game.enemy".to_string()));
-        assert_eq!(registry.get_short("src.map.player"), Some(&"map.player".to_string()));
+        assert_eq!(
+            registry.get_short("src.game.player"),
+            Some(&"game.player".to_string())
+        );
+        assert_eq!(
+            registry.get_short("src.game.enemy"),
+            Some(&"game.enemy".to_string())
+        );
+        assert_eq!(
+            registry.get_short("src.map.player"),
+            Some(&"map.player".to_string())
+        );
 
         // Reverse lookup
-        assert_eq!(registry.get_full("game.player"), Some(&"src.game.player".to_string()));
+        assert_eq!(
+            registry.get_full("game.player"),
+            Some(&"src.game.player".to_string())
+        );
 
         // Non-existent
         assert_eq!(registry.get_short("nonexistent"), None);
@@ -2070,16 +2233,19 @@ mod tests {
 
     #[test]
     fn test_module_registry_conflict_detection() {
-        let paths = vec![
-            "src.game.player".to_string(),
-            "src.map.player".to_string(),
-        ];
+        let paths = vec!["src.game.player".to_string(), "src.map.player".to_string()];
 
         let registry = ModuleRegistry::from_full_paths(&paths);
 
         // Both should be preserved with parent prefix
-        assert_eq!(registry.get_short("src.game.player"), Some(&"game.player".to_string()));
-        assert_eq!(registry.get_short("src.map.player"), Some(&"map.player".to_string()));
+        assert_eq!(
+            registry.get_short("src.game.player"),
+            Some(&"game.player".to_string())
+        );
+        assert_eq!(
+            registry.get_short("src.map.player"),
+            Some(&"map.player".to_string())
+        );
 
         // "player" alone would conflict
         assert!(registry.has_conflict("game.player"));
@@ -2090,10 +2256,7 @@ mod tests {
     #[test]
     fn test_compute_full_module_path() {
         // Basic path
-        assert_eq!(
-            compute_full_module_path("src/game/player.rs"),
-            "src.game"
-        );
+        assert_eq!(compute_full_module_path("src/game/player.rs"), "src.game");
 
         // Deeper path
         assert_eq!(
@@ -2243,10 +2406,7 @@ mod tests {
         // The function uses rsplit('.') to get the last part, then filters noise
 
         // "get" is in the noise list, so axios.get returns None
-        assert_eq!(
-            extract_call_from_initializer("axios.get('/users')"),
-            None
-        );
+        assert_eq!(extract_call_from_initializer("axios.get('/users')"), None);
 
         // More specific method names that aren't noise should work
         assert_eq!(
@@ -2321,7 +2481,10 @@ mod tests {
     fn test_build_call_graph_empty() {
         let summaries: Vec<SemanticSummary> = vec![];
         let graph = build_call_graph(&summaries, false);
-        assert!(graph.is_empty(), "Empty summaries should produce empty graph");
+        assert!(
+            graph.is_empty(),
+            "Empty summaries should produce empty graph"
+        );
     }
 
     #[test]
@@ -2329,28 +2492,26 @@ mod tests {
         use crate::schema::SymbolInfo;
 
         // Summaries with symbols but no calls
-        let summaries = vec![
-            SemanticSummary {
-                file: "src/main.ts".to_string(),
-                language: "typescript".to_string(),
-                symbols: vec![
-                    SymbolInfo {
-                        name: "main".to_string(),
-                        kind: crate::schema::SymbolKind::Function,
-                        start_line: 1,
-                        end_line: 10,
-                        calls: vec![], // No calls
-                        ..Default::default()
-                    }
-                ],
+        let summaries = vec![SemanticSummary {
+            file: "src/main.ts".to_string(),
+            language: "typescript".to_string(),
+            symbols: vec![SymbolInfo {
+                name: "main".to_string(),
+                kind: crate::schema::SymbolKind::Function,
+                start_line: 1,
+                end_line: 10,
+                calls: vec![], // No calls
                 ..Default::default()
-            },
-        ];
+            }],
+            ..Default::default()
+        }];
 
         let graph = build_call_graph(&summaries, false);
         // No calls means no edges in the graph
-        assert!(graph.is_empty() || graph.values().all(|v| v.is_empty()),
-            "No calls should produce empty or no-edge graph");
+        assert!(
+            graph.is_empty() || graph.values().all(|v| v.is_empty()),
+            "No calls should produce empty or no-edge graph"
+        );
     }
 
     #[test]
@@ -2370,13 +2531,11 @@ mod tests {
                     arity: 0,
                 }),
                 symbols: vec![],
-                calls: vec![
-                    Call {
-                        name: "helper".to_string(),
-                        object: None,
-                        ..Default::default()
-                    },
-                ],
+                calls: vec![Call {
+                    name: "helper".to_string(),
+                    object: None,
+                    ..Default::default()
+                }],
                 ..Default::default()
             },
             SemanticSummary {

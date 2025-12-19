@@ -45,10 +45,8 @@ pub fn run_benchmark(config: BenchmarkConfig) -> Result<BenchmarkResults, String
 
     // Setup directories
     cleanup(output_dir).map_err(|e| format!("Failed to cleanup output dir: {}", e))?;
-    fs::create_dir_all(output_dir)
-        .map_err(|e| format!("Failed to create output dir: {}", e))?;
-    fs::create_dir_all(results_dir)
-        .map_err(|e| format!("Failed to create results dir: {}", e))?;
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
+    fs::create_dir_all(results_dir).map_err(|e| format!("Failed to create results dir: {}", e))?;
 
     let total = config.max_steps.unwrap_or(total_steps());
     let benchmark_start = Instant::now();
@@ -79,12 +77,7 @@ pub fn run_benchmark(config: BenchmarkConfig) -> Result<BenchmarkResults, String
         }
 
         // Capture snapshot
-        let snapshot = capture_snapshot(
-            output_dir,
-            step,
-            relative_path,
-            Some(ast_cache.clone()),
-        )?;
+        let snapshot = capture_snapshot(output_dir, step, relative_path, Some(ast_cache.clone()))?;
 
         // Track call graph evolution
         let graph_step = calculate_graph_evolution(&prev_graph, &snapshot.call_graph, step);
@@ -93,7 +86,8 @@ pub fn run_benchmark(config: BenchmarkConfig) -> Result<BenchmarkResults, String
         // Print progress
         if config.verbose {
             let speedup = if snapshot.timing_uncached.total_us > 0 {
-                snapshot.timing_uncached.total_us as f64 / snapshot.timing_cached.total_us.max(1) as f64
+                snapshot.timing_uncached.total_us as f64
+                    / snapshot.timing_cached.total_us.max(1) as f64
             } else {
                 1.0
             };
@@ -159,8 +153,7 @@ fn save_results(results_dir: &Path, results: &BenchmarkResults) -> Result<(), St
     let full_path = results_dir.join("benchmark_results.json");
     let full_json = serde_json::to_string_pretty(results)
         .map_err(|e| format!("Failed to serialize results: {}", e))?;
-    fs::write(&full_path, full_json)
-        .map_err(|e| format!("Failed to write results: {}", e))?;
+    fs::write(&full_path, full_json).map_err(|e| format!("Failed to write results: {}", e))?;
 
     // Save call graph evolution separately for easy visualization
     let graph_path = results_dir.join("call_graph_evolution.json");
@@ -215,8 +208,16 @@ fn create_timing_summary(results: &BenchmarkResults) -> serde_json::Value {
     }
 
     // Calculate averages
-    let total_cached: u64 = results.snapshots.iter().map(|s| s.timing_cached.total_us).sum();
-    let total_uncached: u64 = results.snapshots.iter().map(|s| s.timing_uncached.total_us).sum();
+    let total_cached: u64 = results
+        .snapshots
+        .iter()
+        .map(|s| s.timing_cached.total_us)
+        .sum();
+    let total_uncached: u64 = results
+        .snapshots
+        .iter()
+        .map(|s| s.timing_uncached.total_us)
+        .sum();
     let avg_speedup = if total_cached > 0 {
         total_uncached as f64 / total_cached as f64
     } else {
@@ -252,7 +253,11 @@ fn create_complexity_summary(results: &BenchmarkResults) -> serde_json::Value {
     // Get final totals
     let final_snapshot = results.snapshots.last();
     let (total_symbols, total_cognitive, high_risk) = if let Some(s) = final_snapshot {
-        (s.symbols.len(), s.complexity.total_cognitive, s.complexity.high_risk_count)
+        (
+            s.symbols.len(),
+            s.complexity.total_cognitive,
+            s.complexity.high_risk_count,
+        )
     } else {
         (0, 0, 0)
     };
@@ -299,7 +304,11 @@ mod tests {
         // Check individual step files
         for i in 1..=5 {
             let step_file = results_dir.join(format!("step_{:03}.json", i));
-            assert!(step_file.exists(), "Missing step file: {}", step_file.display());
+            assert!(
+                step_file.exists(),
+                "Missing step file: {}",
+                step_file.display()
+            );
         }
     }
 }

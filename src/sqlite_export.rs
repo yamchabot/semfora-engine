@@ -161,9 +161,7 @@ impl SqliteExporter {
         }
 
         // Get file size
-        let file_size_bytes = fs::metadata(output_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let file_size_bytes = fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
 
         Ok(ExportStats {
             nodes_inserted,
@@ -493,11 +491,10 @@ impl SqliteExporter {
                 })?;
 
             for (caller, callee) in batch {
-                stmt.execute(params![caller, callee]).map_err(|e| {
-                    McpDiffError::ExportError {
+                stmt.execute(params![caller, callee])
+                    .map_err(|e| McpDiffError::ExportError {
                         message: format!("Insert edge failed: {}", e),
-                    }
-                })?;
+                    })?;
             }
         }
 
@@ -530,11 +527,10 @@ impl SqliteExporter {
                 })?;
 
             for (hash, name) in external_nodes {
-                stmt.execute(params![hash, name]).map_err(|e| {
-                    McpDiffError::ExportError {
+                stmt.execute(params![hash, name])
+                    .map_err(|e| McpDiffError::ExportError {
                         message: format!("Insert external node failed: {}", e),
-                    }
-                })?;
+                    })?;
             }
         }
 

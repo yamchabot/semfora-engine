@@ -5,8 +5,8 @@
 
 #[path = "../common/mod.rs"]
 mod common;
-use common::test_repo::TestRepo;
 use common::assertions::*;
+use common::test_repo::TestRepo;
 
 // =============================================================================
 // C# TESTS
@@ -289,7 +289,8 @@ public class WithStatic
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/Example/StaticMembers.cs", "-f", "json"]);
+        let output =
+            repo.run_cli_success(&["analyze", "src/Example/StaticMembers.cs", "-f", "json"]);
         let json = assert_valid_json(&output, "C# static members");
 
         assert_symbol_exported(&json, "Utils");
@@ -482,7 +483,8 @@ public class Conditionals
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/Example/Conditionals.cs", "-f", "json"]);
+        let output =
+            repo.run_cli_success(&["analyze", "src/Example/Conditionals.cs", "-f", "json"]);
         let json = assert_valid_json(&output, "C# if/else");
 
         assert_symbol_exists(&json, "CheckValue");
@@ -691,7 +693,10 @@ public class Exceptions
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/Example/Empty.cs", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty C# file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty C# file"
+        );
     }
 
     #[test]
@@ -1000,7 +1005,12 @@ public struct Point(double x, double y)
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/Example/PrimaryConstructors.cs", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/Example/PrimaryConstructors.cs",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "C# primary constructors");
 
         assert_symbol_exists(&json, "Service");

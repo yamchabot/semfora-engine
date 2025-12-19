@@ -28,6 +28,11 @@
 //! cargo test --test integration_tests cli::search_tests
 //! ```
 //!
+
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(clippy::duplicate_mod)]
 //! ## Test Fixture Strategy
 //!
 //! Tests use tempfile to create temporary directories with specific source structures.
@@ -117,8 +122,16 @@ impl TestRepo {
         self.add_ts_function("src/index.ts", "main", "console.log('main');")
             .add_ts_function("src/api/users.ts", "getUsers", "return db.query('users');")
             .add_ts_function("src/api/posts.ts", "getPosts", "return db.query('posts');")
-            .add_ts_function("src/utils/format.ts", "formatDate", "return date.toISOString();")
-            .add_ts_function("src/utils/validate.ts", "validateEmail", "return email.includes('@');")
+            .add_ts_function(
+                "src/utils/format.ts",
+                "formatDate",
+                "return date.toISOString();",
+            )
+            .add_ts_function(
+                "src/utils/validate.ts",
+                "validateEmail",
+                "return email.includes('@');",
+            )
     }
 
     /// Create a deep nested structure (like nopCommerce)
@@ -140,14 +153,21 @@ impl TestRepo {
             "public class ProductMap { }",
         )
         // Root file that used to block stripping
-        .add_file("src/Program.cs", "public class Program { public static void Main() {} }")
+        .add_file(
+            "src/Program.cs",
+            "public class Program { public static void Main() {} }",
+        )
     }
 
     /// Create a monorepo structure
     fn with_monorepo_layout(&self) -> &Self {
         self.add_ts_function("packages/core/src/utils.ts", "coreUtil", "return 'core';")
             .add_ts_function("packages/core/src/types.ts", "CoreType", "")
-            .add_ts_function("packages/api/src/handlers.ts", "apiHandler", "return fetch('/api');")
+            .add_ts_function(
+                "packages/api/src/handlers.ts",
+                "apiHandler",
+                "return fetch('/api');",
+            )
             .add_ts_function("packages/api/src/routes.ts", "setupRoutes", "app.get('/');")
             .add_ts_function("packages/web/src/App.tsx", "App", "return <div>App</div>;")
     }
@@ -172,8 +192,8 @@ impl TestRepo {
     /// Run semfora-engine CLI command and return output
     fn run_cli(&self, args: &[&str]) -> std::io::Result<std::process::Output> {
         // Find the release binary
-        let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target/release/semfora-engine");
+        let binary =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/semfora-engine");
 
         Command::new(&binary)
             .current_dir(self.path())
@@ -209,7 +229,10 @@ mod module_naming {
         let (result, depth) = compute_optimal_names_public(&paths);
 
         // Single-component should be unchanged
-        assert_eq!(result[0], "root", "Single-component module should be unchanged");
+        assert_eq!(
+            result[0], "root",
+            "Single-component module should be unchanged"
+        );
 
         // Multi-component should be stripped (no more "src." prefix)
         assert!(
@@ -230,10 +253,7 @@ mod module_naming {
     /// Test: Conflict detection still works correctly
     #[test]
     fn test_conflict_stops_stripping() {
-        let paths = vec![
-            "src.game.player".to_string(),
-            "src.map.player".to_string(),
-        ];
+        let paths = vec!["src.game.player".to_string(), "src.map.player".to_string()];
 
         let (result, depth) = compute_optimal_names_public(&paths);
 
@@ -246,16 +266,15 @@ mod module_naming {
     /// Test: All single-component modules = no stripping
     #[test]
     fn test_all_single_component_no_stripping() {
-        let paths = vec![
-            "root".to_string(),
-            "main".to_string(),
-            "lib".to_string(),
-        ];
+        let paths = vec!["root".to_string(), "main".to_string(), "lib".to_string()];
 
         let (result, depth) = compute_optimal_names_public(&paths);
 
         // All should be unchanged
-        assert_eq!(result, paths, "All single-component modules should be unchanged");
+        assert_eq!(
+            result, paths,
+            "All single-component modules should be unchanged"
+        );
         assert_eq!(depth, 0, "No stripping possible");
     }
 
@@ -369,10 +388,7 @@ mod module_naming {
     /// Test: Paths with similar endings but different depths
     #[test]
     fn test_different_depths_same_ending() {
-        let paths = vec![
-            "src.game.utils".to_string(),
-            "src.utils".to_string(),
-        ];
+        let paths = vec!["src.game.utils".to_string(), "src.utils".to_string()];
 
         let (result, depth) = compute_optimal_names_public(&paths);
 
@@ -403,8 +419,16 @@ mod module_registry {
         {
             let mut reg = ModuleRegistrySqlite::open(&cache).unwrap();
             let entries = vec![
-                ("src.game.player".to_string(), "game.player".to_string(), "/path/player.rs".to_string()),
-                ("src.game.enemy".to_string(), "game.enemy".to_string(), "/path/enemy.rs".to_string()),
+                (
+                    "src.game.player".to_string(),
+                    "game.player".to_string(),
+                    "/path/player.rs".to_string(),
+                ),
+                (
+                    "src.game.enemy".to_string(),
+                    "game.enemy".to_string(),
+                    "/path/enemy.rs".to_string(),
+                ),
             ];
             reg.bulk_insert(&entries, 1).unwrap();
         }
@@ -435,9 +459,11 @@ mod module_registry {
         let mut reg = ModuleRegistrySqlite::open(&cache).unwrap();
 
         // First insert
-        let entries1 = vec![
-            ("old.module".to_string(), "module".to_string(), "".to_string()),
-        ];
+        let entries1 = vec![(
+            "old.module".to_string(),
+            "module".to_string(),
+            "".to_string(),
+        )];
         reg.bulk_insert(&entries1, 1).unwrap();
         assert!(reg.has_short_name("module"));
 
@@ -505,12 +531,16 @@ mod duplicate_detection {
         for cluster in &clusters {
             if cluster.primary.name == "validateEmail" {
                 // If validateEmail is primary, processPayment shouldn't be a high-similarity duplicate
-                let high_sim_dups: Vec<_> = cluster.duplicates.iter()
+                let high_sim_dups: Vec<_> = cluster
+                    .duplicates
+                    .iter()
                     .filter(|d| d.similarity >= 0.90)
                     .collect();
                 assert!(
-                    high_sim_dups.is_empty() ||
-                    !high_sim_dups.iter().any(|d| d.symbol.name == "processPayment"),
+                    high_sim_dups.is_empty()
+                        || !high_sim_dups
+                            .iter()
+                            .any(|d| d.symbol.name == "processPayment"),
                     "Different functions should not be high-similarity duplicates"
                 );
             }
@@ -521,7 +551,7 @@ mod duplicate_detection {
     // Uses file path in hash to ensure uniqueness even for same-named functions
     fn create_test_signature(name: &str, module: &str, file: &str) -> FunctionSignature {
         FunctionSignature {
-            symbol_hash: format!("hash_{}_{}", name, file),  // Unique per file
+            symbol_hash: format!("hash_{}_{}", name, file), // Unique per file
             name: name.to_string(),
             file: file.to_string(),
             module: module.to_string(),
@@ -540,13 +570,13 @@ mod duplicate_detection {
 
     fn create_test_signature_different(name: &str, module: &str, file: &str) -> FunctionSignature {
         FunctionSignature {
-            symbol_hash: format!("hash_{}_{}", name, file),  // Unique per file
+            symbol_hash: format!("hash_{}_{}", name, file), // Unique per file
             name: name.to_string(),
             file: file.to_string(),
             module: module.to_string(),
             start_line: 1,
             name_tokens: vec!["process".to_string(), "payment".to_string()],
-            call_fingerprint: 99999,  // Different fingerprints
+            call_fingerprint: 99999, // Different fingerprints
             control_flow_fingerprint: 88888,
             state_fingerprint: 77777,
             has_business_logic: true,
@@ -569,8 +599,14 @@ mod extract_module_name {
     #[test]
     fn test_src_layout() {
         assert_eq!(extract_module_name("src/api/users.ts"), "api");
-        assert_eq!(extract_module_name("src/components/Button.tsx"), "components");
-        assert_eq!(extract_module_name("src/features/auth/login.ts"), "features.auth");
+        assert_eq!(
+            extract_module_name("src/components/Button.tsx"),
+            "components"
+        );
+        assert_eq!(
+            extract_module_name("src/features/auth/login.ts"),
+            "features.auth"
+        );
     }
 
     /// Test: Root files get "root" module
@@ -600,8 +636,14 @@ mod extract_module_name {
     /// Test: Monorepo packages
     #[test]
     fn test_monorepo_packages() {
-        assert_eq!(extract_module_name("/repo/packages/core/utils/format.ts"), "core.utils");
-        assert_eq!(extract_module_name("packages/api/handlers/auth.ts"), "api.handlers");
+        assert_eq!(
+            extract_module_name("/repo/packages/core/utils/format.ts"),
+            "core.utils"
+        );
+        assert_eq!(
+            extract_module_name("packages/api/handlers/auth.ts"),
+            "api.handlers"
+        );
     }
 }
 
@@ -627,7 +669,11 @@ mod regression {
         let (result, depth) = compute_optimal_names_public(&paths);
 
         // The bug would cause depth=0 and result[1] to keep "src." prefix
-        assert!(depth >= 1, "Bug regression: strip_depth should be >= 1, got {}", depth);
+        assert!(
+            depth >= 1,
+            "Bug regression: strip_depth should be >= 1, got {}",
+            depth
+        );
         assert!(
             !result[1].starts_with("src."),
             "Bug regression: module should not start with 'src.': {}",
@@ -652,8 +698,15 @@ mod e2e_index {
         let output = repo.generate_index().expect("Failed to run CLI");
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        assert!(output.status.success(), "Index generation failed: {}", stdout);
-        assert!(stdout.contains("files_processed:"), "Should report processed files");
+        assert!(
+            output.status.success(),
+            "Index generation failed: {}",
+            stdout
+        );
+        assert!(
+            stdout.contains("files_processed:"),
+            "Should report processed files"
+        );
     }
 
     /// Test: Index generation succeeds on deep nested structure
@@ -665,7 +718,11 @@ mod e2e_index {
         let output = repo.generate_index().expect("Failed to run CLI");
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        assert!(output.status.success(), "Index generation failed: {}", stdout);
+        assert!(
+            output.status.success(),
+            "Index generation failed: {}",
+            stdout
+        );
     }
 
     /// Test: Index generation succeeds on monorepo structure
@@ -677,7 +734,11 @@ mod e2e_index {
         let output = repo.generate_index().expect("Failed to run CLI");
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        assert!(output.status.success(), "Index generation failed: {}", stdout);
+        assert!(
+            output.status.success(),
+            "Index generation failed: {}",
+            stdout
+        );
     }
 
     /// Test: Index generation handles empty directory gracefully
@@ -755,7 +816,10 @@ mod e2e_cli {
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         assert!(output.status.success(), "Query failed: {}", stdout);
-        assert!(stdout.contains("_type: repo_overview"), "Should have TOON type marker");
+        assert!(
+            stdout.contains("_type: repo_overview"),
+            "Should have TOON type marker"
+        );
         assert!(stdout.contains("modules["), "Should list modules");
     }
 
@@ -852,7 +916,11 @@ mod e2e_module_names {
         // Module names should be shortened (api, utils - not src.api, src.utils)
         // Note: Exact behavior depends on whether there are conflicts
         // At minimum, verify the output contains module information
-        assert!(stdout.contains("modules["), "Should list modules: {}", stdout);
+        assert!(
+            stdout.contains("modules["),
+            "Should list modules: {}",
+            stdout
+        );
     }
 
     /// Test: Deep nesting gets properly shortened
@@ -994,10 +1062,7 @@ mod e2e_errors {
             .run_cli(&["invalidcommand"])
             .expect("Failed to run CLI");
 
-        assert!(
-            !output.status.success(),
-            "Invalid command should fail"
-        );
+        assert!(!output.status.success(), "Invalid command should fail");
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
@@ -1067,10 +1132,7 @@ mod e2e_errors {
         let output = repo.generate_index().expect("Failed to run CLI");
 
         // Should complete without stack overflow or timeout
-        assert!(
-            output.status.success(),
-            "Should handle deep nesting"
-        );
+        assert!(output.status.success(), "Should handle deep nesting");
     }
 
     /// Test: Handles files with special characters in names
@@ -1106,8 +1168,11 @@ mod e2e_errors {
     #[test]
     fn test_syntax_errors_in_source() {
         let repo = TestRepo::new();
-        repo.add_file("src/broken.ts", "export function broken( { this is not valid")
-            .add_ts_function("src/valid.ts", "validFunc", "");
+        repo.add_file(
+            "src/broken.ts",
+            "export function broken( { this is not valid",
+        )
+        .add_ts_function("src/valid.ts", "validFunc", "");
 
         let output = repo.generate_index().expect("Failed to run CLI");
 
@@ -1147,10 +1212,7 @@ mod e2e_callgraph {
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         // Should have call graph data
-        assert!(
-            output.status.success(),
-            "Call graph query should succeed"
-        );
+        assert!(output.status.success(), "Call graph query should succeed");
     }
 }
 
@@ -1193,10 +1255,7 @@ mod e2e_formats {
         assert!(json["_type"].as_str().is_some(), "JSON should have _type");
 
         let toon_str = String::from_utf8_lossy(&toon_output.stdout);
-        assert!(
-            toon_str.contains("_type:"),
-            "TOON should have _type marker"
-        );
+        assert!(toon_str.contains("_type:"), "TOON should have _type marker");
     }
 
     /// Test: Search results are consistent across formats

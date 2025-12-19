@@ -4,8 +4,8 @@
 //! CVSS: 9.8 (Critical)
 
 use crate::lang::Lang;
-use crate::security::{CVEPattern, PatternSource, Severity};
 use crate::security::compiler::fingerprinter::fingerprint_from_source;
+use crate::security::{CVEPattern, PatternSource};
 
 /// Spring4Shell vulnerable patterns
 pub fn patterns() -> Vec<CVEPattern> {
@@ -38,7 +38,11 @@ fn classloader_manipulation_pattern() -> CVEPattern {
         vec!["CWE-94".into(), "CWE-1321".into()],
         0,
     )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
+    .with_fingerprints(
+        fp.fingerprints.call,
+        fp.fingerprints.control_flow,
+        fp.fingerprints.state,
+    )
     .with_vulnerable_calls(vec![
         "BeanWrapperImpl".into(),
         "setPropertyValue".into(),
@@ -77,7 +81,11 @@ fn property_descriptor_pattern() -> CVEPattern {
         vec!["CWE-94".into(), "CWE-1321".into()],
         1,
     )
-    .with_fingerprints(fp.fingerprints.call, fp.fingerprints.control_flow, fp.fingerprints.state)
+    .with_fingerprints(
+        fp.fingerprints.call,
+        fp.fingerprints.control_flow,
+        fp.fingerprints.state,
+    )
     .with_vulnerable_calls(vec![
         "CachedIntrospectionResults".into(),
         "PropertyDescriptor".into(),
@@ -98,6 +106,7 @@ fn property_descriptor_pattern() -> CVEPattern {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::Severity;
 
     #[test]
     fn test_spring4shell_patterns() {

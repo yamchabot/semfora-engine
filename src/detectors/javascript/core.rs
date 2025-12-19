@@ -6,12 +6,14 @@
 
 use tree_sitter::Node;
 
-use crate::detectors::common::{find_containing_symbol_by_line, get_node_text, visit_all, visit_with_nesting_depth};
+use crate::detectors::common::{
+    find_containing_symbol_by_line, get_node_text, visit_all, visit_with_nesting_depth,
+};
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::{
-    Argument, Call, ControlFlowChange, ControlFlowKind, Location, Prop, RiskLevel,
-    SemanticSummary, SymbolInfo, SymbolKind,
+    Argument, Call, ControlFlowChange, ControlFlowKind, Location, Prop, RiskLevel, SemanticSummary,
+    SymbolInfo, SymbolKind,
 };
 use crate::toon::is_meaningful_call;
 
@@ -190,23 +192,30 @@ fn collect_symbol_candidates(
                             if inner.kind() == "function_declaration"
                                 || inner.kind() == "class_declaration"
                             {
-                                if let Some(mut candidate) =
-                                    extract_candidate_from_declaration(&inner, source, filename_stem, lang)
-                                {
+                                if let Some(mut candidate) = extract_candidate_from_declaration(
+                                    &inner,
+                                    source,
+                                    filename_stem,
+                                    lang,
+                                ) {
                                     candidate.is_exported = true;
                                     candidate.is_default_export = is_default;
-                                    candidate.score = calculate_symbol_score(&candidate, filename_stem);
+                                    candidate.score =
+                                        calculate_symbol_score(&candidate, filename_stem);
                                     candidates.push(candidate);
                                 }
                                 break;
                             }
                             // Handle: export default memo(Component) or export default forwardRef(...)
                             if inner.kind() == "call_expression" && is_default {
-                                if let Some(candidate) = extract_default_export_call(&inner, source, filename_stem) {
+                                if let Some(candidate) =
+                                    extract_default_export_call(&inner, source, filename_stem)
+                                {
                                     let mut candidate = candidate;
                                     candidate.is_exported = true;
                                     candidate.is_default_export = true;
-                                    candidate.score = calculate_symbol_score(&candidate, filename_stem);
+                                    candidate.score =
+                                        calculate_symbol_score(&candidate, filename_stem);
                                     candidates.push(candidate);
                                     break;
                                 }
@@ -224,18 +233,21 @@ fn collect_symbol_candidates(
                                     end_line: inner.end_position().row + 1,
                                     arguments: Vec::new(),
                                     props: Vec::new(),
-                                    score: calculate_symbol_score(&SymbolCandidate {
-                                        name,
-                                        kind: SymbolKind::Function,
-                                        is_exported: true,
-                                        is_default_export: true,
-                                        returns_jsx: false,
-                                        start_line: 0,
-                                        end_line: 0,
-                                        arguments: Vec::new(),
-                                        props: Vec::new(),
-                                        score: 0,
-                                    }, filename_stem),
+                                    score: calculate_symbol_score(
+                                        &SymbolCandidate {
+                                            name,
+                                            kind: SymbolKind::Function,
+                                            is_exported: true,
+                                            is_default_export: true,
+                                            returns_jsx: false,
+                                            start_line: 0,
+                                            end_line: 0,
+                                            arguments: Vec::new(),
+                                            props: Vec::new(),
+                                            score: 0,
+                                        },
+                                        filename_stem,
+                                    ),
                                 });
                                 break;
                             }
@@ -253,7 +265,9 @@ fn collect_symbol_candidates(
             }
             // Handle CommonJS exports: exports.foo = function() or module.exports.foo = function()
             "expression_statement" => {
-                if let Some(candidate) = extract_commonjs_export(&child, source, filename_stem, lang) {
+                if let Some(candidate) =
+                    extract_commonjs_export(&child, source, filename_stem, lang)
+                {
                     candidates.push(candidate);
                 }
             }
@@ -286,8 +300,8 @@ fn extract_commonjs_export(
 
             // Check if it's exports.X or module.exports.X
             let left_text = get_node_text(&left, source);
-            let is_exports = left_text.starts_with("exports.")
-                || left_text.starts_with("module.exports.");
+            let is_exports =
+                left_text.starts_with("exports.") || left_text.starts_with("module.exports.");
 
             if !is_exports {
                 continue;
@@ -329,9 +343,7 @@ fn extract_commonjs_export(
                     let jsx = lang.supports_jsx() && returns_jsx(&right);
                     (SymbolKind::Function, jsx)
                 }
-                "class_expression" | "class" => {
-                    (SymbolKind::Class, false)
-                }
+                "class_expression" | "class" => (SymbolKind::Class, false),
                 _ => {
                     // Could be exports.foo = someValue - skip non-function exports
                     continue;
@@ -574,7 +586,9 @@ fn extract_candidate_from_declaration(
                                 let returns_jsx_content = args_node
                                     .map(|args| {
                                         let args_text = get_node_text(&args, source);
-                                        args_text.contains("return") && (args_text.contains("<") || args_text.contains("jsx"))
+                                        args_text.contains("return")
+                                            && (args_text.contains("<")
+                                                || args_text.contains("jsx"))
                                             || args_text.contains("=>") && args_text.contains("<")
                                     })
                                     .unwrap_or(false);
@@ -852,27 +866,31 @@ pub fn extract_control_flow(summary: &mut SemanticSummary, root: &Node) {
     // Collect all control flow items with their line numbers
     let mut all_cf: Vec<(ControlFlowChange, usize)> = Vec::new();
 
-    visit_with_nesting_depth(root, |node, depth| {
-        let kind = match node.kind() {
-            "if_statement" => Some(ControlFlowKind::If),
-            "for_statement" | "for_in_statement" => Some(ControlFlowKind::For),
-            "while_statement" => Some(ControlFlowKind::While),
-            "switch_statement" => Some(ControlFlowKind::Switch),
-            "try_statement" => Some(ControlFlowKind::Try),
-            _ => None,
-        };
-
-        if let Some(k) = kind {
-            let nesting = if depth > 0 { depth - 1 } else { 0 };
-            let line = node.start_position().row + 1;
-            let cf = ControlFlowChange {
-                kind: k,
-                location: Location::new(line, node.start_position().column),
-                nesting_depth: nesting,
+    visit_with_nesting_depth(
+        root,
+        |node, depth| {
+            let kind = match node.kind() {
+                "if_statement" => Some(ControlFlowKind::If),
+                "for_statement" | "for_in_statement" => Some(ControlFlowKind::For),
+                "while_statement" => Some(ControlFlowKind::While),
+                "switch_statement" => Some(ControlFlowKind::Switch),
+                "try_statement" => Some(ControlFlowKind::Try),
+                _ => None,
             };
-            all_cf.push((cf, line));
-        }
-    }, JS_CONTROL_FLOW_KINDS);
+
+            if let Some(k) = kind {
+                let nesting = if depth > 0 { depth - 1 } else { 0 };
+                let line = node.start_position().row + 1;
+                let cf = ControlFlowChange {
+                    kind: k,
+                    location: Location::new(line, node.start_position().column),
+                    nesting_depth: nesting,
+                };
+                all_cf.push((cf, line));
+            }
+        },
+        JS_CONTROL_FLOW_KINDS,
+    );
 
     // Attribute control flow to symbols based on line ranges
     let mut cf_by_symbol: std::collections::HashMap<usize, Vec<ControlFlowChange>> =
@@ -958,7 +976,8 @@ pub fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str) {
     });
 
     // Now assign calls to symbols based on line ranges
-    let mut calls_by_symbol: std::collections::HashMap<usize, Vec<Call>> = std::collections::HashMap::new();
+    let mut calls_by_symbol: std::collections::HashMap<usize, Vec<Call>> =
+        std::collections::HashMap::new();
     let mut file_level_calls: Vec<Call> = Vec::new();
 
     for (call, line) in all_calls {
@@ -1099,7 +1118,10 @@ export function processData(data) {
         // Should contain fetch, json, processData
         let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
         assert!(call_names.contains(&"fetch"), "Should have fetch call");
-        assert!(call_names.contains(&"processData"), "Should have processData call");
+        assert!(
+            call_names.contains(&"processData"),
+            "Should have processData call"
+        );
     }
 
     /// Test that CommonJS exports have calls attributed to symbols
@@ -1132,8 +1154,14 @@ exports.processData = function(data) {
         );
         // Should contain loadData, json, processData
         let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
-        assert!(call_names.contains(&"loadData"), "Should have loadData call");
-        assert!(call_names.contains(&"processData"), "Should have processData call");
+        assert!(
+            call_names.contains(&"loadData"),
+            "Should have loadData call"
+        );
+        assert!(
+            call_names.contains(&"processData"),
+            "Should have processData call"
+        );
     }
 
     /// Test that TypeScript functions have calls attributed to symbols
@@ -1254,7 +1282,10 @@ function logAction(action: string) {
         super::super::extract_vue_sfc(&mut summary, source).unwrap();
 
         // Should have symbols
-        assert!(!summary.symbols.is_empty(), "Vue script setup should have symbols");
+        assert!(
+            !summary.symbols.is_empty(),
+            "Vue script setup should have symbols"
+        );
 
         // increment function should have calls
         let increment = summary.symbols.iter().find(|s| s.name == "increment");
@@ -1267,7 +1298,10 @@ function logAction(action: string) {
 
         // Should detect script setup
         assert!(
-            summary.insertions.iter().any(|i| i.contains("script setup")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("script setup")),
             "Should detect script setup"
         );
     }
@@ -1322,7 +1356,9 @@ export default defineComponent({
 
         // At minimum, should have some Vue composition calls detected
         assert!(
-            all_calls.iter().any(|c| *c == "ref" || *c == "onMounted" || *c == "defineComponent"),
+            all_calls
+                .iter()
+                .any(|c| *c == "ref" || *c == "onMounted" || *c == "defineComponent"),
             "Should detect composition API calls like ref/onMounted"
         );
     }
@@ -1352,29 +1388,52 @@ export const fetchUserVotes = (accessToken: string, username: string, skip: numb
         let summary = extract(&path, source, &tree, Lang::TypeScript).unwrap();
 
         // Should have 2 symbols
-        assert!(summary.symbols.len() >= 2, "Should have at least 2 symbols, got {}", summary.symbols.len());
+        assert!(
+            summary.symbols.len() >= 2,
+            "Should have at least 2 symbols, got {}",
+            summary.symbols.len()
+        );
 
         // Find fetchUserByUsername
-        let fetch_user = summary.symbols.iter().find(|s| s.name == "fetchUserByUsername");
-        assert!(fetch_user.is_some(), "Should find fetchUserByUsername symbol");
+        let fetch_user = summary
+            .symbols
+            .iter()
+            .find(|s| s.name == "fetchUserByUsername");
+        assert!(
+            fetch_user.is_some(),
+            "Should find fetchUserByUsername symbol"
+        );
         let fetch_user = fetch_user.unwrap();
 
         // Debug output
-        eprintln!("fetchUserByUsername: lines {}-{}, calls: {:?}",
-            fetch_user.start_line, fetch_user.end_line, fetch_user.calls);
-        eprintln!("file-level calls: {:?}", summary.calls.iter().map(|c| &c.name).collect::<Vec<_>>());
+        eprintln!(
+            "fetchUserByUsername: lines {}-{}, calls: {:?}",
+            fetch_user.start_line, fetch_user.end_line, fetch_user.calls
+        );
+        eprintln!(
+            "file-level calls: {:?}",
+            summary.calls.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
 
         // This is the key assertion - the axios.get call should be attributed to the symbol
         assert!(
             !fetch_user.calls.is_empty(),
             "fetchUserByUsername should have calls attributed (axios.get), but has none. \
             Symbol lines: {}-{}, file-level calls: {:?}",
-            fetch_user.start_line, fetch_user.end_line,
-            summary.calls.iter().map(|c| format!("{}@{}", c.name, c.location.line)).collect::<Vec<_>>()
+            fetch_user.start_line,
+            fetch_user.end_line,
+            summary
+                .calls
+                .iter()
+                .map(|c| format!("{}@{}", c.name, c.location.line))
+                .collect::<Vec<_>>()
         );
 
         let call_names: Vec<_> = fetch_user.calls.iter().map(|c| c.name.as_str()).collect();
-        assert!(call_names.contains(&"get"), "Should have 'get' call (from axios.get)");
+        assert!(
+            call_names.contains(&"get"),
+            "Should have 'get' call (from axios.get)"
+        );
     }
 
     /// Test multi-line arrow functions with switch statements have control flow
@@ -1403,8 +1462,10 @@ export const globalReducer = (state = initialState, action: GlobalActions) => {
         assert!(reducer.is_some(), "Should find globalReducer symbol");
         let reducer = reducer.unwrap();
 
-        eprintln!("globalReducer: lines {}-{}, control_flow: {:?}",
-            reducer.start_line, reducer.end_line, reducer.control_flow);
+        eprintln!(
+            "globalReducer: lines {}-{}, control_flow: {:?}",
+            reducer.start_line, reducer.end_line, reducer.control_flow
+        );
 
         // The reducer should have control flow (switch statement)
         assert!(

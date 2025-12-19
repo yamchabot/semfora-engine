@@ -12,8 +12,8 @@ use crate::cli::{AnalyzeArgs, OutputFormat, TokenAnalysisMode};
 use crate::error::{McpDiffError, Result};
 use crate::git::{
     detect_base_branch, get_changed_files, get_commit_changed_files, get_commits_since,
-    get_file_at_ref, get_repo_root, get_staged_changes, get_unstaged_changes,
-    ChangedFile, ChangeType,
+    get_file_at_ref, get_repo_root, get_staged_changes, get_unstaged_changes, ChangeType,
+    ChangedFile,
 };
 use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyzer};
 use crate::{
@@ -138,7 +138,11 @@ fn run_single_file(ctx: &CommandContext, args: &AnalyzeArgs, file_path: &Path) -
             text.push_str("  SEMANTIC ANALYSIS\n");
             text.push_str("═══════════════════════════════════════════\n\n");
             text.push_str(&format!("file: {}\n", file_path.display()));
-            text.push_str(&format!("language: {} ({})\n", lang.name(), lang.family().name()));
+            text.push_str(&format!(
+                "language: {} ({})\n",
+                lang.name(),
+                lang.family().name()
+            ));
             if let Some(ref sym) = summary.symbol {
                 text.push_str(&format!("symbol: {}\n", sym));
             }
@@ -179,7 +183,10 @@ fn run_directory(ctx: &CommandContext, args: &AnalyzeArgs, dir_path: &Path) -> R
     let files = collect_files(dir_path, args.max_depth, args);
 
     if files.is_empty() {
-        return Ok(format!("directory: {}\nfiles_found: 0\n", dir_path.display()));
+        return Ok(format!(
+            "directory: {}\nfiles_found: 0\n",
+            dir_path.display()
+        ));
     }
 
     if ctx.verbose {
@@ -262,11 +269,18 @@ fn run_directory(ctx: &CommandContext, args: &AnalyzeArgs, dir_path: &Path) -> R
                  files: {}\n\
                  lines: {}\n\
                  ================================",
-                all_source_len, toon_len, compression_ratio, summaries.len(), total_lines
+                all_source_len,
+                toon_len,
+                compression_ratio,
+                summaries.len(),
+                total_lines
             ),
             TokenAnalysisMode::Compact => format!(
                 "compression: {:.1}% ({} source → {} toon, {} files)",
-                compression_ratio, all_source_len, toon_len, summaries.len()
+                compression_ratio,
+                all_source_len,
+                toon_len,
+                summaries.len()
             ),
         };
         eprintln!("{}", report);
@@ -285,7 +299,9 @@ fn run_shard(ctx: &CommandContext, args: &AnalyzeArgs, dir_path: &Path) -> Resul
 
     // Get canonical path for consistent cache lookup (normalized for Windows)
     let canonical_path = fs_utils::normalize_path(
-        &dir_path.canonicalize().unwrap_or_else(|_| dir_path.to_path_buf()),
+        &dir_path
+            .canonicalize()
+            .unwrap_or_else(|_| dir_path.to_path_buf()),
     );
     let cache = CacheDir::for_repo(&canonical_path)?;
 
@@ -308,7 +324,10 @@ fn run_shard(ctx: &CommandContext, args: &AnalyzeArgs, dir_path: &Path) -> Resul
     let files = collect_files(dir_path, args.max_depth, args);
 
     if files.is_empty() {
-        return Ok(format!("directory: {}\nfiles_found: 0\n", dir_path.display()));
+        return Ok(format!(
+            "directory: {}\nfiles_found: 0\n",
+            dir_path.display()
+        ));
     }
 
     if ctx.verbose {
@@ -529,7 +548,7 @@ fn run_single_commit(ctx: &CommandContext, _args: &AnalyzeArgs, sha: &str) -> Re
 }
 
 /// Analyze all commits since base
-fn run_all_commits(ctx: &CommandContext, args: &AnalyzeArgs, base_ref: &str) -> Result<String> {
+fn run_all_commits(_ctx: &CommandContext, _args: &AnalyzeArgs, base_ref: &str) -> Result<String> {
     let commits = get_commits_since(base_ref, None)?;
 
     if commits.is_empty() {
@@ -630,7 +649,12 @@ fn collect_files_recursive(
         }
 
         if path.is_dir() {
-            files.extend(collect_files_recursive(&path, max_depth, current_depth + 1, args));
+            files.extend(collect_files_recursive(
+                &path,
+                max_depth,
+                current_depth + 1,
+                args,
+            ));
         } else if path.is_file() {
             // Check extension filter
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {

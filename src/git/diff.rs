@@ -1,9 +1,11 @@
 //! Git diff operations
 
+#![allow(dead_code)]
+
 use std::path::Path;
 
-use crate::error::{McpDiffError, Result};
 use super::git_command;
+use crate::error::{McpDiffError, Result};
 
 /// Type of change to a file
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,13 +71,14 @@ pub struct ChangedFile {
 ///
 /// # Returns
 /// List of changed files with their change types
-pub fn get_changed_files(from_ref: &str, to_ref: &str, cwd: Option<&Path>) -> Result<Vec<ChangedFile>> {
+pub fn get_changed_files(
+    from_ref: &str,
+    to_ref: &str,
+    cwd: Option<&Path>,
+) -> Result<Vec<ChangedFile>> {
     // Use --name-status to get change type and filename
     // Use -M for rename detection
-    let output = git_command(
-        &["diff", "--name-status", "-M", from_ref, to_ref],
-        cwd,
-    )?;
+    let output = git_command(&["diff", "--name-status", "-M", from_ref, to_ref], cwd)?;
 
     parse_name_status_output(&output)
 }
@@ -83,7 +86,14 @@ pub fn get_changed_files(from_ref: &str, to_ref: &str, cwd: Option<&Path>) -> Re
 /// Get files changed in a specific commit
 pub fn get_commit_changed_files(commit: &str, cwd: Option<&Path>) -> Result<Vec<ChangedFile>> {
     let output = git_command(
-        &["diff-tree", "--no-commit-id", "--name-status", "-r", "-M", commit],
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "-M",
+            commit,
+        ],
         cwd,
     )?;
 
@@ -105,7 +115,9 @@ fn parse_name_status_output(output: &str) -> Result<Vec<ChangedFile>> {
         }
 
         let status = parts[0];
-        let change_type = status.chars().next()
+        let change_type = status
+            .chars()
+            .next()
             .and_then(ChangeType::from_status_char)
             .ok_or_else(|| McpDiffError::GitError {
                 message: format!("Unknown git status: {}", status),
@@ -115,9 +127,7 @@ fn parse_name_status_output(output: &str) -> Result<Vec<ChangedFile>> {
             ChangeType::Renamed | ChangeType::Copied if parts.len() >= 3 => {
                 (parts[2].to_string(), Some(parts[1].to_string()))
             }
-            _ if parts.len() >= 2 => {
-                (parts[1].to_string(), None)
-            }
+            _ if parts.len() >= 2 => (parts[1].to_string(), None),
             _ => {
                 return Err(McpDiffError::GitError {
                     message: format!("Invalid diff output line: {}", line),
@@ -136,7 +146,12 @@ fn parse_name_status_output(output: &str) -> Result<Vec<ChangedFile>> {
 }
 
 /// Get the raw diff content between two refs
-pub fn get_diff_content(from_ref: &str, to_ref: &str, file_path: Option<&str>, cwd: Option<&Path>) -> Result<String> {
+pub fn get_diff_content(
+    from_ref: &str,
+    to_ref: &str,
+    file_path: Option<&str>,
+    cwd: Option<&Path>,
+) -> Result<String> {
     let mut args = vec!["diff", from_ref, to_ref];
 
     if let Some(path) = file_path {
@@ -167,10 +182,7 @@ pub fn get_diff_stats(from_ref: &str, to_ref: &str, cwd: Option<&Path>) -> Resul
 /// List of changed files with their change types
 pub fn get_uncommitted_changes(base_ref: &str, cwd: Option<&Path>) -> Result<Vec<ChangedFile>> {
     // git diff <ref> --name-status shows all changes vs that ref (staged + unstaged)
-    let output = git_command(
-        &["diff", base_ref, "--name-status", "-M"],
-        cwd,
-    )?;
+    let output = git_command(&["diff", base_ref, "--name-status", "-M"], cwd)?;
 
     parse_name_status_output(&output)
 }
@@ -183,10 +195,7 @@ pub fn get_uncommitted_changes(base_ref: &str, cwd: Option<&Path>) -> Result<Vec
 /// # Returns
 /// List of staged files with their change types
 pub fn get_staged_changes(cwd: Option<&Path>) -> Result<Vec<ChangedFile>> {
-    let output = git_command(
-        &["diff", "--cached", "--name-status", "-M"],
-        cwd,
-    )?;
+    let output = git_command(&["diff", "--cached", "--name-status", "-M"], cwd)?;
 
     parse_name_status_output(&output)
 }
@@ -199,10 +208,7 @@ pub fn get_staged_changes(cwd: Option<&Path>) -> Result<Vec<ChangedFile>> {
 /// # Returns
 /// List of unstaged modified files with their change types
 pub fn get_unstaged_changes(cwd: Option<&Path>) -> Result<Vec<ChangedFile>> {
-    let output = git_command(
-        &["diff", "--name-status", "-M"],
-        cwd,
-    )?;
+    let output = git_command(&["diff", "--name-status", "-M"], cwd)?;
 
     parse_name_status_output(&output)
 }

@@ -96,9 +96,17 @@ fn find_go_type_symbols(summary: &mut SemanticSummary, root: &Node, source: &str
 
     // If we found type candidates with higher scores than current primary, update it
     if let Some(best_type) = candidates.first() {
-        let current_primary_score = summary.symbol.as_ref()
-            .map(|name| calculate_symbol_score(name, &summary.symbol_kind.unwrap_or(SymbolKind::Function),
-                summary.public_surface_changed, &filename_stem))
+        let current_primary_score = summary
+            .symbol
+            .as_ref()
+            .map(|name| {
+                calculate_symbol_score(
+                    name,
+                    &summary.symbol_kind.unwrap_or(SymbolKind::Function),
+                    summary.public_surface_changed,
+                    &filename_stem,
+                )
+            })
             .unwrap_or(0);
 
         if best_type.score > current_primary_score {
@@ -138,11 +146,16 @@ fn collect_type_candidates(
                 if inner.kind() == "type_spec" {
                     if let Some(name_node) = inner.child_by_field_name("name") {
                         let name = get_node_text(&name_node, source);
-                        let is_exported = name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+                        let is_exported = name
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false);
 
                         // Determine if it's a struct or interface
                         let kind = determine_type_kind(&inner);
-                        let score = calculate_symbol_score(&name, &kind, is_exported, filename_stem);
+                        let score =
+                            calculate_symbol_score(&name, &kind, is_exported, filename_stem);
 
                         candidates.push(SymbolCandidate {
                             name,
@@ -232,7 +245,8 @@ mod tests {
     fn test_calculate_symbol_score() {
         // Exported struct should beat unexported function
         let exported_struct = calculate_symbol_score("Server", &SymbolKind::Struct, true, "server");
-        let unexported_func = calculate_symbol_score("helper", &SymbolKind::Function, false, "server");
+        let unexported_func =
+            calculate_symbol_score("helper", &SymbolKind::Function, false, "server");
         assert!(exported_struct > unexported_func);
 
         // main function in main.go gets bonus
@@ -242,7 +256,8 @@ mod tests {
 
         // Test functions should be penalized
         let test_fn = calculate_symbol_score("TestServer", &SymbolKind::Function, true, "server");
-        let normal_fn = calculate_symbol_score("CreateServer", &SymbolKind::Function, true, "server");
+        let normal_fn =
+            calculate_symbol_score("CreateServer", &SymbolKind::Function, true, "server");
         assert!(normal_fn > test_fn);
     }
 }

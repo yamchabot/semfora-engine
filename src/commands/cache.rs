@@ -121,8 +121,15 @@ fn run_cache_clear(ctx: &CommandContext) -> Result<String> {
             output = super::encode_toon(&json_value);
         }
         OutputFormat::Text => {
-            if json_value.get("cleared").and_then(|v| v.as_bool()).unwrap_or(false) {
-                let freed = json_value.get("freed_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+            if json_value
+                .get("cleared")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                let freed = json_value
+                    .get("freed_bytes")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 output.push_str(&format!("Cache cleared for: {}\n", current_dir.display()));
                 output.push_str(&format!(
                     "Freed: {} bytes ({:.2} MB)\n",

@@ -19,7 +19,9 @@
 pub mod boilerplate;
 
 use crate::lang::Lang;
-use crate::schema::{fnv1a_hash, Call, ControlFlowChange, ControlFlowKind, StateChange, SymbolInfo};
+use crate::schema::{
+    fnv1a_hash, Call, ControlFlowChange, ControlFlowKind, StateChange, SymbolInfo,
+};
 use crate::security::{CVEMatch, CVEPattern, PatternDatabase};
 use boilerplate::{classify_boilerplate, BoilerplateCategory, BoilerplateConfig};
 use serde::{Deserialize, Serialize};
@@ -251,11 +253,7 @@ pub struct DuplicateMatch {
 
 impl DuplicateMatch {
     /// Create a new DuplicateMatch
-    pub fn new(
-        symbol: SymbolRef,
-        similarity: f64,
-        differences: Vec<Difference>,
-    ) -> Self {
+    pub fn new(symbol: SymbolRef, similarity: f64, differences: Vec<Difference>) -> Self {
         Self {
             symbol,
             kind: DuplicateKind::from_similarity(similarity),
@@ -507,9 +505,11 @@ impl DuplicateDetector {
 
         // Sort by severity (highest first) then similarity (highest first)
         matches.sort_by(|a, b| {
-            b.severity
-                .cmp(&a.severity)
-                .then(b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+            b.severity.cmp(&a.severity).then(
+                b.similarity
+                    .partial_cmp(&a.similarity)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
         });
 
         matches
@@ -526,9 +526,10 @@ impl DuplicateDetector {
         let call_sim = jaccard_similarity(&sig.business_calls, &pattern.vulnerable_calls) as f32;
 
         // Control flow similarity (fingerprint comparison)
-        let control_sim =
-            fingerprint_similarity(sig.control_flow_fingerprint, pattern.control_flow_fingerprint)
-                as f32;
+        let control_sim = fingerprint_similarity(
+            sig.control_flow_fingerprint,
+            pattern.control_flow_fingerprint,
+        ) as f32;
 
         // State similarity (fingerprint comparison)
         let state_sim =
@@ -625,7 +626,8 @@ impl DuplicateDetector {
         let name_sim = jaccard_similarity(&a.name_tokens, &b.name_tokens);
 
         // Control flow similarity (fingerprint comparison)
-        let control_sim = fingerprint_similarity(a.control_flow_fingerprint, b.control_flow_fingerprint);
+        let control_sim =
+            fingerprint_similarity(a.control_flow_fingerprint, b.control_flow_fingerprint);
 
         // State similarity (fingerprint comparison)
         let state_sim = fingerprint_similarity(a.state_fingerprint, b.state_fingerprint);

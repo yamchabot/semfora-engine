@@ -26,9 +26,9 @@ use std::time::{Duration, Instant};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::cache::CacheDir;
-use crate::schema::SymbolInfo;
 use crate::drift::{DriftDetector, DriftStatus, UpdateStrategy};
 use crate::overlay::{LayerKind, LayeredIndex, LayeredIndexStats, SymbolState};
+use crate::schema::SymbolInfo;
 
 /// Status of a specific layer
 #[derive(Debug, Clone)]
@@ -424,7 +424,10 @@ impl ServerState {
         [
             (LayerKind::Base, self.check_layer_drift(LayerKind::Base)),
             (LayerKind::Branch, self.check_layer_drift(LayerKind::Branch)),
-            (LayerKind::Working, self.check_layer_drift(LayerKind::Working)),
+            (
+                LayerKind::Working,
+                self.check_layer_drift(LayerKind::Working),
+            ),
             (LayerKind::AI, self.check_layer_drift(LayerKind::AI)),
         ]
     }

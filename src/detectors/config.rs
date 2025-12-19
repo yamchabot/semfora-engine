@@ -1,10 +1,10 @@
 //! Config file detector (JSON, YAML, TOML)
 
-use tree_sitter::{Node, Tree};
 use crate::detectors::common::{get_node_text, push_unique_insertion, visit_all};
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::SemanticSummary;
+use tree_sitter::{Node, Tree};
 
 pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree, lang: Lang) -> Result<()> {
     let root = tree.root_node();
@@ -31,7 +31,9 @@ fn extract_json_structure(summary: &mut SemanticSummary, source: &str, root: &No
 }
 
 fn extract_json_keys(summary: &mut SemanticSummary, source: &str, node: &Node, depth: usize) {
-    if depth > 1 { return; }
+    if depth > 1 {
+        return;
+    }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -87,14 +89,37 @@ fn extract_toml_structure(summary: &mut SemanticSummary, source: &str, root: &No
 }
 
 fn is_meaningful_key(key: &str) -> bool {
-    matches!(key,
-        "name" | "version" | "description" | "main" | "type" | "license"
-        | "scripts" | "dependencies" | "devDependencies" | "peerDependencies"
-        | "engines" | "repository" | "author" | "keywords"
-        | "image" | "services" | "volumes" | "ports" | "environment"
-        | "schema" | "dialect" | "dbCredentials"
-        | "compilerOptions" | "include" | "exclude" | "extends"
-        | "plugins" | "rules" | "settings"
+    matches!(
+        key,
+        "name"
+            | "version"
+            | "description"
+            | "main"
+            | "type"
+            | "license"
+            | "scripts"
+            | "dependencies"
+            | "devDependencies"
+            | "peerDependencies"
+            | "engines"
+            | "repository"
+            | "author"
+            | "keywords"
+            | "image"
+            | "services"
+            | "volumes"
+            | "ports"
+            | "environment"
+            | "schema"
+            | "dialect"
+            | "dbCredentials"
+            | "compilerOptions"
+            | "include"
+            | "exclude"
+            | "extends"
+            | "plugins"
+            | "rules"
+            | "settings"
     )
 }
 
@@ -102,22 +127,49 @@ fn generate_insertions(summary: &mut SemanticSummary) {
     let file_lower = summary.file.to_lowercase();
 
     if file_lower.ends_with("package.json") {
-        let has_deps = summary.added_dependencies.iter().any(|d| d.contains("ependencies"));
+        let has_deps = summary
+            .added_dependencies
+            .iter()
+            .any(|d| d.contains("ependencies"));
         if has_deps {
-            push_unique_insertion(&mut summary.insertions, "npm package manifest".to_string(), "npm");
+            push_unique_insertion(
+                &mut summary.insertions,
+                "npm package manifest".to_string(),
+                "npm",
+            );
         }
     } else if file_lower.ends_with("tsconfig.json") {
-        push_unique_insertion(&mut summary.insertions, "TypeScript configuration".to_string(), "TypeScript");
+        push_unique_insertion(
+            &mut summary.insertions,
+            "TypeScript configuration".to_string(),
+            "TypeScript",
+        );
     } else if file_lower.contains("docker-compose") {
         if summary.added_dependencies.iter().any(|d| d == "services") {
-            push_unique_insertion(&mut summary.insertions, "Docker Compose configuration".to_string(), "Docker");
+            push_unique_insertion(
+                &mut summary.insertions,
+                "Docker Compose configuration".to_string(),
+                "Docker",
+            );
         }
     } else if file_lower.contains("eslint") {
-        push_unique_insertion(&mut summary.insertions, "ESLint configuration".to_string(), "ESLint");
+        push_unique_insertion(
+            &mut summary.insertions,
+            "ESLint configuration".to_string(),
+            "ESLint",
+        );
     } else if file_lower.contains("prettier") {
-        push_unique_insertion(&mut summary.insertions, "Prettier configuration".to_string(), "Prettier");
+        push_unique_insertion(
+            &mut summary.insertions,
+            "Prettier configuration".to_string(),
+            "Prettier",
+        );
     } else if file_lower.ends_with("cargo.toml") {
-        push_unique_insertion(&mut summary.insertions, "Rust package manifest".to_string(), "Rust package");
+        push_unique_insertion(
+            &mut summary.insertions,
+            "Rust package manifest".to_string(),
+            "Rust package",
+        );
     }
 
     let config_keys: Vec<String> = summary.added_dependencies.drain(..).collect();
@@ -127,6 +179,8 @@ fn generate_insertions(summary: &mut SemanticSummary) {
         } else {
             format!("{} sections", config_keys.len())
         };
-        summary.insertions.push(format!("config with {}", key_summary));
+        summary
+            .insertions
+            .push(format!("config with {}", key_summary));
     }
 }

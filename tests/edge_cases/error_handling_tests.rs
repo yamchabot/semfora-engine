@@ -119,7 +119,10 @@ fn broken() {
     );
 
     let result = repo.run_cli(&["analyze", "src/broken.rs", "-f", "json"]);
-    assert!(result.is_ok(), "Should handle Rust syntax errors gracefully");
+    assert!(
+        result.is_ok(),
+        "Should handle Rust syntax errors gracefully"
+    );
 }
 
 #[test]
@@ -136,7 +139,10 @@ def broken():
     );
 
     let result = repo.run_cli(&["analyze", "src/broken.py", "-f", "json"]);
-    assert!(result.is_ok(), "Should handle Python syntax errors gracefully");
+    assert!(
+        result.is_ok(),
+        "Should handle Python syntax errors gracefully"
+    );
 }
 
 #[test]
@@ -159,7 +165,10 @@ export function anotherValidFunc() {
     );
 
     let result = repo.run_cli(&["analyze", "src/partial.ts", "-f", "json"]);
-    assert!(result.is_ok(), "Should extract valid symbols despite errors");
+    assert!(
+        result.is_ok(),
+        "Should extract valid symbols despite errors"
+    );
 }
 
 // ============================================================================
@@ -189,9 +198,7 @@ export const 設定 = {
     // Should extract Unicode identifiers
     let output_str = serde_json::to_string(&json).unwrap();
     assert!(
-        output_str.contains("処理する")
-            || output_str.contains("設定")
-            || json.is_object(),
+        output_str.contains("処理する") || output_str.contains("設定") || json.is_object(),
         "Should find Unicode identifiers: {}",
         output
     );
@@ -365,7 +372,11 @@ fn test_nonexistent_file() {
     let has_error = combined.to_lowercase().contains("not found")
         || combined.to_lowercase().contains("error")
         || combined.to_lowercase().contains("no such file");
-    assert!(has_error, "Should report file not found error: {}", combined);
+    assert!(
+        has_error,
+        "Should report file not found error: {}",
+        combined
+    );
 }
 
 #[test]
@@ -572,7 +583,10 @@ fn test_mixed_valid_invalid_files() {
     repo.generate_index().unwrap();
 
     let overview = repo.run_cli_success(&["query", "overview"]);
-    assert!(!overview.is_empty(), "Should produce overview for mixed content");
+    assert!(
+        !overview.is_empty(),
+        "Should produce overview for mixed content"
+    );
 }
 
 #[test]

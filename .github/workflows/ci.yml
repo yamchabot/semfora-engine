@@ -52,7 +52,9 @@ jobs:
             ${{ runner.os }}-cargo-clippy-
 
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        # Note: --all-features is not used because embedded-patterns feature requires
+        # SECURITY_PATTERNS_PATH to be set at compile time with a pre-built patterns file
+        run: cargo clippy --all-targets -- -D warnings
 
   # Tests - run on multiple platforms
   test:
@@ -83,7 +85,9 @@ jobs:
             ${{ runner.os }}-cargo-test-
 
       - name: Run tests
-        run: cargo test --all-targets
+        # Note: --benches is excluded because criterion benchmarks require at least
+        # 10 samples and fail when run as tests (n < 10 in CI environment)
+        run: cargo test --lib --bins --tests --examples
         env:
           RUST_BACKTRACE: 1
 

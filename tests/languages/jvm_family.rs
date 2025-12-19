@@ -5,8 +5,8 @@
 
 #[path = "../common/mod.rs"]
 mod common;
-use common::test_repo::TestRepo;
 use common::assertions::*;
+use common::test_repo::TestRepo;
 
 // =============================================================================
 // JAVA TESTS
@@ -46,13 +46,20 @@ public class User {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/User.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/User.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java class extraction");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("User") || output_str.contains("getId") || output_str.contains("class"),
+            output_str.contains("User")
+                || output_str.contains("getId")
+                || output_str.contains("class"),
             "Should find Java class and methods: {}",
             output
         );
@@ -81,13 +88,20 @@ public interface Repository<T, ID> {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Repository.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Repository.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java interface extraction");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Repository") || output_str.contains("save") || output_str.contains("interface"),
+            output_str.contains("Repository")
+                || output_str.contains("save")
+                || output_str.contains("interface"),
             "Should find Java interface and methods: {}",
             output
         );
@@ -124,13 +138,20 @@ public enum Status {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Status.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Status.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java enum extraction");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Status") || output_str.contains("getDisplayName") || output_str.contains("enum"),
+            output_str.contains("Status")
+                || output_str.contains("getDisplayName")
+                || output_str.contains("enum"),
             "Should find Java enum and methods: {}",
             output
         );
@@ -162,13 +183,20 @@ public record Person(String name, int age, String email) {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Person.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Person.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java record extraction");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Person") || output_str.contains("record") || output_str.contains("greeting"),
+            output_str.contains("Person")
+                || output_str.contains("record")
+                || output_str.contains("greeting"),
             "Should find Java record: {}",
             output
         );
@@ -218,13 +246,20 @@ public class Outer {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Outer.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Outer.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java nested class extraction");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Outer") || output_str.contains("StaticNested") || output_str.contains("class"),
+            output_str.contains("Outer")
+                || output_str.contains("StaticNested")
+                || output_str.contains("class"),
             "Should find Java nested classes: {}",
             output
         );
@@ -254,13 +289,20 @@ public class Service {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Service.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Service.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java visibility modifiers");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Service") || output_str.contains("publicMethod") || output_str.contains("class"),
+            output_str.contains("Service")
+                || output_str.contains("publicMethod")
+                || output_str.contains("class"),
             "Should find Java public class and methods: {}",
             output
         );
@@ -281,13 +323,20 @@ class InternalHelper {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/InternalHelper.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/InternalHelper.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java package-private class");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("InternalHelper") || output_str.contains("helperMethod") || output_str.contains("class"),
+            output_str.contains("InternalHelper")
+                || output_str.contains("helperMethod")
+                || output_str.contains("class"),
             "Should find Java package-private class: {}",
             output
         );
@@ -323,13 +372,20 @@ public interface Api {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Api.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Api.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java interface visibility");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Api") || output_str.contains("process") || output_str.contains("interface"),
+            output_str.contains("Api")
+                || output_str.contains("process")
+                || output_str.contains("interface"),
             "Should find Java interface: {}",
             output
         );
@@ -371,13 +427,20 @@ public class Calculator {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Calculator.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Calculator.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java method calls");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Calculator") || output_str.contains("calculate") || output_str.contains("class"),
+            output_str.contains("Calculator")
+                || output_str.contains("calculate")
+                || output_str.contains("class"),
             "Should find Java class with method calls: {}",
             output
         );
@@ -425,13 +488,20 @@ public class Builder {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Builder.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Builder.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java constructor calls");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Builder") || output_str.contains("build") || output_str.contains("class"),
+            output_str.contains("Builder")
+                || output_str.contains("build")
+                || output_str.contains("class"),
             "Should find Java builder class: {}",
             output
         );
@@ -473,13 +543,20 @@ public class Utils {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Utils.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Utils.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java static calls");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Utils") || output_str.contains("max") || output_str.contains("static"),
+            output_str.contains("Utils")
+                || output_str.contains("max")
+                || output_str.contains("static"),
             "Should find Java utility class: {}",
             output
         );
@@ -522,13 +599,20 @@ public class Conditionals {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Conditionals.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Conditionals.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java if/else");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("checkValue") || output_str.contains("ternary") || output_str.contains("Conditionals"),
+            output_str.contains("checkValue")
+                || output_str.contains("ternary")
+                || output_str.contains("Conditionals"),
             "Should find Java conditionals class: {}",
             output
         );
@@ -579,13 +663,20 @@ public class Switches {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Switches.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Switches.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java switch");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("getDay") || output_str.contains("Switches") || output_str.contains("switch"),
+            output_str.contains("getDay")
+                || output_str.contains("Switches")
+                || output_str.contains("switch"),
             "Should find Java switch class: {}",
             output
         );
@@ -638,13 +729,20 @@ public class Loops {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Loops.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Loops.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java loops");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("forLoop") || output_str.contains("Loops") || output_str.contains("while"),
+            output_str.contains("forLoop")
+                || output_str.contains("Loops")
+                || output_str.contains("while"),
             "Should find Java loops class: {}",
             output
         );
@@ -698,13 +796,20 @@ public class Exceptions {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Exceptions.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Exceptions.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java exception handling");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("tryCatch") || output_str.contains("Exceptions") || output_str.contains("catch"),
+            output_str.contains("tryCatch")
+                || output_str.contains("Exceptions")
+                || output_str.contains("catch"),
             "Should find Java exceptions class: {}",
             output
         );
@@ -717,11 +822,22 @@ public class Exceptions {
     #[test]
     fn test_java_empty_file() {
         let repo = TestRepo::new();
-        repo.add_file("src/main/java/com/example/Empty.java", "package com.example;\n");
+        repo.add_file(
+            "src/main/java/com/example/Empty.java",
+            "package com.example;\n",
+        );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli(&["analyze", "src/main/java/com/example/Empty.java", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Java file");
+        let output = repo.run_cli(&[
+            "analyze",
+            "src/main/java/com/example/Empty.java",
+            "-f",
+            "json",
+        ]);
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Java file"
+        );
     }
 
     #[test]
@@ -761,13 +877,20 @@ public class AnnotatedClass {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Annotated.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Annotated.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java annotations");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Logged") || output_str.contains("annotation") || output_str.contains("interface"),
+            output_str.contains("Logged")
+                || output_str.contains("annotation")
+                || output_str.contains("interface"),
             "Should find Java annotation: {}",
             output
         );
@@ -823,13 +946,20 @@ public class Generics<T> {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Generics.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Generics.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java generics");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Generics") || output_str.contains("map") || output_str.contains("class"),
+            output_str.contains("Generics")
+                || output_str.contains("map")
+                || output_str.contains("class"),
             "Should find Java generics class: {}",
             output
         );
@@ -876,13 +1006,20 @@ public class Lambdas {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/java/com/example/Lambdas.java", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/java/com/example/Lambdas.java",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Java lambdas");
 
         // Java symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Lambdas") || output_str.contains("lambdaExamples") || output_str.contains("class"),
+            output_str.contains("Lambdas")
+                || output_str.contains("lambdaExamples")
+                || output_str.contains("class"),
             "Should find Java lambdas class: {}",
             output
         );
@@ -916,13 +1053,20 @@ class User(val id: Long, val name: String) {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/User.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/User.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin class extraction");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("User") || output_str.contains("getId") || output_str.contains("class"),
+            output_str.contains("User")
+                || output_str.contains("getId")
+                || output_str.contains("class"),
             "Should find Kotlin class: {}",
             output
         );
@@ -957,13 +1101,20 @@ data class Response<T>(
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Models.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Models.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin data class extraction");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("User") || output_str.contains("Config") || output_str.contains("data"),
+            output_str.contains("User")
+                || output_str.contains("Config")
+                || output_str.contains("data"),
             "Should find Kotlin data classes: {}",
             output
         );
@@ -992,13 +1143,20 @@ sealed interface UiState {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Result.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Result.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin sealed class extraction");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Result") || output_str.contains("Success") || output_str.contains("sealed"),
+            output_str.contains("Result")
+                || output_str.contains("Success")
+                || output_str.contains("sealed"),
             "Should find Kotlin sealed class: {}",
             output
         );
@@ -1045,13 +1203,20 @@ class Service {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Singletons.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Singletons.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin object extraction");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Logger") || output_str.contains("Factory") || output_str.contains("object"),
+            output_str.contains("Logger")
+                || output_str.contains("Factory")
+                || output_str.contains("object"),
             "Should find Kotlin objects: {}",
             output
         );
@@ -1086,13 +1251,20 @@ fun Int.Companion.random(until: Int): Int = (0 until until).random()
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Extensions.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Extensions.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin extension functions");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("toTitleCase") || output_str.contains("orEmpty") || output_str.contains("fun"),
+            output_str.contains("toTitleCase")
+                || output_str.contains("orEmpty")
+                || output_str.contains("fun"),
             "Should find Kotlin extension functions: {}",
             output
         );
@@ -1135,13 +1307,20 @@ private fun privateFunction() {}
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Visibility.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Visibility.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin visibility modifiers");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("PublicClass") || output_str.contains("publicMethod") || output_str.contains("class"),
+            output_str.contains("PublicClass")
+                || output_str.contains("publicMethod")
+                || output_str.contains("class"),
             "Should find Kotlin visibility classes: {}",
             output
         );
@@ -1176,13 +1355,20 @@ fun main() {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Calculator.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Calculator.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin function calls");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("helper") || output_str.contains("process") || output_str.contains("fun"),
+            output_str.contains("helper")
+                || output_str.contains("process")
+                || output_str.contains("fun"),
             "Should find Kotlin functions: {}",
             output
         );
@@ -1223,13 +1409,20 @@ fun main() {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Functional.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Functional.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin lambda calls");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("processNumbers") || output_str.contains("withCallback") || output_str.contains("fun"),
+            output_str.contains("processNumbers")
+                || output_str.contains("withCallback")
+                || output_str.contains("fun"),
             "Should find Kotlin lambda functions: {}",
             output
         );
@@ -1272,13 +1465,20 @@ fun checkConditions(x: Int): String = when {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/When.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/When.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin when expression");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("describe") || output_str.contains("checkRange") || output_str.contains("when"),
+            output_str.contains("describe")
+                || output_str.contains("checkRange")
+                || output_str.contains("when"),
             "Should find Kotlin when functions: {}",
             output
         );
@@ -1325,13 +1525,20 @@ data class City(val name: String?)
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/NullSafety.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/NullSafety.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin null safety");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("safeLength") || output_str.contains("elvisThrow") || output_str.contains("fun"),
+            output_str.contains("safeLength")
+                || output_str.contains("elvisThrow")
+                || output_str.contains("fun"),
             "Should find Kotlin null safety functions: {}",
             output
         );
@@ -1386,13 +1593,20 @@ fun loopExamples() {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Loops.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Loops.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin loops");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("loopExamples") || output_str.contains("for") || output_str.contains("fun"),
+            output_str.contains("loopExamples")
+                || output_str.contains("for")
+                || output_str.contains("fun"),
             "Should find Kotlin loop functions: {}",
             output
         );
@@ -1405,11 +1619,22 @@ fun loopExamples() {
     #[test]
     fn test_kotlin_empty_file() {
         let repo = TestRepo::new();
-        repo.add_file("src/main/kotlin/com/example/Empty.kt", "package com.example\n");
+        repo.add_file(
+            "src/main/kotlin/com/example/Empty.kt",
+            "package com.example\n",
+        );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli(&["analyze", "src/main/kotlin/com/example/Empty.kt", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Kotlin file");
+        let output = repo.run_cli(&[
+            "analyze",
+            "src/main/kotlin/com/example/Empty.kt",
+            "-f",
+            "json",
+        ]);
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Kotlin file"
+        );
     }
 
     #[test]
@@ -1449,13 +1674,20 @@ fun numberFlow() = flow {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Coroutines.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Coroutines.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin coroutines");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("fetchData") || output_str.contains("processAll") || output_str.contains("suspend"),
+            output_str.contains("fetchData")
+                || output_str.contains("processAll")
+                || output_str.contains("suspend"),
             "Should find Kotlin coroutine functions: {}",
             output
         );
@@ -1512,13 +1744,20 @@ class Example {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Delegation.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Delegation.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin delegation");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("Printer") || output_str.contains("PrinterWrapper") || output_str.contains("interface"),
+            output_str.contains("Printer")
+                || output_str.contains("PrinterWrapper")
+                || output_str.contains("interface"),
             "Should find Kotlin delegation classes: {}",
             output
         );
@@ -1585,13 +1824,20 @@ val page = html {
         );
         repo.generate_index().unwrap();
 
-        let output = repo.run_cli_success(&["analyze", "src/main/kotlin/com/example/Dsl.kt", "-f", "json"]);
+        let output = repo.run_cli_success(&[
+            "analyze",
+            "src/main/kotlin/com/example/Dsl.kt",
+            "-f",
+            "json",
+        ]);
         let json = assert_valid_json(&output, "Kotlin DSL builder");
 
         // Kotlin symbol names may vary, check for content presence
         let output_str = serde_json::to_string(&json).unwrap();
         assert!(
-            output_str.contains("HtmlBuilder") || output_str.contains("html") || output_str.contains("class"),
+            output_str.contains("HtmlBuilder")
+                || output_str.contains("html")
+                || output_str.contains("class"),
             "Should find Kotlin DSL builder: {}",
             output
         );

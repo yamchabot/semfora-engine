@@ -3,8 +3,10 @@
 //! These tests exercise the formatting logic via CLI commands that invoke
 //! the same formatting paths used by MCP handlers.
 
-use crate::common::test_repo::TestRepo;
+#![allow(clippy::len_zero)]
+
 use crate::common::assertions::assert_valid_json;
+use crate::common::test_repo::TestRepo;
 
 // ============================================================================
 // Search Result Formatting Tests
@@ -22,21 +24,26 @@ fn test_format_search_results_empty() {
     // Should handle empty results gracefully
     assert!(
         output.contains("no") || output.contains("0") || output.len() < 100,
-        "Empty search should produce minimal output: {}", output
+        "Empty search should produce minimal output: {}",
+        output
     );
 }
 
 #[test]
 fn test_format_search_results_single_match() {
     let repo = TestRepo::new();
-    repo.add_file("src/utils.ts", "export function uniqueFunction() { return 1; }");
+    repo.add_file(
+        "src/utils.ts",
+        "export function uniqueFunction() { return 1; }",
+    );
     repo.generate_index().expect("Index generation failed");
 
     let output = repo.run_cli_success(&["search", "uniqueFunction"]);
 
     assert!(
         output.contains("uniqueFunction"),
-        "Search should show the matched symbol: {}", output
+        "Search should show the matched symbol: {}",
+        output
     );
 }
 
@@ -53,7 +60,8 @@ fn test_format_search_results_multiple_matches() {
     // Should show multiple matches
     assert!(
         output.len() > 50,
-        "Multiple matches should produce substantial output: {}", output
+        "Multiple matches should produce substantial output: {}",
+        output
     );
 }
 
@@ -97,7 +105,8 @@ fn test_format_search_results_toon() {
     // TOON format should have type markers
     assert!(
         output.contains("_type") || output.len() > 0,
-        "TOON format should have type markers: {}", output
+        "TOON format should have type markers: {}",
+        output
     );
 }
 
@@ -174,7 +183,8 @@ fn test_format_callgraph_with_edges() {
     // Should show call relationships
     assert!(
         output.len() > 50,
-        "Callgraph should show relationships: {}", output
+        "Callgraph should show relationships: {}",
+        output
     );
 }
 
@@ -186,7 +196,10 @@ fn test_format_callgraph_stats_only() {
     let output = repo.run_cli_success(&["query", "callgraph", "--stats-only"]);
 
     // Stats-only should be concise
-    assert!(output.len() > 0, "Stats-only callgraph should produce output");
+    assert!(
+        output.len() > 0,
+        "Stats-only callgraph should produce output"
+    );
 }
 
 #[test]
@@ -197,7 +210,10 @@ fn test_format_callgraph_with_pagination() {
     let output = repo.run_cli_success(&["query", "callgraph", "--limit", "5"]);
 
     // Should respect limit
-    assert!(output.len() > 0, "Paginated callgraph should produce output");
+    assert!(
+        output.len() > 0,
+        "Paginated callgraph should produce output"
+    );
 }
 
 #[test]
@@ -252,8 +268,11 @@ fn test_format_duplicates_single_cluster() {
 
     // Should show the duplicate cluster
     assert!(
-        output.contains("validateInput") || output.contains("cluster") || output.contains("duplicate"),
-        "Should show duplicate cluster: {}", output
+        output.contains("validateInput")
+            || output.contains("cluster")
+            || output.contains("duplicate"),
+        "Should show duplicate cluster: {}",
+        output
     );
 }
 
@@ -303,11 +322,20 @@ export function third() { return 3; }
 "#,
     );
 
-    let output = repo.run_cli_success(&["query", "source", "src/utils.ts", "--start", "1", "--end", "3"]);
+    let output = repo.run_cli_success(&[
+        "query",
+        "source",
+        "src/utils.ts",
+        "--start",
+        "1",
+        "--end",
+        "3",
+    ]);
 
     assert!(
         output.contains("first") || output.contains("function"),
-        "Source snippet should show code: {}", output
+        "Source snippet should show code: {}",
+        output
     );
 }
 
@@ -327,11 +355,20 @@ export function target() {
     );
 
     // Request middle lines
-    let output = repo.run_cli_success(&["query", "source", "src/main.ts", "--start", "3", "--end", "5"]);
+    let output = repo.run_cli_success(&[
+        "query",
+        "source",
+        "src/main.ts",
+        "--start",
+        "3",
+        "--end",
+        "5",
+    ]);
 
     assert!(
         output.contains("target") || output.contains("42"),
-        "Source with context should show function: {}", output
+        "Source with context should show function: {}",
+        output
     );
 }
 
@@ -346,7 +383,8 @@ fn test_format_source_entire_file() {
 
     assert!(
         output.contains("test") || output.contains("function"),
-        "Full source should show content: {}", output
+        "Full source should show content: {}",
+        output
     );
 }
 
@@ -362,9 +400,18 @@ fn test_format_languages_list() {
     let output = repo.run_cli_success(&["query", "languages"]);
 
     // Should list multiple languages
-    assert!(output.contains("TypeScript") || output.contains(".ts"), "Should list TypeScript");
-    assert!(output.contains("Rust") || output.contains(".rs"), "Should list Rust");
-    assert!(output.contains("Python") || output.contains(".py"), "Should list Python");
+    assert!(
+        output.contains("TypeScript") || output.contains(".ts"),
+        "Should list TypeScript"
+    );
+    assert!(
+        output.contains("Rust") || output.contains(".rs"),
+        "Should list Rust"
+    );
+    assert!(
+        output.contains("Python") || output.contains(".py"),
+        "Should list Python"
+    );
 }
 
 // ============================================================================
@@ -383,7 +430,8 @@ fn test_format_overview_basic() {
     // Overview should contain type marker and file count
     assert!(
         output.contains("_type") || output.contains("repo_overview") || output.contains("files"),
-        "Overview should show repo info: {}", output
+        "Overview should show repo info: {}",
+        output
     );
 }
 
@@ -409,7 +457,8 @@ fn test_format_overview_toon() {
     // TOON format should have type indicators
     assert!(
         output.contains("_type") || output.len() > 10,
-        "TOON overview should have structure: {}", output
+        "TOON overview should have structure: {}",
+        output
     );
 }
 
@@ -445,7 +494,8 @@ fn test_format_commit_prep_with_changes() {
     // Should show the modified file
     assert!(
         output.contains("main.ts") || output.contains("unstaged") || output.len() > 20,
-        "Commit prep should show changes: {}", output
+        "Commit prep should show changes: {}",
+        output
     );
 }
 

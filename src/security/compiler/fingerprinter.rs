@@ -132,9 +132,15 @@ fn extract_control_flow(source: &str, lang: Lang) -> Vec<String> {
                     patterns.push("W".to_string());
                 } else if trimmed.starts_with("try ") || trimmed.starts_with("try{") {
                     patterns.push("T".to_string());
-                } else if trimmed.starts_with("catch") || trimmed.contains("} catch") || trimmed.contains("}catch") {
+                } else if trimmed.starts_with("catch")
+                    || trimmed.contains("} catch")
+                    || trimmed.contains("}catch")
+                {
                     patterns.push("C".to_string());
-                } else if trimmed.starts_with("finally") || trimmed.contains("} finally") || trimmed.contains("}finally") {
+                } else if trimmed.starts_with("finally")
+                    || trimmed.contains("} finally")
+                    || trimmed.contains("}finally")
+                {
                     patterns.push("Y".to_string());
                 } else if trimmed.starts_with("switch") {
                     patterns.push("S".to_string());
@@ -193,9 +199,15 @@ fn extract_control_flow(source: &str, lang: Lang) -> Vec<String> {
                     patterns.push("W".to_string());
                 } else if trimmed.starts_with("try ") || trimmed.starts_with("try{") {
                     patterns.push("T".to_string());
-                } else if trimmed.starts_with("catch") || trimmed.contains("} catch") || trimmed.contains("}catch") {
+                } else if trimmed.starts_with("catch")
+                    || trimmed.contains("} catch")
+                    || trimmed.contains("}catch")
+                {
                     patterns.push("C".to_string());
-                } else if trimmed.starts_with("finally") || trimmed.contains("} finally") || trimmed.contains("}finally") {
+                } else if trimmed.starts_with("finally")
+                    || trimmed.contains("} finally")
+                    || trimmed.contains("}finally")
+                {
                     patterns.push("Y".to_string());
                 } else if trimmed.starts_with("switch") {
                     patterns.push("S".to_string());
@@ -209,7 +221,7 @@ fn extract_control_flow(source: &str, lang: Lang) -> Vec<String> {
 }
 
 /// Extract state mutation patterns
-fn extract_state_patterns(source: &str, lang: Lang) -> Vec<String> {
+fn extract_state_patterns(source: &str, _lang: Lang) -> Vec<String> {
     let mut patterns = Vec::new();
 
     // Look for common dangerous variable patterns
@@ -246,7 +258,9 @@ fn extract_state_patterns(source: &str, lang: Lang) -> Vec<String> {
         }
 
         // Look for string concatenation with variables (common in injection vulnerabilities)
-        if lower.contains(" + ") && (lower.contains("\"") || lower.contains("'") || lower.contains("`")) {
+        if lower.contains(" + ")
+            && (lower.contains("\"") || lower.contains("'") || lower.contains("`"))
+        {
             patterns.push("string_concat".to_string());
         }
 
@@ -309,7 +323,9 @@ fn is_utility_call(name: &str) -> bool {
         "Err",
     ];
 
-    utilities.iter().any(|u| name == *u || name.ends_with(&format!(".{}", u)))
+    utilities
+        .iter()
+        .any(|u| name == *u || name.ends_with(&format!(".{}", u)))
 }
 
 /// Normalize call name for consistent fingerprinting
@@ -413,6 +429,9 @@ mod tests {
         let set2 = vec!["b".to_string(), "a".to_string()];
 
         // Order shouldn't matter
-        assert_eq!(compute_set_fingerprint(&set1), compute_set_fingerprint(&set2));
+        assert_eq!(
+            compute_set_fingerprint(&set1),
+            compute_set_fingerprint(&set2)
+        );
     }
 }

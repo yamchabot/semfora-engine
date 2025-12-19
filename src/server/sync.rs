@@ -35,12 +35,12 @@ use std::time::Instant;
 
 use crate::drift::UpdateStrategy;
 use crate::duplicate::{DuplicateDetector, DuplicateKind, FunctionSignature};
-use crate::shard::extract_module_name;
 use crate::error::Result;
 use crate::extract::extract;
 use crate::lang::Lang;
 use crate::overlay::{LayerKind, SymbolState};
 use crate::schema::SymbolInfo;
+use crate::shard::extract_module_name;
 
 use super::ast_cache::AstCache;
 use super::events::{
@@ -271,7 +271,9 @@ impl LayerSynchronizer {
 
         // Parse with AST cache (incremental if cached)
         let parse_start = Instant::now();
-        let (tree, parse_result) = self.ast_cache.parse_file(&full_path, &source, lang)
+        let (tree, parse_result) = self
+            .ast_cache
+            .parse_file(&full_path, &source, lang)
             .map_err(|e| crate::error::McpDiffError::ParseFailure { message: e })?;
         let parse_duration = parse_start.elapsed();
         stats.parse_time_us = parse_duration.as_micros() as u64;
@@ -288,10 +290,7 @@ impl LayerSynchronizer {
             }
             super::ast_cache::ParseResult::Cached => {
                 stats.cached_parses = 1;
-                tracing::debug!(
-                    "[SYNC] Cache hit for {:?} (no changes)",
-                    file_path
-                );
+                tracing::debug!("[SYNC] Cache hit for {:?} (no changes)", file_path);
             }
             super::ast_cache::ParseResult::Incremental { changed_ranges, .. } => {
                 stats.incremental_parses = 1;
@@ -311,7 +310,8 @@ impl LayerSynchronizer {
         let existing_hashes: HashSet<String> = state.read(|index| {
             let overlay = index.layer(layer);
             // Get hashes from symbols_by_file directly
-            overlay.symbols_by_file
+            overlay
+                .symbols_by_file
                 .get(file_path)
                 .cloned()
                 .unwrap_or_default()
@@ -333,25 +333,30 @@ impl LayerSynchronizer {
 
         // Pre-compute hashes and index entries before consuming symbols
         // NOTE: Always use full_path (absolute) for hash computation - this is the canonical rule
-        let symbols_with_hashes: Vec<_> = summary.symbols.into_iter().map(|symbol| {
-            let hash = crate::overlay::compute_symbol_hash(&symbol, &full_path.to_string_lossy());
+        let symbols_with_hashes: Vec<_> = summary
+            .symbols
+            .into_iter()
+            .map(|symbol| {
+                let hash =
+                    crate::overlay::compute_symbol_hash(&symbol, &full_path.to_string_lossy());
 
-            // Build index entry for disk cache
-            let entry = crate::cache::SymbolIndexEntry {
-                symbol: symbol.name.clone(),
-                hash: hash.clone(),
-                semantic_hash: crate::overlay::extract_semantic_hash(&hash).to_string(),
-                kind: format!("{:?}", symbol.kind).to_lowercase(),
-                module: module_name.clone(),
-                file: full_path.to_string_lossy().to_string(),
-                lines: format!("{}-{}", symbol.start_line, symbol.end_line),
-                risk: format!("{:?}", symbol.behavioral_risk).to_lowercase(),
-                cognitive_complexity: 0, // TODO: Calculate from control_flow
-                max_nesting: 0,          // TODO: Calculate from control_flow
-            };
+                // Build index entry for disk cache
+                let entry = crate::cache::SymbolIndexEntry {
+                    symbol: symbol.name.clone(),
+                    hash: hash.clone(),
+                    semantic_hash: crate::overlay::extract_semantic_hash(&hash).to_string(),
+                    kind: format!("{:?}", symbol.kind).to_lowercase(),
+                    module: module_name.clone(),
+                    file: full_path.to_string_lossy().to_string(),
+                    lines: format!("{}-{}", symbol.start_line, symbol.end_line),
+                    risk: format!("{:?}", symbol.behavioral_risk).to_lowercase(),
+                    cognitive_complexity: 0, // TODO: Calculate from control_flow
+                    max_nesting: 0,          // TODO: Calculate from control_flow
+                };
 
-            (symbol, hash, entry)
-        }).collect();
+                (symbol, hash, entry)
+            })
+            .collect();
 
         // Collect new symbols for duplicate checking (before consuming them)
         let new_symbols_for_check: Vec<(SymbolInfo, String)> = symbols_with_hashes
@@ -394,13 +399,20 @@ impl LayerSynchronizer {
 
         // Update disk cache if available
         if let Some(ref cache_dir) = self.cache_dir {
-            if let Err(e) = cache_dir.update_symbol_index_for_file(
-                &full_path.to_string_lossy(),
-                index_entries,
-            ) {
-                tracing::warn!("[SYNC] Failed to update disk cache for {:?}: {}", file_path, e);
+            if let Err(e) =
+                cache_dir.update_symbol_index_for_file(&full_path.to_string_lossy(), index_entries)
+            {
+                tracing::warn!(
+                    "[SYNC] Failed to update disk cache for {:?}: {}",
+                    file_path,
+                    e
+                );
             } else {
-                tracing::info!("[SYNC] Updated disk cache for {:?}: {} symbols", file_path, new_hashes.len());
+                tracing::info!(
+                    "[SYNC] Updated disk cache for {:?}: {} symbols",
+                    file_path,
+                    new_hashes.len()
+                );
             }
         }
 
@@ -420,7 +432,8 @@ impl LayerSynchronizer {
         state.write(|index| {
             let overlay = index.layer_mut(layer);
             // Get hashes from symbols_by_file directly
-            let hashes = overlay.symbols_by_file
+            let hashes = overlay
+                .symbols_by_file
                 .get(file_path)
                 .cloned()
                 .unwrap_or_default();
@@ -452,7 +465,7 @@ impl LayerSynchronizer {
         let (overlay_hashes, base_hashes, base_content_map): (
             HashSet<String>,
             HashSet<String>,
-            HashMap<String, Option<String>>
+            HashMap<String, Option<String>>,
         ) = state.read(|index| {
             let overlay = index.layer(layer);
             let base = index.layer(LayerKind::Base);
@@ -461,9 +474,15 @@ impl LayerSynchronizer {
             let base_hashes: HashSet<_> = base.symbols.keys().cloned().collect();
 
             // Pre-collect base content hashes for common symbols
-            let base_content_map: HashMap<_, _> = base.symbols
+            let base_content_map: HashMap<_, _> = base
+                .symbols
                 .iter()
-                .map(|(hash, state)| (hash.clone(), state.base_content_hash().map(|s| s.to_string())))
+                .map(|(hash, state)| {
+                    (
+                        hash.clone(),
+                        state.base_content_hash().map(|s| s.to_string()),
+                    )
+                })
                 .collect();
 
             (overlay_hashes, base_hashes, base_content_map)
@@ -534,14 +553,21 @@ impl LayerSynchronizer {
             }
             LayerKind::Branch => {
                 // Get changed files since base
-                let changed = crate::git::get_changed_files("HEAD~1", "HEAD", Some(self.repo_root.as_path()))?;
-                let paths: Vec<PathBuf> = changed.into_iter().map(|c| PathBuf::from(c.path)).collect();
+                let changed = crate::git::get_changed_files(
+                    "HEAD~1",
+                    "HEAD",
+                    Some(self.repo_root.as_path()),
+                )?;
+                let paths: Vec<PathBuf> =
+                    changed.into_iter().map(|c| PathBuf::from(c.path)).collect();
                 self.incremental_update(state, layer, &paths)?
             }
             LayerKind::Working => {
                 // Get uncommitted changes
-                let changed = crate::git::get_changed_files("HEAD", "HEAD", Some(self.repo_root.as_path()))?;
-                let paths: Vec<PathBuf> = changed.into_iter().map(|c| PathBuf::from(c.path)).collect();
+                let changed =
+                    crate::git::get_changed_files("HEAD", "HEAD", Some(self.repo_root.as_path()))?;
+                let paths: Vec<PathBuf> =
+                    changed.into_iter().map(|c| PathBuf::from(c.path)).collect();
                 self.incremental_update(state, layer, &paths)?
             }
             LayerKind::AI => {
@@ -604,7 +630,8 @@ impl LayerSynchronizer {
         let module_name = extract_module_name(file_path);
         for (symbol, hash) in new_symbols {
             // Generate signature for this symbol
-            let sig = FunctionSignature::from_symbol_info(symbol, hash, file_path, &module_name, None);
+            let sig =
+                FunctionSignature::from_symbol_info(symbol, hash, file_path, &module_name, None);
 
             // Skip if no business logic (utility functions, etc.)
             if !sig.has_business_logic {

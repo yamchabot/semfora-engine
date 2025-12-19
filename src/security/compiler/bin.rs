@@ -168,7 +168,10 @@ async fn compile_patterns(
             let config = CompilerConfig::default();
             let compiler = PatternCompiler::new(config, Some(token), nvd_api_key.clone());
 
-            match compiler.compile_from_ghsa_with_options(search_commits).await {
+            match compiler
+                .compile_from_ghsa_with_options(search_commits)
+                .await
+            {
                 Ok(ghsa_patterns) => {
                     eprintln!("    Fetched {} patterns from GHSA", ghsa_patterns.len());
                     all_patterns.extend(ghsa_patterns);
@@ -223,7 +226,8 @@ async fn fetch_new_patterns(
     output: PathBuf,
     github_token: Option<String>,
 ) -> anyhow::Result<()> {
-    let token = github_token.ok_or_else(|| anyhow::anyhow!("GitHub token required for --fetch-new"))?;
+    let token =
+        github_token.ok_or_else(|| anyhow::anyhow!("GitHub token required for --fetch-new"))?;
 
     eprintln!("Fetching new advisories since {}...", since);
 
@@ -260,7 +264,12 @@ fn show_stats(input: PathBuf) -> anyhow::Result<()> {
         *by_severity.entry(pattern.severity).or_insert(0) += 1;
     }
     println!("By Severity:");
-    for severity in [Severity::Critical, Severity::High, Severity::Medium, Severity::Low] {
+    for severity in [
+        Severity::Critical,
+        Severity::High,
+        Severity::Medium,
+        Severity::Low,
+    ] {
         if let Some(count) = by_severity.get(&severity) {
             println!("  {:?}: {}", severity, count);
         }
@@ -302,7 +311,10 @@ fn validate_database(input: PathBuf) -> anyhow::Result<()> {
     for (i, pattern) in database.patterns.iter().enumerate() {
         // Check CVE ID format
         if !pattern.cve_id.starts_with("CVE-") && !pattern.cve_id.starts_with("CWE-") {
-            eprintln!("  Error: Pattern {} has invalid CVE ID: {}", i, pattern.cve_id);
+            eprintln!(
+                "  Error: Pattern {} has invalid CVE ID: {}",
+                i, pattern.cve_id
+            );
             errors += 1;
         }
 
@@ -311,7 +323,10 @@ fn validate_database(input: PathBuf) -> anyhow::Result<()> {
             && pattern.control_flow_fingerprint == 0
             && pattern.state_fingerprint == 0
         {
-            eprintln!("  Warning: Pattern {} ({}) has all zero fingerprints", i, pattern.cve_id);
+            eprintln!(
+                "  Warning: Pattern {} ({}) has all zero fingerprints",
+                i, pattern.cve_id
+            );
             warnings += 1;
         }
 
@@ -347,7 +362,10 @@ fn validate_database(input: PathBuf) -> anyhow::Result<()> {
     for (cwe, indices) in &database.cwe_index {
         for &idx in indices {
             if idx >= database.patterns.len() {
-                eprintln!("  Error: CWE index {} references invalid pattern {}", cwe, idx);
+                eprintln!(
+                    "  Error: CWE index {} references invalid pattern {}",
+                    cwe, idx
+                );
                 errors += 1;
             }
         }
@@ -356,7 +374,10 @@ fn validate_database(input: PathBuf) -> anyhow::Result<()> {
     for (lang, indices) in &database.lang_index {
         for &idx in indices {
             if idx >= database.patterns.len() {
-                eprintln!("  Error: Language index {:?} references invalid pattern {}", lang, idx);
+                eprintln!(
+                    "  Error: Language index {:?} references invalid pattern {}",
+                    lang, idx
+                );
                 errors += 1;
             }
         }

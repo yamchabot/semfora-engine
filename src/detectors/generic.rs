@@ -16,14 +16,16 @@
 
 use tree_sitter::{Node, Tree};
 
-use crate::detectors::common::{find_containing_symbol_by_line, get_node_text, get_node_text_normalized};
-use crate::utils::truncate_to_char_boundary;
+use crate::detectors::common::{
+    find_containing_symbol_by_line, get_node_text, get_node_text_normalized,
+};
 use crate::detectors::grammar::LangGrammar;
 use crate::error::Result;
 use crate::schema::{
     Call, ControlFlowChange, ControlFlowKind, Location, RiskLevel, SemanticSummary, StateChange,
     SymbolInfo, SymbolKind,
 };
+use crate::utils::truncate_to_char_boundary;
 
 // =============================================================================
 // Main Entry Point
@@ -68,7 +70,12 @@ struct SymbolCandidate {
 }
 
 /// Extract all symbols (functions, classes, interfaces, enums)
-fn extract_symbols(summary: &mut SemanticSummary, root: &Node, source: &str, grammar: &LangGrammar) {
+fn extract_symbols(
+    summary: &mut SemanticSummary,
+    root: &Node,
+    source: &str,
+    grammar: &LangGrammar,
+) {
     let mut candidates: Vec<SymbolCandidate> = Vec::new();
     let filename_stem = extract_filename_stem(&summary.file);
 
@@ -119,12 +126,12 @@ fn collect_symbols_recursive(
     // Iterative traversal using tree-sitter cursor to avoid stack overflow
     let mut cursor = node.walk();
     let mut did_visit_children = false;
-    
+
     loop {
         if !did_visit_children {
             let current_node = cursor.node();
             let kind_str = current_node.kind();
-            
+
             // Check if this node is a symbol
             let symbol_kind = if grammar.function_nodes.contains(&kind_str) {
                 Some(SymbolKind::Function)
@@ -141,7 +148,8 @@ fn collect_symbols_recursive(
             if let Some(kind) = symbol_kind {
                 if let Some(name) = extract_symbol_name(&current_node, source, grammar) {
                     let is_exported = (grammar.is_exported)(&current_node, source);
-                    let score = calculate_symbol_score(&name, &kind, is_exported, filename_stem, grammar);
+                    let score =
+                        calculate_symbol_score(&name, &kind, is_exported, filename_stem, grammar);
                     let decorators = extract_decorators(&current_node, source, grammar);
 
                     candidates.push(SymbolCandidate {
@@ -155,20 +163,20 @@ fn collect_symbols_recursive(
                     });
                 }
             }
-            
+
             // Try to go to first child
             if cursor.goto_first_child() {
                 did_visit_children = false;
                 continue;
             }
         }
-        
+
         // Try to go to next sibling
         if cursor.goto_next_sibling() {
             did_visit_children = false;
             continue;
         }
-        
+
         // Go back to parent
         if !cursor.goto_parent() {
             break; // Reached the root, we're done
@@ -180,7 +188,7 @@ fn collect_symbols_recursive(
 /// Extract decorators/attributes from a symbol node
 ///
 /// Looks for decorator nodes in:
-/// 1. Preceding siblings (Python @decorator, C# [Attribute])
+/// 1. Preceding siblings (Python @decorator, C# \[Attribute\])
 /// 2. Child nodes (some grammars nest attributes within the declaration)
 fn extract_decorators(node: &Node, source: &str, grammar: &LangGrammar) -> Vec<String> {
     let mut decorators = Vec::new();
@@ -243,7 +251,10 @@ fn extract_decorator_text(node: &Node, source: &str) -> Option<String> {
     // Look for identifier child
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "identifier" || child.kind() == "name" || child.kind() == "scoped_identifier" {
+        if child.kind() == "identifier"
+            || child.kind() == "name"
+            || child.kind() == "scoped_identifier"
+        {
             let text = get_node_text(&child, source);
             if !text.is_empty() {
                 return Some(text);
@@ -339,7 +350,14 @@ fn calculate_symbol_score(
     }
 
     // Go-specific: uppercase bonus already handled by is_exported
-    if grammar.uppercase_is_export && !is_exported && name.chars().next().map(|c| c.is_lowercase()).unwrap_or(true) {
+    if grammar.uppercase_is_export
+        && !is_exported
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_lowercase())
+            .unwrap_or(true)
+    {
         score -= 10;
     }
 
@@ -358,7 +376,12 @@ fn extract_filename_stem(file_path: &str) -> String {
 // Import Extraction
 // =============================================================================
 
-fn extract_imports(summary: &mut SemanticSummary, root: &Node, source: &str, grammar: &LangGrammar) {
+fn extract_imports(
+    summary: &mut SemanticSummary,
+    root: &Node,
+    source: &str,
+    grammar: &LangGrammar,
+) {
     visit_all(root, |node| {
         let kind = node.kind();
         if grammar.import_nodes.contains(&kind) {
@@ -371,7 +394,7 @@ fn extract_imports(summary: &mut SemanticSummary, root: &Node, source: &str, gra
     });
 }
 
-fn extract_import_name(node: &Node, source: &str, grammar: &LangGrammar) -> Option<String> {
+fn extract_import_name(node: &Node, source: &str, _grammar: &LangGrammar) -> Option<String> {
     // Try common patterns
 
     // Pattern 1: path field (Go imports)
@@ -413,7 +436,10 @@ fn extract_import_name(node: &Node, source: &str, grammar: &LangGrammar) -> Opti
     if node.kind() == "preproc_include" {
         if let Some(path) = node.child_by_field_name("path") {
             let include = get_node_text(&path, source);
-            let clean = include.trim_matches('"').trim_matches('<').trim_matches('>');
+            let clean = include
+                .trim_matches('"')
+                .trim_matches('<')
+                .trim_matches('>');
             return Some(clean.to_string());
         }
     }
@@ -424,7 +450,8 @@ fn extract_import_name(node: &Node, source: &str, grammar: &LangGrammar) -> Opti
     if words.len() > 1 {
         // Skip "import", "use", "from", "#include"
         if let Some(last) = words.last() {
-            let clean = last.trim_matches(|c| c == '"' || c == '\'' || c == ';' || c == '<' || c == '>');
+            let clean =
+                last.trim_matches(|c| c == '"' || c == '\'' || c == ';' || c == '<' || c == '>');
             if !clean.is_empty() {
                 return Some(clean.to_string());
             }
@@ -463,7 +490,11 @@ fn extract_state_changes(
     });
 }
 
-fn extract_var_declaration(node: &Node, source: &str, grammar: &LangGrammar) -> Option<StateChange> {
+fn extract_var_declaration(
+    node: &Node,
+    source: &str,
+    grammar: &LangGrammar,
+) -> Option<StateChange> {
     // Try to get name from various fields
     let name = node
         .child_by_field_name("name")
@@ -500,7 +531,8 @@ fn extract_var_declaration(node: &Node, source: &str, grammar: &LangGrammar) -> 
 
 fn extract_assignment(node: &Node, source: &str, grammar: &LangGrammar) -> Option<StateChange> {
     let left = node.child_by_field_name("left")?;
-    let right = node.child_by_field_name(grammar.value_field)
+    let right = node
+        .child_by_field_name(grammar.value_field)
         .or_else(|| node.child_by_field_name("right"))?;
 
     let name = get_node_text(&left, source);
@@ -553,7 +585,7 @@ fn extract_control_flow(
 
 fn collect_control_flow_recursive(
     node: &Node,
-    _depth: usize,  // Ignored - we track depth with our own stack
+    _depth: usize, // Ignored - we track depth with our own stack
     grammar: &LangGrammar,
     results: &mut Vec<ControlFlowChange>,
 ) {
@@ -561,13 +593,13 @@ fn collect_control_flow_recursive(
     let mut cursor = node.walk();
     let mut depth_stack: Vec<usize> = vec![0];
     let mut did_visit_children = false;
-    
+
     loop {
         if !did_visit_children {
             let current_node = cursor.node();
             let kind = current_node.kind();
             let current_depth = *depth_stack.last().unwrap_or(&0);
-            
+
             if grammar.control_flow_nodes.contains(&kind) || grammar.try_nodes.contains(&kind) {
                 let cf_kind = map_control_flow_kind(kind, grammar);
 
@@ -585,8 +617,12 @@ fn collect_control_flow_recursive(
 
             let is_control_flow =
                 grammar.control_flow_nodes.contains(&kind) || grammar.try_nodes.contains(&kind);
-            let child_depth = if is_control_flow { current_depth + 1 } else { current_depth };
-            
+            let child_depth = if is_control_flow {
+                current_depth + 1
+            } else {
+                current_depth
+            };
+
             // Try to go to first child
             if cursor.goto_first_child() {
                 depth_stack.push(child_depth);
@@ -594,13 +630,13 @@ fn collect_control_flow_recursive(
                 continue;
             }
         }
-        
+
         // Try to go to next sibling
         if cursor.goto_next_sibling() {
             did_visit_children = false;
             continue;
         }
-        
+
         // Go back to parent
         if !cursor.goto_parent() {
             break; // Reached the root, we're done
@@ -633,7 +669,6 @@ fn map_control_flow_kind(node_kind: &str, grammar: &LangGrammar) -> ControlFlowK
         ControlFlowKind::If // Default fallback
     }
 }
-
 
 // =============================================================================
 // Call Extraction
@@ -735,10 +770,7 @@ fn extract_call(node: &Node, source: &str, grammar: &LangGrammar) -> Option<Call
     // Check if this is an I/O operation
     let is_io = Call::check_is_io(&name);
 
-    let location = Location::new(
-        node.start_position().row + 1,
-        node.start_position().column,
-    );
+    let location = Location::new(node.start_position().row + 1, node.start_position().column);
 
     Some(Call {
         name,
@@ -766,7 +798,7 @@ fn is_inside_try(node: &Node, grammar: &LangGrammar) -> bool {
 // Complexity and Risk Calculation
 // =============================================================================
 
-fn calculate_complexity(summary: &mut SemanticSummary) {
+fn calculate_complexity(_summary: &mut SemanticSummary) {
     // Cognitive complexity is calculated from control flow changes
     // This affects the behavioral_risk level
 }
@@ -822,24 +854,24 @@ where
     // Iterative traversal using tree-sitter cursor to avoid stack overflow
     let mut cursor = node.walk();
     let mut did_visit_children = false;
-    
+
     loop {
         if !did_visit_children {
             callback(&cursor.node());
-            
+
             // Try to go to first child
             if cursor.goto_first_child() {
                 did_visit_children = false;
                 continue;
             }
         }
-        
+
         // Try to go to next sibling
         if cursor.goto_next_sibling() {
             did_visit_children = false;
             continue;
         }
-        
+
         // Go back to parent
         if !cursor.goto_parent() {
             break; // Reached the root, we're done
@@ -918,7 +950,10 @@ def process_data(data):
         // Should contain requests.get, response.json, process_data
         let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
         assert!(call_names.contains(&"get"), "Should have requests.get call");
-        assert!(call_names.contains(&"process_data"), "Should have process_data call");
+        assert!(
+            call_names.contains(&"process_data"),
+            "Should have process_data call"
+        );
 
         // process_data should have transform call
         let process_data = summary.symbols.iter().find(|s| s.name == "process_data");
@@ -970,11 +1005,17 @@ func processResponse(resp *http.Response) []User {
         // Should contain http.Get, log.Fatal, processResponse
         let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
         assert!(call_names.contains(&"Get"), "Should have http.Get call");
-        assert!(call_names.contains(&"processResponse"), "Should have processResponse call");
+        assert!(
+            call_names.contains(&"processResponse"),
+            "Should have processResponse call"
+        );
 
         // processResponse should have calls
         let process_response = summary.symbols.iter().find(|s| s.name == "processResponse");
-        assert!(process_response.is_some(), "Should find processResponse symbol");
+        assert!(
+            process_response.is_some(),
+            "Should find processResponse symbol"
+        );
         let process_response = process_response.unwrap();
         assert!(
             !process_response.calls.is_empty(),
@@ -1014,7 +1055,10 @@ fn process_data(data: Vec<RawUser>) -> Vec<User> {
         );
         // Should contain process_data
         let call_names: Vec<_> = fetch_users.calls.iter().map(|c| c.name.as_str()).collect();
-        assert!(call_names.contains(&"process_data"), "Should have process_data call");
+        assert!(
+            call_names.contains(&"process_data"),
+            "Should have process_data call"
+        );
 
         // process_data should have calls (collect, map, into_iter)
         let process_data = summary.symbols.iter().find(|s| s.name == "process_data");
@@ -1175,11 +1219,17 @@ int fetch_users(void) {
         let summary = extract(&path, source, &tree, Lang::C).unwrap();
 
         // Should have 2 symbols
-        assert!(summary.symbols.len() >= 2, "Should have at least 2 C functions");
+        assert!(
+            summary.symbols.len() >= 2,
+            "Should have at least 2 C functions"
+        );
 
         // Find function with printf call
         let has_calls = summary.symbols.iter().any(|s| !s.calls.is_empty());
-        assert!(has_calls, "At least one C function should have calls attributed");
+        assert!(
+            has_calls,
+            "At least one C function should have calls attributed"
+        );
     }
 
     /// Test that C++ methods have calls attributed to symbols
@@ -1209,7 +1259,10 @@ private:
         assert!(!summary.symbols.is_empty(), "Should have C++ symbols");
 
         // fetchUsers should have calls (not the class)
-        let fetch_users = summary.symbols.iter().find(|s| s.name.contains("fetchUsers"));
+        let fetch_users = summary
+            .symbols
+            .iter()
+            .find(|s| s.name.contains("fetchUsers"));
         assert!(fetch_users.is_some(), "Should find fetchUsers method");
         let fetch_users = fetch_users.unwrap();
         assert!(
@@ -1331,4 +1384,3 @@ def buildApp() {
         );
     }
 }
-

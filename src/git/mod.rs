@@ -4,15 +4,17 @@
 //! and commits. It uses subprocess calls to git for maximum compatibility.
 
 mod branch;
-mod diff;
 mod commit;
+mod diff;
 
 pub use branch::{detect_base_branch, get_current_branch, get_merge_base, is_git_repo};
-pub use diff::{
-    get_changed_files, get_commit_changed_files, get_uncommitted_changes,
-    get_staged_changes, get_unstaged_changes, ChangedFile, ChangeType,
+pub use commit::{
+    get_commits_since, get_file_at_ref, get_parent_commit, get_repo_root, CommitInfo,
 };
-pub use commit::{get_commits_since, get_file_at_ref, get_parent_commit, get_repo_root, CommitInfo};
+pub use diff::{
+    get_changed_files, get_commit_changed_files, get_staged_changes, get_uncommitted_changes,
+    get_unstaged_changes, ChangeType, ChangedFile,
+};
 
 use std::path::Path;
 use std::process::Command;

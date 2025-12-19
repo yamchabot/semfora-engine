@@ -3,9 +3,12 @@
 //! Tests for JSON, YAML, TOML, and XML - structured data formats
 //! commonly used for configuration and data exchange.
 
+#![allow(unused_imports)]
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../common/mod.rs"]
 mod common;
-use common::{TestRepo, assertions::*};
+use common::{assertions::*, TestRepo};
 
 // =============================================================================
 // JSON TESTS
@@ -39,7 +42,10 @@ mod json_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/settings.json", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle JSON config file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle JSON config file"
+        );
     }
 
     #[test]
@@ -69,7 +75,10 @@ mod json_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/data.json", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle JSON array file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle JSON array file"
+        );
     }
 
     #[test]
@@ -110,7 +119,10 @@ mod json_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/complex.json", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle nested JSON");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle nested JSON"
+        );
     }
 
     #[test]
@@ -120,7 +132,10 @@ mod json_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/empty.json", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty JSON file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty JSON file"
+        );
     }
 
     #[test]
@@ -146,7 +161,10 @@ mod json_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/special.json", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle JSON special values");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle JSON special values"
+        );
     }
 }
 
@@ -179,7 +197,10 @@ database:
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/settings.yaml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle YAML config file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle YAML config file"
+        );
     }
 
     #[test]
@@ -229,7 +250,10 @@ folded_block: >
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/complex.yaml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle complex YAML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle complex YAML"
+        );
     }
 
     #[test]
@@ -282,7 +306,10 @@ spec:
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "k8s/deployment.yaml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Kubernetes YAML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Kubernetes YAML"
+        );
     }
 
     #[test]
@@ -341,7 +368,10 @@ jobs:
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", ".github/workflows/ci.yaml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle GitHub Actions YAML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle GitHub Actions YAML"
+        );
     }
 
     #[test]
@@ -351,7 +381,10 @@ jobs:
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/empty.yaml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty YAML file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty YAML file"
+        );
     }
 
     #[test]
@@ -373,7 +406,10 @@ value: 300
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/multi.yaml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle multi-document YAML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle multi-document YAML"
+        );
     }
 }
 
@@ -480,7 +516,10 @@ testpaths = ["tests"]
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "pyproject.toml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle pyproject.toml");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle pyproject.toml"
+        );
     }
 
     #[test]
@@ -528,7 +567,10 @@ color = "gray"
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/settings.toml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle complex TOML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle complex TOML"
+        );
     }
 
     #[test]
@@ -538,7 +580,10 @@ color = "gray"
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/empty.toml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty TOML file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty TOML file"
+        );
     }
 }
 
@@ -577,7 +622,10 @@ mod xml_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/settings.xml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle XML config file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle XML config file"
+        );
     }
 
     #[test]
@@ -632,7 +680,10 @@ mod xml_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "pom.xml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle Maven POM XML");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle Maven POM XML"
+        );
     }
 
     #[test]
@@ -662,7 +713,10 @@ mod xml_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/namespaced.xml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle XML with namespaces");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle XML with namespaces"
+        );
     }
 
     #[test]
@@ -692,7 +746,10 @@ mod xml_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/cdata.xml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle XML with CDATA");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle XML with CDATA"
+        );
     }
 
     #[test]
@@ -702,7 +759,10 @@ mod xml_tests {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "config/empty.xml", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty XML file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty XML file"
+        );
     }
 
     #[test]

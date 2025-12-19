@@ -3,13 +3,12 @@
 //! This module coordinates the extraction of semantic information from parsed
 //! source files using language-specific detectors.
 
-use std::path::Path;
 use crate::utils::truncate_to_char_boundary;
+use std::path::Path;
 
 /// Maximum length for raw source fallback when extraction is incomplete
 const MAX_FALLBACK_LEN: usize = 1000;
 use tree_sitter::Tree;
-
 
 use crate::error::Result;
 use crate::lang::Lang;

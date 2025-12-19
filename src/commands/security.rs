@@ -30,9 +30,12 @@ pub fn run_security(args: &SecurityArgs, ctx: &CommandContext) -> Result<String>
             *limit,
             ctx,
         ),
-        SecurityOperation::Update { url, file, force } => {
-            run_update_patterns(url.as_deref(), file.as_ref().map(|p| p.as_path()), *force, ctx)
-        }
+        SecurityOperation::Update { url, file, force } => run_update_patterns(
+            url.as_deref(),
+            file.as_ref().map(|p| p.as_path()),
+            *force,
+            ctx,
+        ),
         SecurityOperation::Stats => run_pattern_stats(ctx),
     }
 }
@@ -148,9 +151,11 @@ fn run_cve_scan(
 
     // Sort by severity then similarity
     all_matches.sort_by(|a, b| {
-        b.severity
-            .cmp(&a.severity)
-            .then(b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+        b.severity.cmp(&a.severity).then(
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
     });
 
     all_matches.truncate(limit);
@@ -188,7 +193,10 @@ fn run_cve_scan(
             output.push_str("  CVE VULNERABILITY SCAN\n");
             output.push_str("═══════════════════════════════════════════\n\n");
 
-            output.push_str(&format!("functions_scanned: {}\n", signatures_to_scan.len()));
+            output.push_str(&format!(
+                "functions_scanned: {}\n",
+                signatures_to_scan.len()
+            ));
             output.push_str(&format!("patterns_checked: {}\n", pattern_db.len()));
             output.push_str(&format!("threshold: {:.0}%\n", min_similarity * 100.0));
             output.push_str(&format!("matches: {}\n\n", all_matches.len()));
@@ -200,7 +208,9 @@ fn run_cve_scan(
                     output.push_str("───────────────────────────────────────────\n");
                     output.push_str(&format!(
                         "[{:?}] {} ({:.0}% match)\n",
-                        m.severity, m.cve_id, m.similarity * 100.0
+                        m.severity,
+                        m.cve_id,
+                        m.similarity * 100.0
                     ));
                     output.push_str(&format!("function: {}\n", m.function));
                     output.push_str(&format!("file: {}:{}\n", m.file, m.line));

@@ -31,21 +31,11 @@ fn test_repos_dir() -> PathBuf {
 }
 
 /// Repos to use for query benchmarks (need existing indexes)
-const QUERY_REPOS: &[&str] = &[
-    "zod",
-    "express-examples",
-    "react-realworld",
-];
+const QUERY_REPOS: &[&str] = &["zod", "express-examples", "react-realworld"];
 
 /// Common search patterns
 const SEARCH_PATTERNS: &[&str] = &[
-    "function",
-    "export",
-    "handler",
-    "error",
-    "async",
-    "render",
-    "parse",
+    "function", "export", "handler", "error", "async", "render", "parse",
 ];
 
 /// Set up a pre-indexed repo for query benchmarks
@@ -94,7 +84,8 @@ fn bench_search_symbols(c: &mut Criterion) {
                 pattern,
                 |b, pattern| {
                     b.iter(|| {
-                        let _ = cache_clone.search_symbols(black_box(pattern), None, None, None, 20);
+                        let _ =
+                            cache_clone.search_symbols(black_box(pattern), None, None, None, 20);
                     });
                 },
             );
@@ -115,7 +106,9 @@ fn bench_get_symbol(c: &mut Criterion) {
         };
 
         // Get some symbol hashes to look up
-        let symbols = cache.search_symbols("function", None, None, None, 10).unwrap_or_default();
+        let symbols = cache
+            .search_symbols("function", None, None, None, 10)
+            .unwrap_or_default();
 
         if symbols.is_empty() {
             continue;
@@ -166,7 +159,12 @@ fn bench_list_symbols(c: &mut Criterion) {
                 module,
                 |b, _module| {
                     b.iter(|| {
-                        let _ = cache_clone.list_module_symbols(black_box(&module_clone), None, None, 50);
+                        let _ = cache_clone.list_module_symbols(
+                            black_box(&module_clone),
+                            None,
+                            None,
+                            50,
+                        );
                     });
                 },
             );
@@ -218,15 +216,11 @@ fn bench_get_call_graph(c: &mut Criterion) {
         };
 
         let cache_clone = cache.clone();
-        group.bench_with_input(
-            BenchmarkId::new(*repo_name, "full"),
-            repo_name,
-            |b, _| {
-                b.iter(|| {
-                    let _ = cache_clone.load_call_graph();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new(*repo_name, "full"), repo_name, |b, _| {
+            b.iter(|| {
+                let _ = cache_clone.load_call_graph();
+            });
+        });
     }
 
     group.finish();

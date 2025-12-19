@@ -5,19 +5,15 @@
 
 use std::process::ExitCode;
 
-use clap::Parser;
-
-use semfora_engine::cli::{
-    Cli, Commands, ConfigOperation,
-};
+use semfora_engine::analyze_repo_tokens;
+use semfora_engine::cli::{Cli, Commands, ConfigOperation};
 use semfora_engine::commands::{
-    run_analyze, run_cache, run_commit, run_index, run_query,
-    run_search, run_security, run_test, run_validate, CommandContext,
+    run_analyze, run_cache, run_commit, run_index, run_query, run_search, run_security, run_test,
+    run_validate, CommandContext,
 };
 use semfora_engine::installer::{
     self, print_available_clients, ConfigArgs, SetupArgs, UninstallArgs,
 };
-use semfora_engine::{McpDiffError, analyze_repo_tokens};
 
 fn main() -> ExitCode {
     match run() {
@@ -181,10 +177,7 @@ fn run_benchmark(dir_path: &std::path::Path) -> semfora_engine::Result<String> {
     } else {
         1.0
     };
-    output.push_str(&format!(
-        "  Compression ratio: {:.1}x\n",
-        compression_ratio
-    ));
+    output.push_str(&format!("  Compression ratio: {:.1}x\n", compression_ratio));
     output.push_str(&format!(
         "  Token savings: {:.1}%\n",
         metrics.total_token_savings * 100.0

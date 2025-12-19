@@ -104,7 +104,9 @@ fn parse_worktree_output(output: &str) -> anyhow::Result<Vec<WorktreeInfo>> {
         if line.starts_with("worktree ") {
             // Save previous worktree if complete
             if let (Some(path), Some(head)) = (current_path.take(), current_head.take()) {
-                let branch = current_branch.take().unwrap_or_else(|| "detached".to_string());
+                let branch = current_branch
+                    .take()
+                    .unwrap_or_else(|| "detached".to_string());
                 let is_semfora = branch.starts_with("semfora/");
                 counter += 1;
                 worktrees.push(WorktreeInfo {

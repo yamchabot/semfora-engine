@@ -5,7 +5,7 @@
 
 #[path = "../common/mod.rs"]
 mod common;
-use common::{TestRepo, assertions::*};
+use common::{assertions::*, TestRepo};
 
 // =============================================================================
 // PYTHON TESTS
@@ -634,7 +634,10 @@ def with_context_manager(path):
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/empty.py", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Python file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Python file"
+        );
     }
 
     #[test]
@@ -656,7 +659,10 @@ It spans multiple lines.
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "src/comments.py", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle comments-only Python file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle comments-only Python file"
+        );
     }
 
     #[test]
@@ -1290,7 +1296,10 @@ until_loop_example() {
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "scripts/empty.sh", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle empty Bash file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle empty Bash file"
+        );
     }
 
     #[test]
@@ -1313,7 +1322,10 @@ using the colon operator
         repo.generate_index().unwrap();
 
         let output = repo.run_cli(&["analyze", "scripts/comments.sh", "-f", "json"]);
-        assert!(output.unwrap().status.success(), "Should handle comments-only Bash file");
+        assert!(
+            output.unwrap().status.success(),
+            "Should handle comments-only Bash file"
+        );
     }
 
     #[test]

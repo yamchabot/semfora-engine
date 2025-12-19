@@ -70,7 +70,7 @@ impl AstCache {
     }
 
     /// Get a cached file if it exists
-    pub fn get(&self, path: &PathBuf) -> Option<CachedFileRef> {
+    pub fn get(&self, path: &PathBuf) -> Option<CachedFileRef<'_>> {
         let files = self.files.read();
         if files.contains_key(path) {
             // Return a reference that can be used to access the cached data
@@ -211,12 +211,20 @@ pub struct CachedFileRef<'a> {
 impl<'a> CachedFileRef<'a> {
     /// Get the cached source
     pub fn source(&self) -> Option<String> {
-        self.cache.files.read().get(&self.path).map(|f| f.source.clone())
+        self.cache
+            .files
+            .read()
+            .get(&self.path)
+            .map(|f| f.source.clone())
     }
 
     /// Get the cached tree (cloned)
     pub fn tree(&self) -> Option<Tree> {
-        self.cache.files.read().get(&self.path).map(|f| f.tree.clone())
+        self.cache
+            .files
+            .read()
+            .get(&self.path)
+            .map(|f| f.tree.clone())
     }
 }
 
@@ -460,7 +468,10 @@ mod tests {
         // The important thing is that we got an incremental parse result.
         if let ParseResult::Incremental { edit, .. } = result2 {
             // The edit should reflect the change from "foo" to "foobar"
-            assert!(edit.new_end_byte > edit.old_end_byte, "Edit should show bytes were added");
+            assert!(
+                edit.new_end_byte > edit.old_end_byte,
+                "Edit should show bytes were added"
+            );
         }
     }
 

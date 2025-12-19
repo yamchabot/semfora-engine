@@ -2,11 +2,11 @@
 //!
 //! Run with: cargo run --example layer_cache_demo
 
-use std::path::PathBuf;
 use semfora_engine::{
+    schema::{RiskLevel, SymbolInfo, SymbolKind},
     CacheDir, LayerKind, LayeredIndex, SymbolState,
-    schema::{SymbolInfo, SymbolKind, RiskLevel},
 };
+use std::path::PathBuf;
 
 fn main() -> semfora_engine::Result<()> {
     println!("=== SEM-45: Layer Cache Integration Demo ===\n");
@@ -119,7 +119,9 @@ fn main() -> semfora_engine::Result<()> {
             }
         }
     }
-    let meta_size = std::fs::metadata(cache.layer_meta_path()).map(|m| m.len()).unwrap_or(0);
+    let meta_size = std::fs::metadata(cache.layer_meta_path())
+        .map(|m| m.len())
+        .unwrap_or(0);
     println!("    - meta.json ({} bytes)", meta_size);
     println!();
 
@@ -128,13 +130,18 @@ fn main() -> semfora_engine::Result<()> {
     // =========================================================================
     println!("Step 3: Loading LayeredIndex from cache...");
 
-    let loaded_index = cache.load_layered_index()?.expect("Should load cached index");
+    let loaded_index = cache
+        .load_layered_index()?
+        .expect("Should load cached index");
 
     let loaded_stats = loaded_index.stats();
     println!("  Base layer:    {} symbols", loaded_stats.base_symbols);
     println!("  Branch layer:  {} symbols", loaded_stats.branch_symbols);
     println!("  Working layer: {} symbols", loaded_stats.working_symbols);
-    println!("  AI layer:      {} symbols (always fresh after load)", loaded_stats.ai_symbols);
+    println!(
+        "  AI layer:      {} symbols (always fresh after load)",
+        loaded_stats.ai_symbols
+    );
     println!();
 
     // =========================================================================
@@ -143,13 +150,25 @@ fn main() -> semfora_engine::Result<()> {
     println!("Step 4: Testing symbol resolution...");
 
     if let Some(symbol) = loaded_index.resolve_symbol("hash_base_001") {
-        println!("  Resolved base symbol: {} ({})", symbol.name, symbol.kind.as_str());
+        println!(
+            "  Resolved base symbol: {} ({})",
+            symbol.name,
+            symbol.kind.as_str()
+        );
     }
     if let Some(symbol) = loaded_index.resolve_symbol("hash_branch_001") {
-        println!("  Resolved branch symbol: {} ({})", symbol.name, symbol.kind.as_str());
+        println!(
+            "  Resolved branch symbol: {} ({})",
+            symbol.name,
+            symbol.kind.as_str()
+        );
     }
     if let Some(symbol) = loaded_index.resolve_symbol("hash_working_001") {
-        println!("  Resolved working symbol: {} ({})", symbol.name, symbol.kind.as_str());
+        println!(
+            "  Resolved working symbol: {} ({})",
+            symbol.name,
+            symbol.kind.as_str()
+        );
     }
 
     // AI symbol should NOT be found (wasn't persisted)
@@ -188,7 +207,8 @@ fn main() -> semfora_engine::Result<()> {
 
     // Now resolving should get the working version
     if let Some(symbol) = shadowing_index.resolve_symbol("hash_base_001") {
-        println!("  Resolved 'process_data': end_line={}, risk={}",
+        println!(
+            "  Resolved 'process_data': end_line={}, risk={}",
             symbol.end_line,
             symbol.behavioral_risk.as_str()
         );
@@ -228,7 +248,11 @@ fn main() -> semfora_engine::Result<()> {
 fn print_dir_tree(path: &std::path::Path, indent: usize) {
     let prefix = "  ".repeat(indent);
     if path.is_dir() {
-        println!("{}{}/", prefix, path.file_name().unwrap_or_default().to_string_lossy());
+        println!(
+            "{}{}/",
+            prefix,
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
                 print_dir_tree(&entry.path(), indent + 1);
@@ -236,6 +260,11 @@ fn print_dir_tree(path: &std::path::Path, indent: usize) {
         }
     } else {
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-        println!("{}{} ({} bytes)", prefix, path.file_name().unwrap_or_default().to_string_lossy(), size);
+        println!(
+            "{}{} ({} bytes)",
+            prefix,
+            path.file_name().unwrap_or_default().to_string_lossy(),
+            size
+        );
     }
 }

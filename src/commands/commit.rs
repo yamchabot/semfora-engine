@@ -7,7 +7,7 @@ use crate::cache::CacheDir;
 use crate::cli::{CommitArgs, OutputFormat};
 use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
-use crate::git::{get_staged_changes, get_unstaged_changes, is_git_repo, ChangedFile, ChangeType};
+use crate::git::{get_staged_changes, get_unstaged_changes, is_git_repo, ChangeType, ChangedFile};
 use crate::Lang;
 
 /// Run the commit command - prepare information for commit message
@@ -30,7 +30,9 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
                 if let Ok(meta_content) = fs::read_to_string(&meta_path) {
                     if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&meta_content) {
                         if let Some(indexed_at) = meta.get("indexed_at").and_then(|v| v.as_str()) {
-                            if let Ok(indexed_time) = chrono::DateTime::parse_from_rfc3339(indexed_at) {
+                            if let Ok(indexed_time) =
+                                chrono::DateTime::parse_from_rfc3339(indexed_at)
+                            {
                                 let age = chrono::Utc::now().signed_duration_since(indexed_time);
                                 if age > chrono::Duration::hours(1) {
                                     eprintln!("Note: Semantic index is stale. Run `semfora index generate` to refresh.");
@@ -102,8 +104,20 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
     let include_complexity = args.metrics;
     let include_all_metrics = args.all_metrics;
 
-    let staged_files = analyze_changed_files(&staged_changes, &repo_dir, show_diff_stats, include_complexity, include_all_metrics);
-    let unstaged_files = analyze_changed_files(&unstaged_changes, &repo_dir, show_diff_stats, include_complexity, include_all_metrics);
+    let staged_files = analyze_changed_files(
+        &staged_changes,
+        &repo_dir,
+        show_diff_stats,
+        include_complexity,
+        include_all_metrics,
+    );
+    let unstaged_files = analyze_changed_files(
+        &unstaged_changes,
+        &repo_dir,
+        show_diff_stats,
+        include_complexity,
+        include_all_metrics,
+    );
 
     // Format output
     let mut output = String::new();
@@ -135,7 +149,8 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
         }
         OutputFormat::Text => {
             output.push_str("_type: prep_commit\n");
-            output.push_str("_note: Information for commit message. This tool DOES NOT commit.\n\n");
+            output
+                .push_str("_note: Information for commit message. This tool DOES NOT commit.\n\n");
 
             // Git context
             output.push_str("git_context:\n");
@@ -169,14 +184,23 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
             if show_diff_stats {
                 let staged_insertions: usize = staged_files.iter().map(|f| f.insertions).sum();
                 let staged_deletions: usize = staged_files.iter().map(|f| f.deletions).sum();
-                output.push_str(&format!("  staged_changes: +{} -{}\n", staged_insertions, staged_deletions));
+                output.push_str(&format!(
+                    "  staged_changes: +{} -{}\n",
+                    staged_insertions, staged_deletions
+                ));
             }
             output.push('\n');
 
             // Staged changes
             if !staged_files.is_empty() {
                 output.push_str(&format!("staged_changes[{}]:\n", staged_files.len()));
-                format_file_list(&staged_files, &mut output, show_diff_stats, include_complexity, include_all_metrics);
+                format_file_list(
+                    &staged_files,
+                    &mut output,
+                    show_diff_stats,
+                    include_complexity,
+                    include_all_metrics,
+                );
                 output.push('\n');
             } else {
                 output.push_str("staged_changes: (none)\n\n");
@@ -185,7 +209,13 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
             // Unstaged changes
             if !unstaged_files.is_empty() {
                 output.push_str(&format!("unstaged_changes[{}]:\n", unstaged_files.len()));
-                format_file_list(&unstaged_files, &mut output, show_diff_stats, include_complexity, include_all_metrics);
+                format_file_list(
+                    &unstaged_files,
+                    &mut output,
+                    show_diff_stats,
+                    include_complexity,
+                    include_all_metrics,
+                );
             } else {
                 output.push_str("unstaged_changes: (none)\n");
             }
@@ -241,143 +271,162 @@ fn analyze_changed_files(
     include_complexity: bool,
     include_all_metrics: bool,
 ) -> Vec<AnalyzedFile> {
-    changes.iter().map(|changed_file| {
-        let file_path = repo_dir.join(&changed_file.path);
-        let change_type_str = format!("{:?}", changed_file.change_type);
+    changes
+        .iter()
+        .map(|changed_file| {
+            let file_path = repo_dir.join(&changed_file.path);
+            let change_type_str = format!("{:?}", changed_file.change_type);
 
-        // Get diff stats
-        let (insertions, deletions) = if show_diff_stats {
-            get_diff_stats(repo_dir, &changed_file.path)
-        } else {
-            (0, 0)
-        };
-
-        // Skip deleted files
-        if matches!(changed_file.change_type, ChangeType::Deleted) {
-            return AnalyzedFile {
-                path: changed_file.path.clone(),
-                change_type: change_type_str,
-                insertions,
-                deletions,
-                symbols: Vec::new(),
-                error: Some("file deleted".to_string()),
-            };
-        }
-
-        // Check if file exists
-        if !file_path.exists() {
-            return AnalyzedFile {
-                path: changed_file.path.clone(),
-                change_type: change_type_str,
-                insertions,
-                deletions,
-                symbols: Vec::new(),
-                error: Some("file not found".to_string()),
-            };
-        }
-
-        // Check if it's a supported language
-        let lang = match Lang::from_path(&file_path) {
-            Ok(l) => l,
-            Err(_) => {
-                return AnalyzedFile {
-                    path: changed_file.path.clone(),
-                    change_type: change_type_str,
-                    insertions,
-                    deletions,
-                    symbols: Vec::new(),
-                    error: Some("unsupported language".to_string()),
-                };
-            }
-        };
-
-        // Parse and extract symbols
-        let source = match fs::read_to_string(&file_path) {
-            Ok(s) => s,
-            Err(e) => {
-                return AnalyzedFile {
-                    path: changed_file.path.clone(),
-                    change_type: change_type_str,
-                    insertions,
-                    deletions,
-                    symbols: Vec::new(),
-                    error: Some(format!("read error: {}", e)),
-                };
-            }
-        };
-
-        let summary = match parse_and_extract(&file_path, &source, lang) {
-            Ok(s) => s,
-            Err(e) => {
-                return AnalyzedFile {
-                    path: changed_file.path.clone(),
-                    change_type: change_type_str,
-                    insertions,
-                    deletions,
-                    symbols: Vec::new(),
-                    error: Some(format!("parse error: {}", e)),
-                };
-            }
-        };
-
-        // Create symbol info from the semantic summary
-        let lines = format!(
-            "{}-{}",
-            summary.start_line.unwrap_or(1),
-            summary.end_line.unwrap_or(1)
-        );
-
-        let (cognitive, cyclomatic, max_nesting, fan_out, loc, state_mutations, io_operations) =
-            if include_complexity || include_all_metrics {
-                let complexity = crate::analysis::symbol_complexity_from_summary(&summary, 0);
-                (
-                    Some(complexity.cognitive as usize),
-                    Some(complexity.cyclomatic as usize),
-                    Some(complexity.max_nesting as usize),
-                    if include_all_metrics { Some(complexity.fan_out as usize) } else { None },
-                    if include_all_metrics { Some(complexity.loc as usize) } else { None },
-                    if include_all_metrics { Some(complexity.state_mutations as usize) } else { None },
-                    if include_all_metrics { Some(complexity.io_operations as usize) } else { None },
-                )
+            // Get diff stats
+            let (insertions, deletions) = if show_diff_stats {
+                get_diff_stats(repo_dir, &changed_file.path)
             } else {
-                (None, None, None, None, None, None, None)
+                (0, 0)
             };
 
-        // Get symbol name and kind from the summary
-        let symbol_name = summary.symbol.clone().unwrap_or_else(|| {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        });
-        let symbol_kind = summary
-            .symbol_kind
-            .map(|k| format!("{:?}", k).to_lowercase())
-            .unwrap_or_else(|| "file".to_string());
+            // Skip deleted files
+            if matches!(changed_file.change_type, ChangeType::Deleted) {
+                return AnalyzedFile {
+                    path: changed_file.path.clone(),
+                    change_type: change_type_str,
+                    insertions,
+                    deletions,
+                    symbols: Vec::new(),
+                    error: Some("file deleted".to_string()),
+                };
+            }
 
-        let symbols = vec![SymbolInfo {
-            name: symbol_name,
-            kind: symbol_kind,
-            lines,
-            cognitive,
-            cyclomatic,
-            max_nesting,
-            fan_out,
-            loc,
-            state_mutations,
-            io_operations,
-        }];
+            // Check if file exists
+            if !file_path.exists() {
+                return AnalyzedFile {
+                    path: changed_file.path.clone(),
+                    change_type: change_type_str,
+                    insertions,
+                    deletions,
+                    symbols: Vec::new(),
+                    error: Some("file not found".to_string()),
+                };
+            }
 
-        AnalyzedFile {
-            path: changed_file.path.clone(),
-            change_type: change_type_str,
-            insertions,
-            deletions,
-            symbols,
-            error: None,
-        }
-    }).collect()
+            // Check if it's a supported language
+            let lang = match Lang::from_path(&file_path) {
+                Ok(l) => l,
+                Err(_) => {
+                    return AnalyzedFile {
+                        path: changed_file.path.clone(),
+                        change_type: change_type_str,
+                        insertions,
+                        deletions,
+                        symbols: Vec::new(),
+                        error: Some("unsupported language".to_string()),
+                    };
+                }
+            };
+
+            // Parse and extract symbols
+            let source = match fs::read_to_string(&file_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return AnalyzedFile {
+                        path: changed_file.path.clone(),
+                        change_type: change_type_str,
+                        insertions,
+                        deletions,
+                        symbols: Vec::new(),
+                        error: Some(format!("read error: {}", e)),
+                    };
+                }
+            };
+
+            let summary = match parse_and_extract(&file_path, &source, lang) {
+                Ok(s) => s,
+                Err(e) => {
+                    return AnalyzedFile {
+                        path: changed_file.path.clone(),
+                        change_type: change_type_str,
+                        insertions,
+                        deletions,
+                        symbols: Vec::new(),
+                        error: Some(format!("parse error: {}", e)),
+                    };
+                }
+            };
+
+            // Create symbol info from the semantic summary
+            let lines = format!(
+                "{}-{}",
+                summary.start_line.unwrap_or(1),
+                summary.end_line.unwrap_or(1)
+            );
+
+            let (cognitive, cyclomatic, max_nesting, fan_out, loc, state_mutations, io_operations) =
+                if include_complexity || include_all_metrics {
+                    let complexity = crate::analysis::symbol_complexity_from_summary(&summary, 0);
+                    (
+                        Some(complexity.cognitive as usize),
+                        Some(complexity.cyclomatic as usize),
+                        Some(complexity.max_nesting as usize),
+                        if include_all_metrics {
+                            Some(complexity.fan_out as usize)
+                        } else {
+                            None
+                        },
+                        if include_all_metrics {
+                            Some(complexity.loc as usize)
+                        } else {
+                            None
+                        },
+                        if include_all_metrics {
+                            Some(complexity.state_mutations as usize)
+                        } else {
+                            None
+                        },
+                        if include_all_metrics {
+                            Some(complexity.io_operations as usize)
+                        } else {
+                            None
+                        },
+                    )
+                } else {
+                    (None, None, None, None, None, None, None)
+                };
+
+            // Get symbol name and kind from the summary
+            let symbol_name = summary.symbol.clone().unwrap_or_else(|| {
+                file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            });
+            let symbol_kind = summary
+                .symbol_kind
+                .map(|k| format!("{:?}", k).to_lowercase())
+                .unwrap_or_else(|| "file".to_string());
+
+            let symbols = vec![SymbolInfo {
+                name: symbol_name,
+                kind: symbol_kind,
+                lines,
+                cognitive,
+                cyclomatic,
+                max_nesting,
+                fan_out,
+                loc,
+                state_mutations,
+                io_operations,
+            }];
+
+            AnalyzedFile {
+                path: changed_file.path.clone(),
+                change_type: change_type_str,
+                insertions,
+                deletions,
+                symbols,
+                error: None,
+            }
+        })
+        .collect()
 }
 
 fn get_diff_stats(repo_dir: &std::path::Path, file_path: &str) -> (usize, usize) {
@@ -401,14 +450,16 @@ fn get_diff_stats(repo_dir: &std::path::Path, file_path: &str) -> (usize, usize)
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
     });
 
-    stat_output.map(|stat| {
-        let parts: Vec<&str> = stat.split_whitespace().collect();
-        if parts.len() >= 2 {
-            (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
-        } else {
-            (0, 0)
-        }
-    }).unwrap_or((0, 0))
+    stat_output
+        .map(|stat| {
+            let parts: Vec<&str> = stat.split_whitespace().collect();
+            if parts.len() >= 2 {
+                (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
+            } else {
+                (0, 0)
+            }
+        })
+        .unwrap_or((0, 0))
 }
 
 fn parse_and_extract(
@@ -423,9 +474,11 @@ fn parse_and_extract(
             message: format!("Failed to set language: {}", e),
         })?;
 
-    let tree = parser.parse(source, None).ok_or_else(|| McpDiffError::ParseFailure {
-        message: "Failed to parse file".to_string(),
-    })?;
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| McpDiffError::ParseFailure {
+            message: "Failed to parse file".to_string(),
+        })?;
 
     crate::extract::extract(file_path, source, &tree, lang)
 }
@@ -457,7 +510,10 @@ fn format_file_list(
 
         output.push_str(&format!("    symbols[{}]:\n", file.symbols.len()));
         for sym in &file.symbols {
-            output.push_str(&format!("      - {} ({}) L{}\n", sym.name, sym.kind, sym.lines));
+            output.push_str(&format!(
+                "      - {} ({}) L{}\n",
+                sym.name, sym.kind, sym.lines
+            ));
 
             if include_complexity || include_all_metrics {
                 let mut metrics = Vec::new();

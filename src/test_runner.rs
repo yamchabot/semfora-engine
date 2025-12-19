@@ -479,14 +479,13 @@ fn parse_pytest_output(stdout: &str, _stderr: &str) -> TestResults {
             }
 
             // Parse test name and file
-            let test_part = line.trim_start_matches("FAILED ").trim_start_matches("ERROR ");
+            let test_part = line
+                .trim_start_matches("FAILED ")
+                .trim_start_matches("ERROR ");
             let (name, file) = if test_part.contains("::") {
                 let parts: Vec<&str> = test_part.split("::").collect();
                 if parts.len() >= 2 {
-                    (
-                        parts[1..].join("::"),
-                        Some(parts[0].to_string()),
-                    )
+                    (parts[1..].join("::"), Some(parts[0].to_string()))
                 } else {
                     (test_part.to_string(), None)
                 }
@@ -611,13 +610,12 @@ fn parse_npm_test_output(stdout: &str, stderr: &str) -> TestResults {
     for line in combined.lines() {
         let line_lower = line.to_lowercase();
 
-        if line_lower.contains("tests") && (line_lower.contains("passed") || line_lower.contains("failed")) {
+        if line_lower.contains("tests")
+            && (line_lower.contains("passed") || line_lower.contains("failed"))
+        {
             // Extract numbers by looking for patterns
             let parts: Vec<&str> = line.split(|c: char| !c.is_numeric()).collect();
-            let numbers: Vec<usize> = parts
-                .iter()
-                .filter_map(|p| p.parse().ok())
-                .collect();
+            let numbers: Vec<usize> = parts.iter().filter_map(|p| p.parse().ok()).collect();
 
             if !numbers.is_empty() {
                 // Usually format is: passed, failed, total
@@ -687,7 +685,6 @@ fn parse_go_test_output(stdout: &str, stderr: &str) -> TestResults {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_detect_framework_cargo() {

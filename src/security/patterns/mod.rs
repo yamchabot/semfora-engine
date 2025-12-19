@@ -9,18 +9,9 @@ pub mod embedded;
 pub mod manual;
 
 pub use embedded::{
-    load_embedded_patterns,
-    fetch_pattern_updates,
-    update_patterns_from_file,
-    update_patterns_from_bytes,
-    pattern_stats,
-    current_patterns_version,
-    has_embedded_patterns,
-    embedded_patterns_version,
-    PatternUpdateResult,
-    PatternStats,
-    PatternSource,
-    PATTERN_URL_ENV,
-    DEFAULT_PATTERN_URL,
+    current_patterns_version, embedded_patterns_version, fetch_pattern_updates,
+    has_embedded_patterns, load_embedded_patterns, pattern_stats, update_patterns_from_bytes,
+    update_patterns_from_file, PatternSource, PatternStats, PatternUpdateResult,
+    DEFAULT_PATTERN_URL, PATTERN_URL_ENV,
 };
 pub use manual::all_patterns;

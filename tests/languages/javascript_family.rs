@@ -3,6 +3,8 @@
 //! Tests symbol extraction, visibility detection, call graphs, and React/Vue
 //! framework-specific features.
 
+#![allow(unused_imports)]
+
 use crate::common::{assert_contains, assert_symbol_exists, assert_valid_json, TestRepo};
 
 // ============================================================================

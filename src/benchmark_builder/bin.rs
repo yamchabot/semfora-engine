@@ -1,12 +1,12 @@
 //! CLI entry point for the benchmark builder
 //!
 //! Usage:
-//!   cargo run --release --bin semfora-benchmark-builder -- [OPTIONS]
+//!   cargo run --release --bin semfora-benchmark-builder -- \[OPTIONS\]
 //!
 //! Options:
-//!   --output-dir <PATH>   Directory for generated TypeScript files (default: benchmark_output)
-//!   --results-dir <PATH>  Directory for JSON results (default: benchmark_results)
-//!   --steps <N>           Only run first N steps (for testing)
+//!   --output-dir `<PATH>`   Directory for generated TypeScript files (default: benchmark_output)
+//!   --results-dir `<PATH>`  Directory for JSON results (default: benchmark_results)
+//!   --steps `<N>`           Only run first N steps (for testing)
 //!   --quiet               Suppress progress output
 //!   --help                Show this help message
 
@@ -31,14 +31,24 @@ fn main() {
 
             if let Some(final_snapshot) = results.snapshots.last() {
                 println!("  Final symbol count: {}", final_snapshot.symbols.len());
-                println!("  Final cognitive complexity: {}", final_snapshot.complexity.total_cognitive);
-                println!("  High-risk symbols: {}", final_snapshot.complexity.high_risk_count);
+                println!(
+                    "  Final cognitive complexity: {}",
+                    final_snapshot.complexity.total_cognitive
+                );
+                println!(
+                    "  High-risk symbols: {}",
+                    final_snapshot.complexity.high_risk_count
+                );
 
                 // Calculate overall speedup
-                let total_cached: u64 = results.snapshots.iter()
+                let total_cached: u64 = results
+                    .snapshots
+                    .iter()
                     .map(|s| s.timing_cached.total_us)
                     .sum();
-                let total_uncached: u64 = results.snapshots.iter()
+                let total_uncached: u64 = results
+                    .snapshots
+                    .iter()
                     .map(|s| s.timing_uncached.total_us)
                     .sum();
 

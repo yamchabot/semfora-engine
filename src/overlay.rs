@@ -67,12 +67,22 @@ impl LayerKind {
 
     /// Get all layer kinds in order from highest to lowest priority
     pub fn all_descending() -> [LayerKind; 4] {
-        [LayerKind::AI, LayerKind::Working, LayerKind::Branch, LayerKind::Base]
+        [
+            LayerKind::AI,
+            LayerKind::Working,
+            LayerKind::Branch,
+            LayerKind::Base,
+        ]
     }
 
     /// Get all layer kinds in order from lowest to highest priority
     pub fn all_ascending() -> [LayerKind; 4] {
-        [LayerKind::Base, LayerKind::Branch, LayerKind::Working, LayerKind::AI]
+        [
+            LayerKind::Base,
+            LayerKind::Branch,
+            LayerKind::Working,
+            LayerKind::AI,
+        ]
     }
 }
 
@@ -141,7 +151,11 @@ impl SymbolState {
     }
 
     /// Create a new active symbol state with file path and base content tracking
-    pub fn active_at_with_base(symbol: SymbolInfo, file_path: PathBuf, base_content_hash: String) -> Self {
+    pub fn active_at_with_base(
+        symbol: SymbolInfo,
+        file_path: PathBuf,
+        base_content_hash: String,
+    ) -> Self {
         Self::Active {
             symbol,
             file_path: Some(file_path),
@@ -190,7 +204,9 @@ impl SymbolState {
     /// Get the base content hash if available
     pub fn base_content_hash(&self) -> Option<&str> {
         match self {
-            Self::Active { base_content_hash, .. } => base_content_hash.as_deref(),
+            Self::Active {
+                base_content_hash, ..
+            } => base_content_hash.as_deref(),
             Self::Deleted { .. } => None,
         }
     }
@@ -472,12 +488,7 @@ impl Overlay {
     pub fn get_file_symbols(&self, path: &PathBuf) -> Vec<&SymbolState> {
         self.symbols_by_file
             .get(path)
-            .map(|hashes| {
-                hashes
-                    .iter()
-                    .filter_map(|h| self.symbols.get(h))
-                    .collect()
-            })
+            .map(|hashes| hashes.iter().filter_map(|h| self.symbols.get(h)).collect())
             .unwrap_or_default()
     }
 
@@ -547,7 +558,11 @@ pub fn extract_semantic_hash(full_hash: &str) -> &str {
 /// Given "file_hash:semantic_hash", returns "file_hash".
 /// For backward compatibility, returns empty string if no colon is found.
 pub fn extract_file_hash(full_hash: &str) -> &str {
-    full_hash.split(':').next().filter(|_| full_hash.contains(':')).unwrap_or("")
+    full_hash
+        .split(':')
+        .next()
+        .filter(|_| full_hash.contains(':'))
+        .unwrap_or("")
 }
 
 /// Compute a hash of symbol content for conflict detection
@@ -814,7 +829,12 @@ pub struct LayeredSearchResult {
 impl LayeredSearchResult {
     /// Create a new search result
     #[must_use]
-    pub fn new(hash: String, symbol: SymbolInfo, layer: LayerKind, file_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        hash: String,
+        symbol: SymbolInfo,
+        layer: LayerKind,
+        file_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             hash,
             symbol,
@@ -870,7 +890,11 @@ impl LayeredIndex {
     /// let results = index.search_symbols("validate", &opts);
     /// ```
     #[must_use]
-    pub fn search_symbols(&self, query: &str, opts: &LayeredSearchOptions) -> Vec<LayeredSearchResult> {
+    pub fn search_symbols(
+        &self,
+        query: &str,
+        opts: &LayeredSearchOptions,
+    ) -> Vec<LayeredSearchResult> {
         let mut results: Vec<LayeredSearchResult> = Vec::new();
         let mut seen_hashes: HashSet<String> = HashSet::new();
         let mut deleted_hashes: HashSet<String> = HashSet::new();
@@ -1194,10 +1218,7 @@ mod tests {
 
     #[test]
     fn test_file_move_creation() {
-        let mv = FileMove::new(
-            PathBuf::from("src/old.rs"),
-            PathBuf::from("src/new.rs"),
-        );
+        let mv = FileMove::new(PathBuf::from("src/old.rs"), PathBuf::from("src/new.rs"));
 
         assert_eq!(mv.from_path, PathBuf::from("src/old.rs"));
         assert_eq!(mv.to_path, PathBuf::from("src/new.rs"));
@@ -1258,7 +1279,10 @@ mod tests {
 
         assert!(prev.is_some());
         assert_eq!(prev.unwrap().as_symbol().unwrap().name, "test_fn_v1");
-        assert_eq!(overlay.get(&hash).unwrap().as_symbol().unwrap().name, "test_fn_v2");
+        assert_eq!(
+            overlay.get(&hash).unwrap().as_symbol().unwrap().name,
+            "test_fn_v2"
+        );
     }
 
     #[test]
@@ -1280,10 +1304,7 @@ mod tests {
     fn test_overlay_file_move_tracking() {
         let mut overlay = Overlay::new(LayerKind::Branch);
 
-        overlay.record_move(
-            PathBuf::from("src/old.rs"),
-            PathBuf::from("src/new.rs"),
-        );
+        overlay.record_move(PathBuf::from("src/old.rs"), PathBuf::from("src/new.rs"));
 
         assert_eq!(overlay.moves.len(), 1);
 
@@ -1336,8 +1357,14 @@ mod tests {
         let index = LayeredIndex::new();
 
         assert_eq!(index.layer(LayerKind::Base).kind(), Some(LayerKind::Base));
-        assert_eq!(index.layer(LayerKind::Branch).kind(), Some(LayerKind::Branch));
-        assert_eq!(index.layer(LayerKind::Working).kind(), Some(LayerKind::Working));
+        assert_eq!(
+            index.layer(LayerKind::Branch).kind(),
+            Some(LayerKind::Branch)
+        );
+        assert_eq!(
+            index.layer(LayerKind::Working).kind(),
+            Some(LayerKind::Working)
+        );
         assert_eq!(index.layer(LayerKind::AI).kind(), Some(LayerKind::AI));
     }
 
@@ -1361,11 +1388,15 @@ mod tests {
 
         // Add to base
         let base_symbol = make_test_symbol("base_version");
-        index.base.upsert(hash.clone(), SymbolState::active(base_symbol));
+        index
+            .base
+            .upsert(hash.clone(), SymbolState::active(base_symbol));
 
         // Add to AI (should shadow base)
         let ai_symbol = make_test_symbol("ai_version");
-        index.ai.upsert(hash.clone(), SymbolState::active(ai_symbol));
+        index
+            .ai
+            .upsert(hash.clone(), SymbolState::active(ai_symbol));
 
         let resolved = index.resolve_symbol(&hash);
         assert!(resolved.is_some());
@@ -1379,11 +1410,15 @@ mod tests {
 
         // Add to branch
         let branch_symbol = make_test_symbol("branch_version");
-        index.branch.upsert(hash.clone(), SymbolState::active(branch_symbol));
+        index
+            .branch
+            .upsert(hash.clone(), SymbolState::active(branch_symbol));
 
         // Add to working (should shadow branch)
         let working_symbol = make_test_symbol("working_version");
-        index.working.upsert(hash.clone(), SymbolState::active(working_symbol));
+        index
+            .working
+            .upsert(hash.clone(), SymbolState::active(working_symbol));
 
         let resolved = index.resolve_symbol(&hash);
         assert_eq!(resolved.unwrap().name, "working_version");
@@ -1426,10 +1461,22 @@ mod tests {
         let mut index = LayeredIndex::new();
 
         // Add symbols to different layers
-        index.base.upsert("base1".to_string(), SymbolState::active(make_test_symbol("fn1")));
-        index.base.upsert("base2".to_string(), SymbolState::active(make_test_symbol("fn2")));
-        index.branch.upsert("branch1".to_string(), SymbolState::active(make_test_symbol("fn3")));
-        index.working.upsert("working1".to_string(), SymbolState::active(make_test_symbol("fn4")));
+        index.base.upsert(
+            "base1".to_string(),
+            SymbolState::active(make_test_symbol("fn1")),
+        );
+        index.base.upsert(
+            "base2".to_string(),
+            SymbolState::active(make_test_symbol("fn2")),
+        );
+        index.branch.upsert(
+            "branch1".to_string(),
+            SymbolState::active(make_test_symbol("fn3")),
+        );
+        index.working.upsert(
+            "working1".to_string(),
+            SymbolState::active(make_test_symbol("fn4")),
+        );
 
         // Delete one
         index.ai.delete("base2");
@@ -1448,10 +1495,14 @@ mod tests {
         let mut index = LayeredIndex::new();
 
         // Move in branch layer
-        index.branch.record_move(PathBuf::from("a.rs"), PathBuf::from("b.rs"));
+        index
+            .branch
+            .record_move(PathBuf::from("a.rs"), PathBuf::from("b.rs"));
 
         // Move in working layer
-        index.working.record_move(PathBuf::from("b.rs"), PathBuf::from("c.rs"));
+        index
+            .working
+            .record_move(PathBuf::from("b.rs"), PathBuf::from("c.rs"));
 
         // Resolve through all layers
         let resolved = index.resolve_path(&PathBuf::from("a.rs"));
@@ -1462,7 +1513,10 @@ mod tests {
     fn test_layered_index_clear_layer() {
         let mut index = LayeredIndex::new();
 
-        index.working.upsert("hash1".to_string(), SymbolState::active(make_test_symbol("fn1")));
+        index.working.upsert(
+            "hash1".to_string(),
+            SymbolState::active(make_test_symbol("fn1")),
+        );
         assert_eq!(index.working.active_count(), 1);
 
         index.clear_layer(LayerKind::Working);
@@ -1475,11 +1529,22 @@ mod tests {
     fn test_layered_index_stats() {
         let mut index = LayeredIndex::new();
 
-        index.base.upsert("b1".to_string(), SymbolState::active(make_test_symbol("fn1")));
-        index.base.upsert("b2".to_string(), SymbolState::active(make_test_symbol("fn2")));
-        index.branch.upsert("br1".to_string(), SymbolState::active(make_test_symbol("fn3")));
+        index.base.upsert(
+            "b1".to_string(),
+            SymbolState::active(make_test_symbol("fn1")),
+        );
+        index.base.upsert(
+            "b2".to_string(),
+            SymbolState::active(make_test_symbol("fn2")),
+        );
+        index.branch.upsert(
+            "br1".to_string(),
+            SymbolState::active(make_test_symbol("fn3")),
+        );
         index.working.delete("b1");
-        index.ai.record_move(PathBuf::from("a.rs"), PathBuf::from("b.rs"));
+        index
+            .ai
+            .record_move(PathBuf::from("a.rs"), PathBuf::from("b.rs"));
 
         let stats = index.stats();
 
@@ -1603,7 +1668,10 @@ mod tests {
         let hash1 = compute_content_hash(&symbol1);
         let hash2 = compute_content_hash(&symbol2);
 
-        assert_ne!(hash1, hash2, "Content hash should change when arguments change");
+        assert_ne!(
+            hash1, hash2,
+            "Content hash should change when arguments change"
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -1660,7 +1728,10 @@ mod tests {
         let hash = "hash_calc".to_string();
         let file_path = PathBuf::from("src/math.rs");
         // Use active_at() to specify the file path
-        overlay.upsert(hash.clone(), SymbolState::active_at(symbol, file_path.clone()));
+        overlay.upsert(
+            hash.clone(),
+            SymbolState::active_at(symbol, file_path.clone()),
+        );
 
         // Now we can look up symbols by their actual file path
         let symbols = overlay.get_file_symbols(&file_path);
@@ -1876,7 +1947,10 @@ mod tests {
         assert!(
             old_symbols.is_empty(),
             "Old file path should have no symbols after move. Found: {:?}",
-            old_symbols.iter().map(|s| s.as_symbol().map(|sym| &sym.name)).collect::<Vec<_>>()
+            old_symbols
+                .iter()
+                .map(|s| s.as_symbol().map(|sym| &sym.name))
+                .collect::<Vec<_>>()
         );
 
         // The new file path should have the symbol
@@ -1976,7 +2050,9 @@ mod tests {
             end_line: 20,
             ..Default::default()
         };
-        index.base.upsert(hash.clone(), SymbolState::active(base_symbol));
+        index
+            .base
+            .upsert(hash.clone(), SymbolState::active(base_symbol));
 
         // Add modified version to AI layer (same hash, different content)
         let ai_symbol = SymbolInfo {
@@ -1986,15 +2062,24 @@ mod tests {
             end_line: 50, // Different end line (modified)
             ..Default::default()
         };
-        index.ai.upsert(hash.clone(), SymbolState::active(ai_symbol));
+        index
+            .ai
+            .upsert(hash.clone(), SymbolState::active(ai_symbol));
 
         // Search should return AI version, not base
         let opts = LayeredSearchOptions::new();
         let results = index.search_symbols("validateUser", &opts);
 
-        assert_eq!(results.len(), 1, "Should find exactly one result (deduplicated)");
+        assert_eq!(
+            results.len(),
+            1,
+            "Should find exactly one result (deduplicated)"
+        );
         assert_eq!(results[0].layer, LayerKind::AI, "Should be from AI layer");
-        assert_eq!(results[0].symbol.end_line, 50, "Should have AI layer's content");
+        assert_eq!(
+            results[0].symbol.end_line, 50,
+            "Should have AI layer's content"
+        );
     }
 
     #[test]
@@ -2017,7 +2102,10 @@ mod tests {
 
         // Search should now return nothing
         let results = index.search_symbols("deletedFunction", &opts);
-        assert!(results.is_empty(), "Deleted symbol should not appear in search results");
+        assert!(
+            results.is_empty(),
+            "Deleted symbol should not appear in search results"
+        );
     }
 
     #[test]
@@ -2030,7 +2118,10 @@ mod tests {
 
         // Add symbol at old path in base layer
         let symbol = make_test_symbol("validateToken");
-        index.base.upsert(hash.clone(), SymbolState::active_at(symbol.clone(), old_path.clone()));
+        index.base.upsert(
+            hash.clone(),
+            SymbolState::active_at(symbol.clone(), old_path.clone()),
+        );
 
         // Record move in branch layer
         index.branch.record_move(old_path.clone(), new_path.clone());
@@ -2043,12 +2134,22 @@ mod tests {
             end_line: 30, // Updated
             ..Default::default()
         };
-        index.working.upsert(hash.clone(), SymbolState::active_at(updated_symbol, new_path.clone()));
+        index.working.upsert(
+            hash.clone(),
+            SymbolState::active_at(updated_symbol, new_path.clone()),
+        );
 
         // Query by old path should resolve through moves and find the symbol
         let results = index.get_file_symbols(&old_path);
-        assert_eq!(results.len(), 1, "Should find symbol through move resolution");
-        assert_eq!(results[0].symbol.end_line, 30, "Should return working layer version");
+        assert_eq!(
+            results.len(),
+            1,
+            "Should find symbol through move resolution"
+        );
+        assert_eq!(
+            results[0].symbol.end_line, 30,
+            "Should return working layer version"
+        );
         assert_eq!(results[0].layer, LayerKind::Working);
 
         // Query by new path should also work
@@ -2122,17 +2223,30 @@ mod tests {
             ..Default::default()
         };
 
-        index.base.upsert(hash.clone(), SymbolState::active(base_symbol));
-        index.branch.upsert(hash.clone(), SymbolState::active(branch_symbol));
-        index.working.upsert(hash.clone(), SymbolState::active(working_symbol));
+        index
+            .base
+            .upsert(hash.clone(), SymbolState::active(base_symbol));
+        index
+            .branch
+            .upsert(hash.clone(), SymbolState::active(branch_symbol));
+        index
+            .working
+            .upsert(hash.clone(), SymbolState::active(working_symbol));
 
         // Search should return only one result (from highest priority layer)
         let opts = LayeredSearchOptions::new();
         let results = index.search_symbols("sharedFunc", &opts);
 
         assert_eq!(results.len(), 1, "Should deduplicate to one result");
-        assert_eq!(results[0].layer, LayerKind::Working, "Should be from highest layer");
-        assert_eq!(results[0].symbol.end_line, 30, "Should have working layer content");
+        assert_eq!(
+            results[0].layer,
+            LayerKind::Working,
+            "Should be from highest layer"
+        );
+        assert_eq!(
+            results[0].symbol.end_line, 30,
+            "Should have working layer content"
+        );
     }
 
     #[test]
@@ -2151,10 +2265,9 @@ mod tests {
                 end_line: (i + 1) * 100 + 10,
                 ..Default::default()
             };
-            index.layer_mut(*kind).upsert(
-                format!("hash_{}", i),
-                SymbolState::active(symbol),
-            );
+            index
+                .layer_mut(*kind)
+                .upsert(format!("hash_{}", i), SymbolState::active(symbol));
         }
 
         // Search and verify order
@@ -2177,9 +2290,18 @@ mod tests {
     #[test]
     fn test_search_empty_query_matches_all() {
         let mut index = LayeredIndex::new();
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("alpha")));
-        index.base.upsert("h2".to_string(), SymbolState::active(make_test_symbol("beta")));
-        index.base.upsert("h3".to_string(), SymbolState::active(make_test_symbol("gamma")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("alpha")),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active(make_test_symbol("beta")),
+        );
+        index.base.upsert(
+            "h3".to_string(),
+            SymbolState::active(make_test_symbol("gamma")),
+        );
 
         let opts = LayeredSearchOptions::new();
         let results = index.search_symbols("", &opts);
@@ -2190,7 +2312,10 @@ mod tests {
     #[test]
     fn test_search_no_matches_returns_empty() {
         let mut index = LayeredIndex::new();
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("alpha")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("alpha")),
+        );
 
         let opts = LayeredSearchOptions::new();
         let results = index.search_symbols("nonexistent", &opts);
@@ -2201,7 +2326,10 @@ mod tests {
     #[test]
     fn test_search_case_insensitive_by_default() {
         let mut index = LayeredIndex::new();
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("ValidateUser")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("ValidateUser")),
+        );
 
         let opts = LayeredSearchOptions::new();
 
@@ -2214,7 +2342,10 @@ mod tests {
     #[test]
     fn test_search_case_sensitive_when_requested() {
         let mut index = LayeredIndex::new();
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("ValidateUser")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("ValidateUser")),
+        );
 
         let opts = LayeredSearchOptions::new().case_sensitive(true);
 
@@ -2228,7 +2359,10 @@ mod tests {
 
         index.base.upsert(
             "h1".to_string(),
-            SymbolState::active(make_test_symbol_with_kind("myFunction", SymbolKind::Function)),
+            SymbolState::active(make_test_symbol_with_kind(
+                "myFunction",
+                SymbolKind::Function,
+            )),
         );
         index.base.upsert(
             "h2".to_string(),
@@ -2236,7 +2370,10 @@ mod tests {
         );
         index.base.upsert(
             "h3".to_string(),
-            SymbolState::active(make_test_symbol_with_kind("MyComponent", SymbolKind::Component)),
+            SymbolState::active(make_test_symbol_with_kind(
+                "MyComponent",
+                SymbolKind::Component,
+            )),
         );
 
         // Filter by function
@@ -2299,13 +2436,22 @@ mod tests {
     fn test_search_with_layer_filter() {
         let mut index = LayeredIndex::new();
 
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("baseFunc")));
-        index.branch.upsert("h2".to_string(), SymbolState::active(make_test_symbol("branchFunc")));
-        index.working.upsert("h3".to_string(), SymbolState::active(make_test_symbol("workingFunc")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("baseFunc")),
+        );
+        index.branch.upsert(
+            "h2".to_string(),
+            SymbolState::active(make_test_symbol("branchFunc")),
+        );
+        index.working.upsert(
+            "h3".to_string(),
+            SymbolState::active(make_test_symbol("workingFunc")),
+        );
 
         // Only search base and branch
-        let opts = LayeredSearchOptions::new()
-            .with_layers(vec![LayerKind::Base, LayerKind::Branch]);
+        let opts =
+            LayeredSearchOptions::new().with_layers(vec![LayerKind::Base, LayerKind::Branch]);
         let results = index.search_symbols("Func", &opts);
 
         assert_eq!(results.len(), 2);
@@ -2369,7 +2515,10 @@ mod tests {
             end_line: 10,
             ..Default::default()
         };
-        index.base.upsert(hash.clone(), SymbolState::active_at(base_symbol, path.clone()));
+        index.base.upsert(
+            hash.clone(),
+            SymbolState::active_at(base_symbol, path.clone()),
+        );
 
         // Working version (shadows base)
         let working_symbol = SymbolInfo {
@@ -2379,7 +2528,10 @@ mod tests {
             end_line: 50, // Modified
             ..Default::default()
         };
-        index.working.upsert(hash.clone(), SymbolState::active_at(working_symbol, path.clone()));
+        index.working.upsert(
+            hash.clone(),
+            SymbolState::active_at(working_symbol, path.clone()),
+        );
 
         let results = index.get_file_symbols(&path);
         assert_eq!(results.len(), 1, "Should deduplicate");
@@ -2401,7 +2553,10 @@ mod tests {
         let mut index = LayeredIndex::new();
         let hash = "test_hash";
 
-        index.base.upsert(hash.to_string(), SymbolState::active(make_test_symbol("testFunc")));
+        index.base.upsert(
+            hash.to_string(),
+            SymbolState::active(make_test_symbol("testFunc")),
+        );
 
         let result = index.resolve_symbol_with_layer(hash);
         assert!(result.is_some());
@@ -2416,8 +2571,14 @@ mod tests {
         let mut index = LayeredIndex::new();
         let hash = "test_hash";
 
-        index.base.upsert(hash.to_string(), SymbolState::active(make_test_symbol("baseVersion")));
-        index.branch.upsert(hash.to_string(), SymbolState::active(make_test_symbol("branchVersion")));
+        index.base.upsert(
+            hash.to_string(),
+            SymbolState::active(make_test_symbol("baseVersion")),
+        );
+        index.branch.upsert(
+            hash.to_string(),
+            SymbolState::active(make_test_symbol("branchVersion")),
+        );
 
         let result = index.resolve_symbol_with_layer(hash).unwrap();
         assert_eq!(result.layer, LayerKind::Branch);
@@ -2429,7 +2590,10 @@ mod tests {
         let mut index = LayeredIndex::new();
         let hash = "test_hash";
 
-        index.base.upsert(hash.to_string(), SymbolState::active(make_test_symbol("deletedFunc")));
+        index.base.upsert(
+            hash.to_string(),
+            SymbolState::active(make_test_symbol("deletedFunc")),
+        );
         index.working.delete(hash);
 
         let result = index.resolve_symbol_with_layer(hash);
@@ -2441,12 +2605,24 @@ mod tests {
         let mut index = LayeredIndex::new();
 
         // Add 3 unique symbols
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("fn1")));
-        index.base.upsert("h2".to_string(), SymbolState::active(make_test_symbol("fn2")));
-        index.branch.upsert("h3".to_string(), SymbolState::active(make_test_symbol("fn3")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("fn1")),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active(make_test_symbol("fn2")),
+        );
+        index.branch.upsert(
+            "h3".to_string(),
+            SymbolState::active(make_test_symbol("fn3")),
+        );
 
         // Shadow one (same hash, different layer)
-        index.working.upsert("h1".to_string(), SymbolState::active(make_test_symbol("fn1_modified")));
+        index.working.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("fn1_modified")),
+        );
 
         // Delete one
         index.ai.delete("h2");
@@ -2459,9 +2635,18 @@ mod tests {
     fn test_search_partial_match() {
         let mut index = LayeredIndex::new();
 
-        index.base.upsert("h1".to_string(), SymbolState::active(make_test_symbol("validateUserInput")));
-        index.base.upsert("h2".to_string(), SymbolState::active(make_test_symbol("validateEmail")));
-        index.base.upsert("h3".to_string(), SymbolState::active(make_test_symbol("processPayment")));
+        index.base.upsert(
+            "h1".to_string(),
+            SymbolState::active(make_test_symbol("validateUserInput")),
+        );
+        index.base.upsert(
+            "h2".to_string(),
+            SymbolState::active(make_test_symbol("validateEmail")),
+        );
+        index.base.upsert(
+            "h3".to_string(),
+            SymbolState::active(make_test_symbol("processPayment")),
+        );
 
         let opts = LayeredSearchOptions::new();
 
@@ -2585,13 +2770,18 @@ mod tests {
         let hash = "test_hash".to_string();
 
         // Add in base
-        index.base.upsert(hash.clone(), SymbolState::active(make_test_symbol("fn1")));
+        index
+            .base
+            .upsert(hash.clone(), SymbolState::active(make_test_symbol("fn1")));
 
         // Delete in branch
         index.branch.delete(&hash);
 
         // Re-add in working (resurrection)
-        index.working.upsert(hash.clone(), SymbolState::active(make_test_symbol("fn1_resurrected")));
+        index.working.upsert(
+            hash.clone(),
+            SymbolState::active(make_test_symbol("fn1_resurrected")),
+        );
 
         // Should find the working version (resurrection works)
         let opts = LayeredSearchOptions::new();

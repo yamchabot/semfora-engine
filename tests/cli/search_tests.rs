@@ -6,9 +6,12 @@
 //! - `--related` or `-r`: BM25 conceptual search
 //! - `--raw`: Regex patterns in comments/strings
 
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+
 use crate::common::{
-    assert_contains, assert_symbol_exists, assert_valid_json, assert_valid_toon, TestRepo,
-    extract_symbol_names,
+    assert_contains, assert_symbol_exists, assert_valid_json, assert_valid_toon,
+    extract_symbol_names, TestRepo,
 };
 
 // ============================================================================
@@ -33,7 +36,9 @@ fn test_search_hybrid_basic() {
 
     assert!(
         found_user || output.contains("user") || output.contains("User"),
-        "Expected to find user-related symbols: {:?} in {}", symbols, output
+        "Expected to find user-related symbols: {:?} in {}",
+        symbols,
+        output
     );
 }
 
@@ -52,7 +57,8 @@ fn test_search_hybrid_partial_match() {
     // Should find User-related functions
     assert!(
         output.to_lowercase().contains("user"),
-        "Expected User-related symbols in: {}", output
+        "Expected User-related symbols in: {}",
+        output
     );
 }
 
@@ -93,7 +99,8 @@ fn test_search_symbols_exact() {
     // Should find exact match
     assert!(
         output.contains("processOrder"),
-        "Should find processOrder: {}", output
+        "Should find processOrder: {}",
+        output
     );
 }
 
@@ -117,7 +124,9 @@ fn test_search_symbols_wildcard() {
     assert!(
         handle_count >= 1 || output.contains("handle"),
         "Expected handle* functions, found {}: {:?} in {}",
-        handle_count, symbols, output
+        handle_count,
+        symbols,
+        output
     );
 }
 
@@ -135,7 +144,8 @@ fn test_search_symbols_case_insensitive() {
     // Should find user-related symbols
     assert!(
         output.to_lowercase().contains("user"),
-        "Expected user-related symbols: {}", output
+        "Expected user-related symbols: {}",
+        output
     );
 }
 
@@ -158,26 +168,42 @@ fn test_search_semantic_conceptual() {
 
     // Should find auth-related symbols through semantic matching
     // This might not find exact matches but should return results
-    assert!(json.is_object() || json.is_array(), "Should return search results");
+    assert!(
+        json.is_object() || json.is_array(),
+        "Should return search results"
+    );
 }
 
 #[test]
 fn test_search_semantic_with_limit() {
     let repo = TestRepo::new();
     for i in 0..20 {
-        repo.add_ts_function(&format!("src/func{}.ts", i), &format!("process{}", i), "return 1;");
+        repo.add_ts_function(
+            &format!("src/func{}.ts", i),
+            &format!("process{}", i),
+            "return 1;",
+        );
     }
 
     repo.generate_index().unwrap();
 
-    let output = repo.run_cli_success(&["search", "process", "--related", "--limit", "5", "-f", "json"]);
+    let output = repo.run_cli_success(&[
+        "search",
+        "process",
+        "--related",
+        "--limit",
+        "5",
+        "-f",
+        "json",
+    ]);
     let json = assert_valid_json(&output, "semantic with limit");
 
     // Should respect the limit
     let symbols = extract_symbol_names(&json);
     assert!(
         symbols.len() <= 10, // Allow some flexibility
-        "Limit should be respected, found: {}", symbols.len()
+        "Limit should be respected, found: {}",
+        symbols.len()
     );
 }
 
@@ -201,7 +227,8 @@ const TIMEOUT = 5000; // milliseconds
     // Should find the literal string
     assert!(
         output.contains("API_URL") || output.contains("config.ts"),
-        "Raw search should find literal: {}", output
+        "Raw search should find literal: {}",
+        output
     );
 }
 
@@ -225,7 +252,8 @@ function processData() {
     // Should find the comments
     assert!(
         output.contains("TODO") || output.contains("FIXME") || output.contains("app.ts"),
-        "Raw regex should find comments: {}", output
+        "Raw regex should find comments: {}",
+        output
     );
 }
 
@@ -245,7 +273,8 @@ const errorHandler = () => {};
     // Should find both cases
     assert!(
         output.to_lowercase().contains("error"),
-        "Case insensitive raw search: {}", output
+        "Case insensitive raw search: {}",
+        output
     );
 }
 
@@ -257,7 +286,11 @@ const errorHandler = () => {};
 fn test_search_with_limit() {
     let repo = TestRepo::new();
     for i in 0..30 {
-        repo.add_ts_function(&format!("src/item{}.ts", i), &format!("item{}", i), "return 1;");
+        repo.add_ts_function(
+            &format!("src/item{}.ts", i),
+            &format!("item{}", i),
+            "return 1;",
+        );
     }
 
     repo.generate_index().unwrap();
@@ -273,7 +306,8 @@ fn test_search_with_limit() {
     let symbols = extract_symbol_names(&json);
     assert!(
         symbols.len() <= 15 || symbols.iter().any(|s| s.contains("item")),
-        "Should find item symbols: {:?}", symbols
+        "Should find item symbols: {:?}",
+        symbols
     );
 }
 
@@ -288,13 +322,15 @@ fn test_search_with_include_source() {
 
     repo.generate_index().unwrap();
 
-    let output = repo.run_cli_success(&["search", "processOrder", "--include-source", "-f", "json"]);
+    let output =
+        repo.run_cli_success(&["search", "processOrder", "--include-source", "-f", "json"]);
     let json = assert_valid_json(&output, "search with source");
 
     // Should include source code
     assert!(
         output.contains("processOrder") || output.contains("source"),
-        "Should include source code: {}", output
+        "Should include source code: {}",
+        output
     );
 }
 
@@ -324,7 +360,8 @@ fn test_search_toon_format() {
     // TOON format should have type marker or be non-empty
     assert!(
         output.contains("_type") || !output.is_empty(),
-        "TOON format should produce output: {}", output
+        "TOON format should produce output: {}",
+        output
     );
 }
 

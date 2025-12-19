@@ -22,4 +22,3 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Resu
     // - Risk calculation
     extract_with_grammar(summary, source, tree, &RUST_GRAMMAR)
 }
-

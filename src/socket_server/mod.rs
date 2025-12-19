@@ -47,13 +47,13 @@
 //! {"type": "response", "id": 1, "result": {...}}
 //! ```
 
-pub mod protocol;
-pub mod worktree;
-pub mod repo_registry;
 pub mod connection;
 pub mod indexer;
+pub mod protocol;
+pub mod repo_registry;
+pub mod worktree;
 
-pub use protocol::{ClientMessage, ServerMessage, ConnectionInfo, WorktreeInfo, IndexInfo};
-pub use repo_registry::{RepoRegistry, RepoContext};
 pub use connection::handle_connection;
 pub use indexer::{index_directory, needs_indexing, IndexOptions, IndexResult};
+pub use protocol::{ClientMessage, ConnectionInfo, IndexInfo, ServerMessage, WorktreeInfo};
+pub use repo_registry::{RepoContext, RepoRegistry};

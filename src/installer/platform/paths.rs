@@ -39,16 +39,16 @@ impl McpClientPaths {
         let home = dirs::home_dir();
 
         Self {
-            claude_desktop: home.as_ref().map(|h| {
-                h.join("Library/Application Support/Claude/claude_desktop_config.json")
-            }),
+            claude_desktop: home
+                .as_ref()
+                .map(|h| h.join("Library/Application Support/Claude/claude_desktop_config.json")),
             claude_code_global: home.as_ref().map(|h| h.join(".claude/mcp.json")),
             claude_code_project: PathBuf::from(".claude/mcp.json"),
             cursor_global: home.as_ref().map(|h| h.join(".cursor/mcp.json")),
             cursor_project: PathBuf::from(".cursor/mcp.json"),
-            vscode_user: home.as_ref().map(|h| {
-                h.join("Library/Application Support/Code/User/settings.json")
-            }),
+            vscode_user: home
+                .as_ref()
+                .map(|h| h.join("Library/Application Support/Code/User/settings.json")),
             vscode_project: PathBuf::from(".vscode/mcp.json"),
             openai_codex: None, // TBD - needs research
         }
@@ -60,7 +60,9 @@ impl McpClientPaths {
         let config = dirs::config_dir();
 
         Self {
-            claude_desktop: config.as_ref().map(|c| c.join("claude/claude_desktop_config.json")),
+            claude_desktop: config
+                .as_ref()
+                .map(|c| c.join("claude/claude_desktop_config.json")),
             claude_code_global: home.as_ref().map(|h| h.join(".claude/mcp.json")),
             claude_code_project: PathBuf::from(".claude/mcp.json"),
             cursor_global: home.as_ref().map(|h| h.join(".cursor/mcp.json")),
@@ -77,16 +79,14 @@ impl McpClientPaths {
         let appdata = std::env::var("APPDATA").ok().map(PathBuf::from);
 
         Self {
-            claude_desktop: appdata.as_ref().map(|a| {
-                a.join("Claude/claude_desktop_config.json")
-            }),
+            claude_desktop: appdata
+                .as_ref()
+                .map(|a| a.join("Claude/claude_desktop_config.json")),
             claude_code_global: home.as_ref().map(|h| h.join(".claude/mcp.json")),
             claude_code_project: PathBuf::from(".claude/mcp.json"),
             cursor_global: home.as_ref().map(|h| h.join(".cursor/mcp.json")),
             cursor_project: PathBuf::from(".cursor/mcp.json"),
-            vscode_user: appdata.as_ref().map(|a| {
-                a.join("Code/User/settings.json")
-            }),
+            vscode_user: appdata.as_ref().map(|a| a.join("Code/User/settings.json")),
             vscode_project: PathBuf::from(".vscode/mcp.json"),
             openai_codex: None, // TBD - needs research
         }
@@ -199,7 +199,8 @@ impl SemforaPaths {
             let binary_dir_str = self.binary_dir.to_string_lossy();
             #[cfg(windows)]
             {
-                path.split(';').any(|p| p.eq_ignore_ascii_case(&binary_dir_str))
+                path.split(';')
+                    .any(|p| p.eq_ignore_ascii_case(&binary_dir_str))
             }
             #[cfg(not(windows))]
             {

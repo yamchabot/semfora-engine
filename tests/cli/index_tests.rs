@@ -5,9 +5,9 @@
 //! - `index check` - Check if index is fresh
 //! - `index export [PATH]` - Export index to SQLite
 
-use crate::common::{
-    assert_contains, assert_valid_json, assert_valid_toon, TestRepo,
-};
+#![allow(unused_imports)]
+
+use crate::common::{assert_contains, assert_valid_json, assert_valid_toon, TestRepo};
 use std::thread;
 use std::time::Duration;
 
@@ -25,9 +25,12 @@ fn test_index_generate_basic() {
 
     // Should report success
     assert!(
-        output.contains("complete") || output.contains("Generated") ||
-        output.contains("success") || output.contains("files"),
-        "Index generate should report status: {}", output
+        output.contains("complete")
+            || output.contains("Generated")
+            || output.contains("success")
+            || output.contains("files"),
+        "Index generate should report status: {}",
+        output
     );
 }
 
@@ -41,7 +44,8 @@ fn test_index_generate_multilang() {
     // Should index multiple languages
     assert!(
         output.contains("files") || output.contains("symbols") || output.contains("complete"),
-        "Should index multiple languages: {}", output
+        "Should index multiple languages: {}",
+        output
     );
 }
 
@@ -58,9 +62,12 @@ fn test_index_generate_force() {
 
     // Should regenerate
     assert!(
-        output.contains("complete") || output.contains("Generated") ||
-        output.contains("fresh") || output.len() > 10,
-        "Force regenerate should work: {}", output
+        output.contains("complete")
+            || output.contains("Generated")
+            || output.contains("fresh")
+            || output.len() > 10,
+        "Force regenerate should work: {}",
+        output
     );
 }
 
@@ -77,7 +84,8 @@ fn test_index_generate_with_extensions() {
     // Should complete
     assert!(
         output.contains("complete") || output.contains("files") || output.len() > 10,
-        "Extension filter should work: {}", output
+        "Extension filter should work: {}",
+        output
     );
 }
 
@@ -93,7 +101,8 @@ fn test_index_generate_with_max_depth() {
     // Should respect depth limit
     assert!(
         output.contains("complete") || output.contains("files") || output.len() > 10,
-        "Max depth should work: {}", output
+        "Max depth should work: {}",
+        output
     );
 }
 
@@ -104,10 +113,7 @@ fn test_index_generate_text_format() {
 
     let output = repo.run_cli_success(&["index", "generate", "-f", "text"]);
 
-    assert!(
-        !output.is_empty(),
-        "Text format should produce output"
-    );
+    assert!(!output.is_empty(), "Text format should produce output");
 }
 
 #[test]
@@ -150,10 +156,13 @@ fn test_index_check_fresh() {
     // Should indicate fresh (text output, not necessarily JSON)
     let output_lower = output.to_lowercase();
     assert!(
-        output_lower.contains("fresh") || output_lower.contains("ok") ||
-        output_lower.contains("valid") || output_lower.contains("up to date") ||
-        output.len() > 5,
-        "Index should be fresh after generate: {}", output
+        output_lower.contains("fresh")
+            || output_lower.contains("ok")
+            || output_lower.contains("valid")
+            || output_lower.contains("up to date")
+            || output.len() > 5,
+        "Index should be fresh after generate: {}",
+        output
     );
 }
 
@@ -172,10 +181,7 @@ fn test_index_check_stale() {
     let output = repo.run_cli_success(&["index", "check"]);
 
     // Should detect changes or still be fresh (depends on timestamp granularity)
-    assert!(
-        output.len() > 5,
-        "Should return some status: {}", output
-    );
+    assert!(output.len() > 5, "Should return some status: {}", output);
 }
 
 #[test]
@@ -189,10 +195,14 @@ fn test_index_check_no_index() {
     // Should indicate no index or stale
     let output_lower = output.to_lowercase();
     assert!(
-        output_lower.contains("stale") || output_lower.contains("missing") ||
-        output_lower.contains("not found") || output_lower.contains("generate") ||
-        output_lower.contains("no index") || output.len() > 5,
-        "Should indicate index needed: {}", output
+        output_lower.contains("stale")
+            || output_lower.contains("missing")
+            || output_lower.contains("not found")
+            || output_lower.contains("generate")
+            || output_lower.contains("no index")
+            || output.len() > 5,
+        "Should indicate index needed: {}",
+        output
     );
 }
 
@@ -224,9 +234,13 @@ fn test_index_export_sqlite() {
 
     // Should indicate export success
     assert!(
-        output.contains("export") || output.contains("written") ||
-        output.contains("success") || export_path.exists() || output.len() > 5,
-        "Export should work: {}", output
+        output.contains("export")
+            || output.contains("written")
+            || output.contains("success")
+            || export_path.exists()
+            || output.len() > 5,
+        "Export should work: {}",
+        output
     );
 }
 
@@ -258,7 +272,8 @@ fn test_index_max_age() {
 
     assert!(
         output.len() > 5,
-        "Max age check should return output: {}", output
+        "Max age check should return output: {}",
+        output
     );
 }
 

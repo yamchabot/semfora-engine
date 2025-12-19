@@ -10,6 +10,8 @@
 //! These tests verify that the typical sequences of MCP tool calls
 //! work correctly when used together.
 
+#![allow(unused_variables)]
+
 use crate::common::{assert_valid_json, TestRepo};
 
 // ============================================================================
@@ -23,7 +25,11 @@ fn test_workflow_explore_codebase() {
     let repo = TestRepo::new();
     repo.add_ts_function("src/api/users.ts", "getUsers", "return [];")
         .add_ts_function("src/api/posts.ts", "getPosts", "return [];")
-        .add_ts_function("src/utils/format.ts", "formatDate", "return date.toString();")
+        .add_ts_function(
+            "src/utils/format.ts",
+            "formatDate",
+            "return date.toString();",
+        )
         .add_file(
             "src/index.ts",
             r#"
@@ -52,12 +58,18 @@ export function main() {
     // Step 3: Search for symbols
     let search = repo.run_cli_success(&["search", "get", "-f", "json"]);
     let search_json = assert_valid_json(&search, "workflow search");
-    assert!(search_json.is_object() || search_json.is_array(), "Search should return results");
+    assert!(
+        search_json.is_object() || search_json.is_array(),
+        "Search should return results"
+    );
 
     // Step 4: Analyze specific file
     let analyze = repo.run_cli_success(&["analyze", "src/index.ts", "-f", "json"]);
     let analyze_json = assert_valid_json(&analyze, "workflow analyze");
-    assert!(analyze_json.is_object() || analyze_json.is_array(), "Analyze should return results");
+    assert!(
+        analyze_json.is_object() || analyze_json.is_array(),
+        "Analyze should return results"
+    );
 }
 
 /// Test exploring a module hierarchy
@@ -66,8 +78,16 @@ fn test_workflow_explore_modules() {
     let repo = TestRepo::new();
     repo.add_ts_function("src/models/user.ts", "User", "class User {}")
         .add_ts_function("src/models/post.ts", "Post", "class Post {}")
-        .add_ts_function("src/controllers/userController.ts", "UserController", "class UserController {}")
-        .add_ts_function("src/services/userService.ts", "UserService", "class UserService {}");
+        .add_ts_function(
+            "src/controllers/userController.ts",
+            "UserController",
+            "class UserController {}",
+        )
+        .add_ts_function(
+            "src/services/userService.ts",
+            "UserService",
+            "class UserService {}",
+        );
     repo.generate_index().unwrap();
 
     // Get overview to see modules
@@ -431,7 +451,9 @@ fn test_workflow_incremental_analysis() {
     // Re-index with smart refresh
     let index_output = repo.run_cli_success(&["index", "generate"]);
     assert!(
-        index_output.contains("index") || index_output.contains("generated") || !index_output.is_empty(),
+        index_output.contains("index")
+            || index_output.contains("generated")
+            || !index_output.is_empty(),
         "Index should complete"
     );
 
@@ -498,7 +520,10 @@ function processData() {
 
     // With metrics
     let prep_metrics = repo.run_cli_success(&["commit", "--metrics"]);
-    assert!(!prep_metrics.is_empty(), "Commit prep with metrics should return info");
+    assert!(
+        !prep_metrics.is_empty(),
+        "Commit prep with metrics should return info"
+    );
 }
 
 // ============================================================================

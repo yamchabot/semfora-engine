@@ -3,6 +3,8 @@
 //! Provides helper functions for validating CLI output, symbol extraction,
 //! and format consistency across text, TOON, and JSON formats.
 
+#![allow(clippy::manual_strip)]
+
 use serde_json::Value;
 
 /// Assert that output is valid JSON and return parsed value
@@ -89,7 +91,9 @@ fn extract_symbol_names_recursive(json: &Value, names: &mut Vec<String>) {
         Value::Object(obj) => {
             if let Some(Value::String(name)) = obj.get("name") {
                 // Only add if it looks like a symbol entry (has other expected fields)
-                if obj.contains_key("kind") || obj.contains_key("hash") || obj.contains_key("module")
+                if obj.contains_key("kind")
+                    || obj.contains_key("hash")
+                    || obj.contains_key("module")
                 {
                     names.push(name.clone());
                 }
@@ -227,7 +231,9 @@ pub fn assert_not_contains(output: &str, needle: &str, context: &str) {
     assert!(
         !output.contains(needle),
         "Expected output NOT to contain '{}' ({})\nOutput:\n{}",
-        needle, context, output
+        needle,
+        context,
+        output
     );
 }
 
@@ -311,9 +317,12 @@ fn find_duplicate_cluster(json: &Value, min_similarity: f64) -> bool {
                     }
                 }
             }
-            obj.values().any(|v| find_duplicate_cluster(v, min_similarity))
+            obj.values()
+                .any(|v| find_duplicate_cluster(v, min_similarity))
         }
-        Value::Array(arr) => arr.iter().any(|v| find_duplicate_cluster(v, min_similarity)),
+        Value::Array(arr) => arr
+            .iter()
+            .any(|v| find_duplicate_cluster(v, min_similarity)),
         _ => false,
     }
 }

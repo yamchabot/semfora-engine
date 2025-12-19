@@ -33,7 +33,7 @@ pub struct VueSfcScript {
 
 /// Extract the script section from a Vue SFC
 ///
-/// Parses the .vue file to find the <script> or <script setup> tag,
+/// Parses the .vue file to find the `<script>` or `<script setup>` tag,
 /// extracts its content and determines the language from the lang attribute.
 pub fn extract_sfc_script(source: &str) -> Option<VueSfcScript> {
     // Try to find <script setup> first (preferred in Vue 3.2+)
@@ -361,11 +361,7 @@ fn extract_options_api(summary: &mut SemanticSummary, source: &str) {
 
     // Watchers
     if source.contains("watch:") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "watchers".to_string(),
-            "watch",
-        );
+        push_unique_insertion(&mut summary.insertions, "watchers".to_string(), "watch");
     }
 
     // Props
@@ -397,11 +393,7 @@ fn extract_options_api(summary: &mut SemanticSummary, source: &str) {
 
     // Mixins
     if source.contains("mixins:") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "mixins used".to_string(),
-            "mixins",
-        );
+        push_unique_insertion(&mut summary.insertions, "mixins used".to_string(), "mixins");
     }
 }
 
@@ -466,29 +458,17 @@ fn detect_lifecycle_hooks(summary: &mut SemanticSummary, source: &str) {
 fn detect_common_patterns(summary: &mut SemanticSummary, source: &str) {
     // Vue Router
     if source.contains("useRoute") || source.contains("useRouter") || source.contains("$router") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "Vue Router".to_string(),
-            "router",
-        );
+        push_unique_insertion(&mut summary.insertions, "Vue Router".to_string(), "router");
     }
 
     // Pinia store
     if source.contains("defineStore") || source.contains("useStore") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "Pinia store".to_string(),
-            "Pinia",
-        );
+        push_unique_insertion(&mut summary.insertions, "Pinia store".to_string(), "Pinia");
     }
 
     // Vuex store (legacy)
     if source.contains("mapState") || source.contains("mapGetters") || source.contains("$store") {
-        push_unique_insertion(
-            &mut summary.insertions,
-            "Vuex store".to_string(),
-            "Vuex",
-        );
+        push_unique_insertion(&mut summary.insertions, "Vuex store".to_string(), "Vuex");
     }
 
     // Composables (use* functions)

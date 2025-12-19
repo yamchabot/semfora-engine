@@ -84,7 +84,11 @@ export function greet(name: string): string {
 #[test]
 fn test_analyze_file_text_format() {
     let repo = TestRepo::new();
-    repo.add_ts_function("src/utils.ts", "formatDate", "return new Date().toISOString();");
+    repo.add_ts_function(
+        "src/utils.ts",
+        "formatDate",
+        "return new Date().toISOString();",
+    );
 
     let output = repo.run_cli_success(&["analyze", "src/utils.ts", "-f", "text"]);
 
@@ -95,7 +99,11 @@ fn test_analyze_file_text_format() {
 #[test]
 fn test_analyze_file_toon_format() {
     let repo = TestRepo::new();
-    repo.add_ts_function("src/utils.ts", "formatDate", "return new Date().toISOString();");
+    repo.add_ts_function(
+        "src/utils.ts",
+        "formatDate",
+        "return new Date().toISOString();",
+    );
 
     let output = repo.run_cli_success(&["analyze", "src/utils.ts", "-f", "toon"]);
 
@@ -212,10 +220,7 @@ fn test_analyze_dir_summary_only() {
     let output = repo.run_cli_success(&["analyze", "src", "--summary-only"]);
 
     // Summary output should exist
-    assert!(
-        !output.is_empty(),
-        "Summary should produce output"
-    );
+    assert!(!output.is_empty(), "Summary should produce output");
 }
 
 #[test]
@@ -226,10 +231,7 @@ fn test_analyze_dir_text_format() {
     let output = repo.run_cli_success(&["analyze", "src", "-f", "text"]);
 
     // Should have some output
-    assert!(
-        !output.is_empty(),
-        "Text format should produce output"
-    );
+    assert!(!output.is_empty(), "Text format should produce output");
 }
 
 #[test]
@@ -319,7 +321,9 @@ fn test_analyze_diff_branch_comparison() {
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .unwrap();
-    let base_branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    let base_branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
 
     // Create feature branch
     std::process::Command::new("git")

@@ -5,13 +5,16 @@ use std::path::PathBuf;
 use crate::cli::{OutputFormat, TestArgs};
 use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
-use crate::test_runner::{detect_all_frameworks, run_tests, run_tests_with_framework, TestFramework, TestRunOptions};
+use crate::test_runner::{
+    detect_all_frameworks, run_tests, run_tests_with_framework, TestFramework, TestRunOptions,
+};
 
 /// Run the test command
 pub fn run_test(args: &TestArgs, ctx: &CommandContext) -> Result<String> {
-    let project_dir = args.path.clone().unwrap_or_else(|| {
-        std::env::current_dir().expect("Failed to get current directory")
-    });
+    let project_dir = args
+        .path
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().expect("Failed to get current directory"));
 
     if args.detect {
         run_detect_tests(&project_dir, ctx)
@@ -68,7 +71,11 @@ fn run_detect_tests(project_dir: &PathBuf, ctx: &CommandContext) -> Result<Strin
 }
 
 /// Execute tests
-fn run_execute_tests(args: &TestArgs, project_dir: &PathBuf, ctx: &CommandContext) -> Result<String> {
+fn run_execute_tests(
+    args: &TestArgs,
+    project_dir: &PathBuf,
+    ctx: &CommandContext,
+) -> Result<String> {
     let options = TestRunOptions {
         filter: args.filter.clone(),
         verbose: args.test_verbose,
@@ -123,14 +130,21 @@ fn run_execute_tests(args: &TestArgs, project_dir: &PathBuf, ctx: &CommandContex
             output = super::encode_toon(&json_value);
         }
         OutputFormat::Text => {
-            let status = if results.failed == 0 { "✓ PASSED" } else { "✗ FAILED" };
+            let status = if results.failed == 0 {
+                "✓ PASSED"
+            } else {
+                "✗ FAILED"
+            };
 
             output.push_str("═══════════════════════════════════════════\n");
             output.push_str(&format!("  TEST RESULTS: {}\n", status));
             output.push_str("═══════════════════════════════════════════\n\n");
 
             output.push_str(&format!("framework: {:?}\n", results.framework));
-            output.push_str(&format!("duration: {:.2}s\n\n", results.duration_ms as f64 / 1000.0));
+            output.push_str(&format!(
+                "duration: {:.2}s\n\n",
+                results.duration_ms as f64 / 1000.0
+            ));
 
             output.push_str(&format!("passed: {}\n", results.passed));
             output.push_str(&format!("failed: {}\n", results.failed));
