@@ -25,6 +25,7 @@ pub mod index;
 pub mod query;
 pub mod search;
 pub mod security;
+pub mod serve;
 pub mod test;
 pub mod toon_parser;
 pub mod validate;
@@ -37,6 +38,7 @@ pub use index::run_index;
 pub use query::run_query;
 pub use search::run_search;
 pub use security::run_security;
+pub use serve::run_serve;
 pub use test::run_test;
 pub use validate::run_validate;
 

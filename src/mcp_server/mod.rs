@@ -2434,9 +2434,11 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
             {
                 continue;
             }
-            if let Some(colon_pos) = line.find(':') {
-                let caller = line[..colon_pos].trim().to_string();
-                let rest = line[colon_pos + 1..].trim();
+            // Find ": [" pattern - the colon before the call list
+            // Hash format is "file_hash:semantic_hash", so we can't use simple find(':')
+            if let Some(bracket_pos) = line.find(": [") {
+                let caller = line[..bracket_pos].trim().to_string();
+                let rest = line[bracket_pos + 2..].trim();
                 if rest.starts_with('[') && rest.ends_with(']') {
                     let inner = &rest[1..rest.len() - 1];
                     for callee in inner.split(',').filter(|s| !s.is_empty()) {

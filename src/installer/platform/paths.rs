@@ -102,10 +102,8 @@ pub struct SemforaPaths {
     pub cache_dir: PathBuf,
     /// Recommended binary installation directory
     pub binary_dir: PathBuf,
-    /// Full path to the engine binary
+    /// Full path to the semfora-engine binary (CLI + MCP server)
     pub engine_binary: PathBuf,
-    /// Full path to the server binary
-    pub server_binary: PathBuf,
 }
 
 impl SemforaPaths {
@@ -140,7 +138,6 @@ impl SemforaPaths {
             cache_dir: cache.join("semfora"),
             binary_dir: binary_dir.clone(),
             engine_binary: binary_dir.join(format!("semfora-engine{}", ext)),
-            server_binary: binary_dir.join(format!("semfora-engine-server{}", ext)),
         }
     }
 
@@ -166,7 +163,6 @@ impl SemforaPaths {
             cache_dir: cache.join("semfora"),
             binary_dir: binary_dir.clone(),
             engine_binary: binary_dir.join(format!("semfora-engine{}", ext)),
-            server_binary: binary_dir.join(format!("semfora-engine-server{}", ext)),
         }
     }
 
@@ -189,7 +185,6 @@ impl SemforaPaths {
             cache_dir: local_appdata.join("semfora\\cache"),
             binary_dir: binary_dir.clone(),
             engine_binary: binary_dir.join(format!("semfora-engine{}", ext)),
-            server_binary: binary_dir.join(format!("semfora-engine-server{}", ext)),
         }
     }
 

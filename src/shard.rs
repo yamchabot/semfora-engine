@@ -620,8 +620,11 @@ impl ShardWriter {
         fs::write(self.cache.import_graph_path(), &import_graph_toon)?;
         stats.graph_bytes += import_graph_toon.len();
 
+        // Build file-to-module mapping for proper module names from registry
+        let file_to_module = self.build_file_to_module_map();
+
         // Build and write module graph
-        let module_graph = build_module_graph(&self.modules);
+        let module_graph = build_module_graph(&self.modules, &file_to_module);
         let module_graph_toon = encode_module_graph(&module_graph);
         fs::write(self.cache.module_graph_path(), &module_graph_toon)?;
         stats.graph_bytes += module_graph_toon.len();
@@ -639,9 +642,16 @@ impl ShardWriter {
         let path = self.cache.symbol_index_path();
         let mut file = fs::File::create(&path)?;
 
+        // Build file-to-module mapping for proper module names from registry
+        let file_to_module = self.build_file_to_module_map();
+
         for summary in &self.all_summaries {
             let namespace = SymbolId::namespace_from_path(&summary.file);
-            let module_name = extract_module_name(&summary.file);
+            // Get the optimal module name from registry, fallback to extraction
+            let module_name = file_to_module
+                .get(&summary.file)
+                .cloned()
+                .unwrap_or_else(|| extract_module_name(&summary.file));
 
             // If we have symbols in the new multi-symbol format, use those
             if !summary.symbols.is_empty() {
@@ -841,9 +851,16 @@ impl ShardWriter {
     fn write_bm25_index(&self, stats: &mut ShardStats) -> Result<()> {
         let mut index = Bm25Index::new();
 
+        // Build file-to-module mapping for proper module names from registry
+        let file_to_module = self.build_file_to_module_map();
+
         for summary in &self.all_summaries {
             let namespace = SymbolId::namespace_from_path(&summary.file);
-            let module_name = extract_module_name(&summary.file);
+            // Get the optimal module name from registry, fallback to extraction
+            let module_name = file_to_module
+                .get(&summary.file)
+                .cloned()
+                .unwrap_or_else(|| extract_module_name(&summary.file));
 
             // Get TOON content for term extraction (from the file-level summary)
             let toon_content = encode_toon(summary);
@@ -1668,6 +1685,7 @@ fn encode_import_graph(graph: &HashMap<String, Vec<String>>) -> String {
 /// Build module dependency graph
 fn build_module_graph(
     modules: &HashMap<String, Vec<SemanticSummary>>,
+    file_to_module: &HashMap<String, String>,
 ) -> HashMap<String, Vec<String>> {
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -1676,7 +1694,11 @@ fn build_module_graph(
 
         for summary in summaries {
             for import in &summary.local_imports {
-                let import_module = extract_module_name(import);
+                // Get the optimal module name from registry, fallback to extraction
+                let import_module = file_to_module
+                    .get(import)
+                    .cloned()
+                    .unwrap_or_else(|| extract_module_name(import));
                 if import_module != *module_name && !deps.contains(&import_module) {
                     deps.push(import_module);
                 }

@@ -472,10 +472,28 @@ pub fn partial_reindex(
     // Analyze only the changed files (parallel)
     let (new_summaries, _) = analyze_files_with_stats(&valid_files);
 
+    // Build file-to-module mapping from existing cache for consistent module names
+    // This ensures partial reindex uses the same module names as the full index
+    let file_to_module: HashMap<String, String> = {
+        let mut map = HashMap::new();
+        for module_name in cache.list_modules() {
+            if let Ok(summaries) = cache.load_module_summaries(&module_name) {
+                for summary in summaries {
+                    map.insert(summary.file.clone(), module_name.clone());
+                }
+            }
+        }
+        map
+    };
+
     // Group new summaries by module
     let mut new_by_module: HashMap<String, Vec<SemanticSummary>> = HashMap::new();
     for summary in &new_summaries {
-        let module = extract_module_name(&summary.file);
+        // Get the optimal module name from cache, fallback to extraction
+        let module = file_to_module
+            .get(&summary.file)
+            .cloned()
+            .unwrap_or_else(|| extract_module_name(&summary.file));
         new_by_module
             .entry(module)
             .or_default()
@@ -494,7 +512,11 @@ pub fn partial_reindex(
 
     for deleted in &deleted_files {
         if let Some(path_str) = deleted.to_str() {
-            let module = extract_module_name(path_str);
+            // Get the optimal module name from cache, fallback to extraction
+            let module = file_to_module
+                .get(path_str)
+                .cloned()
+                .unwrap_or_else(|| extract_module_name(path_str));
             // Ensure module is in our update set even if no new summaries
             new_by_module.entry(module).or_default();
             // Track this file as changed (for removal)

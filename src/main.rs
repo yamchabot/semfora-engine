@@ -8,8 +8,8 @@ use std::process::ExitCode;
 use semfora_engine::analyze_repo_tokens;
 use semfora_engine::cli::{Cli, Commands, ConfigOperation};
 use semfora_engine::commands::{
-    run_analyze, run_cache, run_commit, run_index, run_query, run_search, run_security, run_test,
-    run_validate, CommandContext,
+    run_analyze, run_cache, run_commit, run_index, run_query, run_search, run_security, run_serve,
+    run_test, run_validate, CommandContext,
 };
 use semfora_engine::installer::{
     self, print_available_clients, ConfigArgs, SetupArgs, UninstallArgs,
@@ -136,6 +136,11 @@ fn run() -> semfora_engine::Result<String> {
             });
             run_benchmark(&dir_path)
         }
+
+        // ============================================
+        // MCP Server Mode
+        // ============================================
+        Commands::Serve(args) => run_serve(&args),
     }
 }
 

@@ -2195,7 +2195,7 @@ impl CacheDir {
         // First, group summaries by module
         let mut modules: HashMap<String, Vec<&crate::schema::SemanticSummary>> = HashMap::new();
         for summary in summaries {
-            let module_name = Self::extract_module_name(&summary.file);
+            let module_name = crate::shard::extract_module_name(&summary.file);
             modules.entry(module_name).or_default().push(summary);
         }
 
@@ -2207,7 +2207,7 @@ impl CacheDir {
 
             for summary in module_summaries {
                 for import in &summary.local_imports {
-                    let import_module = Self::extract_module_name(import);
+                    let import_module = crate::shard::extract_module_name(import);
                     if import_module != *module_name && !deps.contains(&import_module) {
                         deps.push(import_module);
                     }
@@ -2220,52 +2220,6 @@ impl CacheDir {
         }
 
         graph
-    }
-
-    /// Extract module/namespace from file path.
-    ///
-    /// Returns the path-based namespace (directory structure after src/).
-    fn extract_module_name(file_path: &str) -> String {
-        // Extract the portion of the path after /src/ (or similar source roots)
-        let source_markers = ["/src/", "/lib/", "/app/", "/pages/"];
-        let mut relative_path = file_path;
-
-        for marker in &source_markers {
-            if let Some(pos) = file_path.find(marker) {
-                relative_path = &file_path[pos + marker.len()..];
-                break;
-            }
-        }
-
-        // Also handle relative paths starting with src/
-        if relative_path == file_path {
-            for prefix in &["src/", "lib/", "app/", "pages/"] {
-                if let Some(stripped) = file_path.strip_prefix(prefix) {
-                    relative_path = stripped;
-                    break;
-                }
-            }
-        }
-
-        // Get the directory path (everything before the filename)
-        let path = std::path::Path::new(relative_path);
-        if let Some(parent) = path.parent() {
-            let parent_str = parent.to_string_lossy();
-            if !parent_str.is_empty() && parent_str != "." {
-                // Convert path separators to dots for namespace
-                return parent_str.replace('/', ".").replace('\\', ".");
-            }
-        }
-
-        // File is directly in src/ - use filename without extension
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("root");
-
-        // Skip generic names
-        if matches!(stem, "index" | "mod" | "lib" | "main" | "__init__") {
-            return "root".to_string();
-        }
-
-        stem.to_string()
     }
 
     /// Encode call graph to TOON format

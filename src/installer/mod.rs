@@ -144,19 +144,19 @@ fn run_setup_non_interactive(args: SetupArgs) -> Result<(), McpDiffError> {
     let paths = SemforaPaths::for_platform(&platform);
     let registry = ClientRegistry::new();
 
-    // Determine server binary path
-    let server_binary = args.binary_path.unwrap_or_else(|| {
+    // Determine engine binary path
+    let engine_binary = args.binary_path.unwrap_or_else(|| {
         // Try to find existing binary or use default path
-        if let Ok(path) = which::which("semfora-engine-server") {
+        if let Ok(path) = which::which("semfora-engine") {
             path
         } else {
-            paths.server_binary.clone()
+            paths.engine_binary.clone()
         }
     });
 
     // Build server config
     let mut server_config =
-        McpServerConfig::new(server_binary.clone()).with_log_level(&args.log_level);
+        McpServerConfig::new(engine_binary.clone()).with_log_level(&args.log_level);
 
     if let Some(cache_dir) = &args.cache_dir {
         server_config = server_config.with_cache_dir(cache_dir.clone());

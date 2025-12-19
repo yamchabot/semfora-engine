@@ -80,6 +80,9 @@ pub enum Commands {
 
     /// Run token efficiency benchmark
     Benchmark(BenchmarkArgs),
+
+    /// Start the MCP server (for AI coding assistants)
+    Serve(ServeArgs),
 }
 
 // ============================================
@@ -685,6 +688,26 @@ pub struct BenchmarkArgs {
     /// Path to directory to benchmark
     #[arg(value_name = "PATH")]
     pub path: Option<PathBuf>,
+}
+
+// ============================================
+// Serve Subcommand (MCP Server)
+// ============================================
+
+/// Arguments for the serve command (MCP server mode)
+#[derive(Args, Debug)]
+pub struct ServeArgs {
+    /// Repository path to serve (default: current directory)
+    #[arg(short, long, value_name = "PATH")]
+    pub repo: Option<PathBuf>,
+
+    /// Disable file watcher for live index updates
+    #[arg(long)]
+    pub no_watch: bool,
+
+    /// Disable git polling for branch/commit changes
+    #[arg(long)]
+    pub no_git_poll: bool,
 }
 
 // ============================================

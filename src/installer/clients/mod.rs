@@ -39,8 +39,8 @@ pub enum ClientStatus {
 /// Configuration options for MCP server entry
 #[derive(Debug, Clone)]
 pub struct McpServerConfig {
-    /// Path to the semfora-engine-server binary
-    pub server_binary: PathBuf,
+    /// Path to the semfora-engine binary (unified CLI + MCP server)
+    pub engine_binary: PathBuf,
     /// Log level (error, info, debug)
     pub log_level: String,
     /// Custom cache directory (if any)
@@ -51,9 +51,9 @@ pub struct McpServerConfig {
 
 impl McpServerConfig {
     /// Create a new MCP server configuration
-    pub fn new(server_binary: PathBuf) -> Self {
+    pub fn new(engine_binary: PathBuf) -> Self {
         Self {
-            server_binary,
+            engine_binary,
             log_level: "info".to_string(),
             cache_dir: None,
             extra_env: std::collections::HashMap::new(),
@@ -103,8 +103,8 @@ impl McpServerConfig {
     /// Generate JSON for mcpServers format (Claude, Cursor)
     pub fn to_mcp_servers_json(&self) -> JsonValue {
         serde_json::json!({
-            "command": self.server_binary.to_string_lossy(),
-            "args": [],
+            "command": self.engine_binary.to_string_lossy(),
+            "args": ["serve"],
             "env": self.env_vars()
         })
     }
@@ -113,8 +113,8 @@ impl McpServerConfig {
     pub fn to_vscode_servers_json(&self) -> JsonValue {
         serde_json::json!({
             "type": "stdio",
-            "command": self.server_binary.to_string_lossy(),
-            "args": []
+            "command": self.engine_binary.to_string_lossy(),
+            "args": ["serve"]
         })
     }
 }

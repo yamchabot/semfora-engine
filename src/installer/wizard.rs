@@ -31,8 +31,8 @@ pub struct SetupPlan {
     pub clients: Vec<String>,
     /// Custom export paths
     pub custom_paths: Vec<PathBuf>,
-    /// Server binary path
-    pub server_binary: PathBuf,
+    /// Engine binary path (CLI + MCP server)
+    pub engine_binary: PathBuf,
     /// Log level
     pub log_level: String,
     /// Custom cache directory
@@ -136,7 +136,7 @@ impl SetupWizard {
             mode: InstallMode::CliOnly,
             clients: vec![],
             custom_paths: vec![],
-            server_binary: paths.server_binary,
+            engine_binary: paths.engine_binary,
             log_level: "info".to_string(),
             cache_dir: None,
             confirmed,
@@ -247,7 +247,7 @@ impl SetupWizard {
             mode: InstallMode::McpServer,
             clients: selected_clients,
             custom_paths,
-            server_binary: paths.server_binary,
+            engine_binary: paths.engine_binary,
             log_level,
             cache_dir,
             confirmed,
@@ -301,7 +301,7 @@ impl SetupWizard {
             mode,
             clients: vec![],
             custom_paths: vec![],
-            server_binary: paths.server_binary,
+            engine_binary: paths.engine_binary,
             log_level: "info".to_string(),
             cache_dir: None,
             confirmed,
@@ -385,8 +385,8 @@ impl SetupWizard {
 
         println!();
         println!(
-            "  Server binary: {}",
-            style(paths.server_binary.display()).dim()
+            "  Engine binary: {}",
+            style(paths.engine_binary.display()).dim()
         );
         println!("  Log level: {}", style(log_level).dim());
         println!(
@@ -433,7 +433,7 @@ pub fn execute_plan(plan: &SetupPlan) -> Result<(), McpDiffError> {
 
     // Configure MCP server settings
     let mut server_config =
-        McpServerConfig::new(plan.server_binary.clone()).with_log_level(&plan.log_level);
+        McpServerConfig::new(plan.engine_binary.clone()).with_log_level(&plan.log_level);
 
     if let Some(cache_dir) = &plan.cache_dir {
         server_config = server_config.with_cache_dir(cache_dir.clone());
@@ -517,7 +517,7 @@ mod tests {
             mode: InstallMode::McpServer,
             clients: vec!["claude-desktop".to_string()],
             custom_paths: vec![],
-            server_binary: PathBuf::from("/usr/local/bin/semfora-engine-server"),
+            engine_binary: PathBuf::from("/usr/local/bin/semfora-engine"),
             log_level: "info".to_string(),
             cache_dir: None,
             confirmed: true,
