@@ -61,6 +61,7 @@ pub enum Platform {
 
 impl Platform {
     /// Detect the current platform
+    #[allow(unused_variables)] // arch is unused on Windows
     pub fn detect() -> Self {
         let arch = Arch::detect();
 
