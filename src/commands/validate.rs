@@ -103,8 +103,23 @@ fn run_find_duplicates(
         }
     }
 
+    // Filter by minimum lines only for duplicate detection (DEDUP-207)
+    if args.duplicates {
+        signatures.retain(|sig| sig.line_count >= args.min_lines);
+    }
+
     if signatures.is_empty() {
-        return Ok("No function signatures found in index.".to_string());
+        // Respect output format for empty results
+        return match ctx.format {
+            OutputFormat::Json => Ok(serde_json::json!({
+                "_type": "duplicate_analysis",
+                "clusters": 0,
+                "message": "No function signatures found in index."
+            }).to_string()),
+            OutputFormat::Toon | OutputFormat::Text => {
+                Ok("No function signatures found in index.".to_string())
+            }
+        };
     }
 
     eprintln!(
@@ -116,23 +131,64 @@ fn run_find_duplicates(
     let detector =
         DuplicateDetector::new(args.threshold).with_boilerplate_exclusion(exclude_boilerplate);
 
-    let clusters = detector.find_all_clusters(&signatures);
+    let mut clusters = detector.find_all_clusters(&signatures);
     let total_clusters = clusters.len();
-    let limit = args.limit.min(50);
-    let paginated: Vec<_> = clusters.into_iter().take(limit).collect();
+
+    // Sort clusters by specified criteria (DEDUP-207)
+    match args.sort_by.as_str() {
+        "size" => {
+            // Sort by primary function size (lines), largest first
+            clusters.sort_by(|a, b| {
+                let a_size = a.primary.end_line.saturating_sub(a.primary.start_line);
+                let b_size = b.primary.end_line.saturating_sub(b.primary.start_line);
+                b_size.cmp(&a_size)
+            });
+        }
+        "count" => {
+            // Sort by number of duplicates, most first
+            clusters.sort_by(|a, b| b.duplicates.len().cmp(&a.duplicates.len()));
+        }
+        _ => {
+            // Default: sort by highest similarity in cluster
+            clusters.sort_by(|a, b| {
+                let a_max = a
+                    .duplicates
+                    .iter()
+                    .map(|d| d.similarity)
+                    .fold(0.0_f64, f64::max);
+                let b_max = b
+                    .duplicates
+                    .iter()
+                    .map(|d| d.similarity)
+                    .fold(0.0_f64, f64::max);
+                b_max
+                    .partial_cmp(&a_max)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+    }
+
+    // Apply pagination with offset and limit (DEDUP-207)
+    let limit = args.limit.min(200);
+    let paginated: Vec<_> = clusters.into_iter().skip(args.offset).take(limit).collect();
 
     let mut output = String::new();
 
     match ctx.format {
         OutputFormat::Json => {
-            // JSON keeps full paths for programmatic access
+            // JSON keeps full paths for programmatic access (DEDUP-207 enhanced)
             let json_value = serde_json::json!({
                 "_type": "duplicate_analysis",
                 "threshold": args.threshold,
                 "boilerplate_excluded": exclude_boilerplate,
+                "min_lines": args.min_lines,
+                "sort_by": args.sort_by,
                 "total_signatures": signatures.len(),
                 "filter": args.target,
                 "clusters": total_clusters,
+                "offset": args.offset,
+                "limit": limit,
+                "showing": paginated.len(),
                 "total_duplicates": paginated.iter().map(|c| c.duplicates.len()).sum::<usize>(),
                 "cluster_details": paginated.iter().map(|c| serde_json::json!({
                     "primary": c.primary.name,
@@ -150,18 +206,25 @@ fn run_find_duplicates(
             output = serde_json::to_string_pretty(&json_value).unwrap_or_default();
         }
         OutputFormat::Toon => {
-            // Token-optimized format - groups by module
+            // Token-optimized format - groups by module (DEDUP-207 enhanced)
             output.push_str("_type: duplicate_results\n");
+            let showing_start = args.offset + 1;
+            let showing_end = args.offset + paginated.len();
             output.push_str(&format!(
-                "threshold: {:.0}% | clusters: {} | showing: 1-{} | boilerplate_excluded: {}\n",
+                "threshold: {:.0}% | clusters: {} | showing: {}-{} | sort: {} | min_lines: {}\n",
                 args.threshold * 100.0,
                 total_clusters,
-                paginated.len(),
-                exclude_boilerplate
+                showing_start,
+                showing_end,
+                args.sort_by,
+                args.min_lines
             ));
 
-            if paginated.len() < total_clusters {
-                output.push_str(&format!("hint: use --limit {} for more\n", limit + 20));
+            if showing_end < total_clusters {
+                output.push_str(&format!(
+                    "hint: use --offset {} for next page\n",
+                    showing_end
+                ));
             }
 
             if paginated.is_empty() {
@@ -282,7 +345,7 @@ fn run_find_duplicates(
             }
         }
         OutputFormat::Text => {
-            // Human-readable format for terminal
+            // Human-readable format for terminal (DEDUP-207 enhanced)
             output.push_str("═══════════════════════════════════════════\n");
             if let Some(ref target) = args.target {
                 output.push_str(&format!("  DUPLICATE ANALYSIS: {}\n", target));
@@ -293,8 +356,13 @@ fn run_find_duplicates(
 
             output.push_str(&format!("Threshold: {:.0}%\n", args.threshold * 100.0));
             output.push_str(&format!("Boilerplate excluded: {}\n", exclude_boilerplate));
+            output.push_str(&format!("Min lines: {}\n", args.min_lines));
+            output.push_str(&format!("Sort by: {}\n", args.sort_by));
             output.push_str(&format!("Signatures analyzed: {}\n", signatures.len()));
-            output.push_str(&format!("Clusters found: {}\n\n", total_clusters));
+            output.push_str(&format!("Clusters found: {}\n", total_clusters));
+            let showing_start = args.offset + 1;
+            let showing_end = args.offset + paginated.len();
+            output.push_str(&format!("Showing: {}-{}\n\n", showing_start, showing_end));
 
             if paginated.is_empty() {
                 output.push_str("No duplicate clusters found above threshold.\n");
@@ -365,11 +433,12 @@ fn run_find_duplicates(
                 output.push('\n');
             }
 
-            if total_clusters > paginated.len() {
+            if args.offset + paginated.len() < total_clusters {
                 output.push_str(&format!(
-                    "\n... showing {} of {} clusters\n",
+                    "\n... showing {} of {} clusters (use --offset {} for next page)\n",
                     paginated.len(),
-                    total_clusters
+                    total_clusters,
+                    args.offset + paginated.len()
                 ));
             }
         }

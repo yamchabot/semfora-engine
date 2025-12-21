@@ -233,6 +233,14 @@ pub enum QueryType {
         /// Maximum modules to show (default: 30)
         #[arg(long, default_value = "30")]
         max_modules: usize,
+
+        /// Exclude test directories from module list (default: true)
+        #[arg(long, default_value = "true")]
+        exclude_test_dirs: bool,
+
+        /// Include git context (branch, last commit) in output (default: true)
+        #[arg(long, default_value = "true")]
+        include_git_context: bool,
     },
 
     /// Get a specific module's details
@@ -257,30 +265,42 @@ pub enum QueryType {
         limit: usize,
     },
 
-    /// Get a specific symbol by hash
+    /// Get a specific symbol by hash or file+line location
     Symbol {
         /// Symbol hash (or multiple comma-separated hashes)
-        hash: String,
+        hash: Option<String>,
+
+        /// File path (for location-based lookup)
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Line number (for location-based lookup, requires --file)
+        #[arg(long)]
+        line: Option<usize>,
 
         /// Include source code
         #[arg(long)]
         source: bool,
+
+        /// Lines of context for source code
+        #[arg(long, default_value = "3")]
+        context: usize,
     },
 
-    /// Get source code for a file or symbol
+    /// Get source code for a file or symbol(s)
     Source {
-        /// File path
-        file: String,
+        /// File path (optional if hash/hashes provided)
+        file: Option<String>,
 
-        /// Start line (1-indexed)
+        /// Start line (1-indexed, requires file)
         #[arg(long)]
         start: Option<usize>,
 
-        /// End line (1-indexed, inclusive)
+        /// End line (1-indexed, inclusive, requires file)
         #[arg(long)]
         end: Option<usize>,
 
-        /// Symbol hash to get source for
+        /// Symbol hash to get source for (comma-separated for batch)
         #[arg(long)]
         hash: Option<String>,
 
@@ -313,7 +333,7 @@ pub enum QueryType {
         #[arg(long)]
         module: Option<String>,
 
-        /// Filter to edges involving this symbol
+        /// Filter to edges involving this symbol (name or hash)
         #[arg(long)]
         symbol: Option<String>,
 
@@ -321,13 +341,17 @@ pub enum QueryType {
         #[arg(long, value_name = "PATH")]
         export: Option<String>,
 
-        /// Return only statistics
+        /// Return only statistics (summary mode)
         #[arg(long)]
         stats_only: bool,
 
         /// Maximum edges to return
         #[arg(long, default_value = "500")]
         limit: usize,
+
+        /// Skip first N edges (for pagination)
+        #[arg(long, default_value = "0")]
+        offset: usize,
     },
 
     /// Get all symbols in a file
@@ -339,9 +363,17 @@ pub enum QueryType {
         #[arg(long)]
         source: bool,
 
-        /// Filter by symbol kind
+        /// Filter by symbol kind (function, struct, class, etc.)
         #[arg(long)]
         kind: Option<String>,
+
+        /// Filter by risk level (low, medium, high)
+        #[arg(long)]
+        risk: Option<String>,
+
+        /// Lines of context for source snippets
+        #[arg(long, default_value = "2")]
+        context: usize,
     },
 
     /// List supported languages
@@ -376,9 +408,21 @@ pub struct ValidateArgs {
     #[arg(long)]
     pub kind: Option<String>,
 
-    /// Maximum symbols to validate
-    #[arg(long, default_value = "100")]
+    /// Maximum clusters to return (default: 50)
+    #[arg(long, default_value = "50")]
     pub limit: usize,
+
+    /// Pagination offset (skip first N clusters)
+    #[arg(long, default_value = "0")]
+    pub offset: usize,
+
+    /// Minimum function lines to include (default: 3)
+    #[arg(long, default_value = "3")]
+    pub min_lines: usize,
+
+    /// Sort clusters by: similarity (default), size, or count
+    #[arg(long, default_value = "similarity")]
+    pub sort_by: String,
 }
 
 // ============================================
