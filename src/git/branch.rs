@@ -107,6 +107,15 @@ pub fn get_upstream_branch(cwd: Option<&Path>) -> Option<String> {
     git_command_optional(&["rev-parse", "--abbrev-ref", "@{upstream}"], cwd)
 }
 
+/// Get the remote URL for a given remote (defaults to "origin")
+///
+/// Returns None if the remote doesn't exist or has no URL.
+/// This is the unified function for CLI/MCP (DEDUP-104).
+pub fn get_remote_url(remote: Option<&str>, cwd: Option<&Path>) -> Option<String> {
+    let remote_name = remote.unwrap_or("origin");
+    git_command_optional(&["remote", "get-url", remote_name], cwd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

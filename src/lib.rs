@@ -114,6 +114,7 @@ pub mod lang;
 pub mod mcp_server;
 pub mod module_registry;
 pub mod overlay;
+pub mod parsing;
 pub mod paths;
 pub mod ripgrep;
 pub mod risk;
@@ -237,5 +238,8 @@ pub use indexing::{
     analyze_files_parallel, collect_files, collect_files_recursive, should_skip_path,
     IndexGenerationResult, IndexingProgressCallback,
 };
+
+// Re-export parsing utilities (CLI/MCP unification - DEDUP-103)
+pub use parsing::{parse_and_extract, parse_and_extract_with_options};
 
 // Test change to trigger semfora-ci workflow

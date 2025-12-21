@@ -15,8 +15,10 @@ use crate::indexing::{
     analyze_files_with_stats as indexing_analyze_files_with_stats,
     collect_files as indexing_collect_files, should_skip_path as indexing_should_skip_path,
 };
+use crate::parsing::parse_and_extract as parsing_parse_and_extract;
+use crate::cache::load_function_signatures as cache_load_function_signatures;
 use crate::{
-    extract, extract_module_name, CacheDir, Lang, McpDiffError, SemanticSummary, ShardWriter,
+    extract_module_name, CacheDir, Lang, McpDiffError, SemanticSummary, ShardWriter,
     SymbolIndexEntry,
 };
 
@@ -249,29 +251,19 @@ pub fn should_skip_path(path: &Path) -> bool {
 }
 
 // ============================================================================
-// Parsing
+// Parsing (DEDUP-103: delegates to shared parsing module)
 // ============================================================================
 
-/// Parse source and extract semantic summary
+/// Parse source and extract semantic summary.
+///
+/// This function delegates to `crate::parsing::parse_and_extract`.
+#[inline]
 pub fn parse_and_extract(
     file_path: &Path,
     source: &str,
     lang: Lang,
 ) -> Result<SemanticSummary, McpDiffError> {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&lang.tree_sitter_language())
-        .map_err(|e| McpDiffError::ParseFailure {
-            message: format!("Failed to set language: {:?}", e),
-        })?;
-
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| McpDiffError::ParseFailure {
-            message: "Failed to parse file".to_string(),
-        })?;
-
-    extract(file_path, source, &tree, lang)
+    parsing_parse_and_extract(file_path, source, lang)
 }
 
 // ============================================================================
@@ -1052,27 +1044,12 @@ pub fn find_symbol_duplicates(
     duplicates
 }
 
+// load_function_signatures removed - now uses crate::cache::load_function_signatures (DEDUP-105)
+
 /// Load function signatures from cache
+#[inline]
 pub fn load_function_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>, String> {
-    let sig_path = cache.signature_index_path();
-    if !sig_path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let content =
-        fs::read_to_string(&sig_path).map_err(|e| format!("Failed to read signatures: {}", e))?;
-
-    let mut signatures = Vec::new();
-    for line in content.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(sig) = serde_json::from_str::<FunctionSignature>(line) {
-            signatures.push(sig);
-        }
-    }
-
-    Ok(signatures)
+    cache_load_function_signatures(cache)
 }
 
 /// Build a reverse call graph (callee -> callers) from the call graph file

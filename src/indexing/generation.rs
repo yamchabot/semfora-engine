@@ -4,13 +4,13 @@
 //! combining Rayon's parallel iteration with optional progress reporting.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
-use crate::extract::extract;
-use crate::{Lang, McpDiffError, SemanticSummary};
+use crate::parsing::parse_and_extract;
+use crate::{Lang, SemanticSummary};
 
 /// Progress callback type for index generation.
 ///
@@ -27,30 +27,6 @@ pub struct IndexGenerationResult {
     pub total_bytes: usize,
     /// Number of files that failed to process
     pub errors: usize,
-}
-
-/// Parse source code and extract semantic summary.
-///
-/// This is the core parsing function used by the parallel analyzer.
-fn parse_and_extract(
-    file_path: &Path,
-    source: &str,
-    lang: Lang,
-) -> Result<SemanticSummary, McpDiffError> {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&lang.tree_sitter_language())
-        .map_err(|e| McpDiffError::ParseFailure {
-            message: format!("Failed to set language: {:?}", e),
-        })?;
-
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| McpDiffError::ParseFailure {
-            message: "Failed to parse file".to_string(),
-        })?;
-
-    extract(file_path, source, &tree, lang)
 }
 
 /// Analyze files in parallel with optional progress reporting.

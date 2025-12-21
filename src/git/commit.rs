@@ -103,6 +103,29 @@ pub fn get_head_description(cwd: Option<&Path>) -> Result<String> {
     git_command(&["log", "-1", "--format=%h %s"], cwd)
 }
 
+/// Get the last commit information (HEAD)
+///
+/// Returns CommitInfo for the current HEAD, or None if there are no commits.
+/// This is the unified function for CLI/MCP (DEDUP-104).
+pub fn get_last_commit(cwd: Option<&Path>) -> Option<CommitInfo> {
+    // Format: SHA|short|subject|author|date
+    let format = "%H|%h|%s|%an|%aI";
+    let output = super::git_command_optional(&["log", "-1", &format!("--format={}", format)], cwd)?;
+
+    let parts: Vec<&str> = output.splitn(5, '|').collect();
+    if parts.len() < 5 {
+        return None;
+    }
+
+    Some(CommitInfo {
+        sha: parts[0].to_string(),
+        short_sha: parts[1].to_string(),
+        subject: parts[2].to_string(),
+        author: parts[3].to_string(),
+        date: parts[4].to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

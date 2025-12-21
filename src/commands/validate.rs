@@ -1,11 +1,9 @@
 //! Validate command handler - Quality audits (duplicates)
 
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use crate::cache::CacheDir;
+use crate::cache::{load_function_signatures, CacheDir};
 use crate::cli::{OutputFormat, ValidateArgs};
 use crate::commands::CommandContext;
 use crate::duplicate::DuplicateKind;
@@ -33,30 +31,11 @@ pub fn run_validate(args: &ValidateArgs, ctx: &CommandContext) -> Result<String>
     run_find_duplicates(args, &cache, ctx)
 }
 
-/// Load function signatures from cache
+// load_signatures removed - now uses crate::cache::load_function_signatures (DEDUP-105)
+
+/// Wrapper to load signatures with crate error type
 fn load_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>> {
-    let sig_path = cache.signature_index_path();
-    if !sig_path.exists() {
-        return Err(McpDiffError::FileNotFound {
-            path: "Signature index not found. Run `semfora index generate` first.".to_string(),
-        });
-    }
-
-    let file = fs::File::open(&sig_path)?;
-    let reader = BufReader::new(file);
-
-    let mut signatures = Vec::new();
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(sig) = serde_json::from_str::<FunctionSignature>(&line) {
-            signatures.push(sig);
-        }
-    }
-
-    Ok(signatures)
+    load_function_signatures(cache).map_err(|e| McpDiffError::FileNotFound { path: e })
 }
 
 /// Extract a short module name from a file path (fallback for old cached data)

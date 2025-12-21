@@ -8,9 +8,9 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+use crate::cache::load_function_signatures;
 use crate::duplicate::{DuplicateCluster, DuplicateKind, DuplicateMatch, FunctionSignature};
 use crate::schema::SCHEMA_VERSION;
 use crate::security::{CVEMatch, CVEScanSummary, Severity};
@@ -881,33 +881,12 @@ pub(super) fn format_call_graph_summary(
 // Duplicate Detection Formatting
 // ============================================================================
 
-/// Load function signatures from the signature index
+// load_signatures removed - now uses crate::cache::load_function_signatures (DEDUP-105)
+
+/// Load function signatures (wrapper for shared function)
+#[inline]
 pub(super) fn load_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignature>, String> {
-    let sig_path = cache.signature_index_path();
-    if !sig_path.exists() {
-        return Err("Signature index not found".to_string());
-    }
-
-    let file =
-        fs::File::open(&sig_path).map_err(|e| format!("Failed to open signature index: {}", e))?;
-    let reader = BufReader::new(file);
-
-    let mut signatures = Vec::new();
-    for line in reader.lines() {
-        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<FunctionSignature>(&line) {
-            Ok(sig) => signatures.push(sig),
-            Err(e) => {
-                // Skip malformed lines but log for debugging
-                tracing::warn!("Skipping malformed signature: {}", e);
-            }
-        }
-    }
-
-    Ok(signatures)
+    load_function_signatures(cache)
 }
 
 /// Format duplicate clusters as compact TOON output

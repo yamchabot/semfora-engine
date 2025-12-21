@@ -3,6 +3,10 @@
 //! Provides XDG-compliant cache directory management and repo hashing
 //! for storing sharded semantic IR that can be queried by AI agents.
 
+pub mod signatures;
+
+pub use signatures::load_function_signatures;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

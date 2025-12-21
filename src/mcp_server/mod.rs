@@ -206,7 +206,7 @@ impl McpDiffServer {
         &self,
         Parameters(request): Parameters<GetContextRequest>,
     ) -> Result<CallToolResult, McpError> {
-        use std::process::Command;
+        use crate::git::{get_current_branch, get_last_commit, get_remote_url};
 
         let repo_path = match &request.path {
             Some(p) => self.resolve_path(p).await,
@@ -223,54 +223,29 @@ impl McpDiffServer {
             .unwrap_or("unknown");
         output.push_str(&format!("repo_name: \"{}\"\n", repo_name));
 
-        // Git branch
-        let branch = Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(&repo_path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+        // Git branch (DEDUP-104: uses shared git module)
+        let branch = get_current_branch(Some(&repo_path)).unwrap_or_else(|_| "unknown".to_string());
         output.push_str(&format!("branch: \"{}\"\n", branch));
 
-        // Git remote
-        let remote = Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(&repo_path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|| "none".to_string());
+        // Git remote (DEDUP-104: uses shared git module)
+        let remote = get_remote_url(None, Some(&repo_path)).unwrap_or_else(|| "none".to_string());
         output.push_str(&format!("remote: \"{}\"\n", remote));
 
-        // Last commit info (hash, message, author, date)
-        let commit_info = Command::new("git")
-            .args(["log", "-1", "--format=%h|%s|%an|%ci"])
-            .current_dir(&repo_path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-        if let Some(info) = commit_info {
-            let parts: Vec<&str> = info.splitn(4, '|').collect();
-            if parts.len() >= 4 {
-                output.push_str("last_commit:\n");
-                output.push_str(&format!("  hash: \"{}\"\n", parts[0]));
-                // Truncate message to 60 chars
-                let msg = if parts[1].len() > 60 {
-                    format!("{}...", &parts[1][..57])
-                } else {
-                    parts[1].to_string()
-                };
-                output.push_str(&format!("  message: \"{}\"\n", msg));
-                output.push_str(&format!("  author: \"{}\"\n", parts[2]));
-                // Simplify date to just the date part
-                let date = parts[3].split(' ').next().unwrap_or(parts[3]);
-                output.push_str(&format!("  date: \"{}\"\n", date));
-            }
+        // Last commit info (DEDUP-104: uses shared git module)
+        if let Some(commit) = get_last_commit(Some(&repo_path)) {
+            output.push_str("last_commit:\n");
+            output.push_str(&format!("  hash: \"{}\"\n", commit.short_sha));
+            // Truncate message to 60 chars
+            let msg = if commit.subject.len() > 60 {
+                format!("{}...", &commit.subject[..57])
+            } else {
+                commit.subject.clone()
+            };
+            output.push_str(&format!("  message: \"{}\"\n", msg));
+            output.push_str(&format!("  author: \"{}\"\n", commit.author));
+            // Simplify date to just the date part
+            let date = commit.date.split('T').next().unwrap_or(&commit.date);
+            output.push_str(&format!("  date: \"{}\"\n", date));
         }
 
         // Check index status
@@ -694,7 +669,7 @@ impl McpDiffServer {
         &self,
         Parameters(request): Parameters<GetOverviewRequest>,
     ) -> Result<CallToolResult, McpError> {
-        use std::process::Command;
+        use crate::git::{get_current_branch, get_last_commit};
 
         let repo_path = match &request.path {
             Some(p) => self.resolve_path(p).await,
@@ -726,23 +701,11 @@ impl McpDiffServer {
                     output.push_str("\n\n");
                 }
 
-                // Add git context if requested
+                // Add git context if requested (DEDUP-104: uses shared git module)
                 if include_git_context {
-                    let branch = Command::new("git")
-                        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-                        .current_dir(&repo_path)
-                        .output()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-                    let commit = Command::new("git")
-                        .args(["log", "-1", "--format=%h %s"])
-                        .current_dir(&repo_path)
-                        .output()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+                    let branch = get_current_branch(Some(&repo_path)).ok();
+                    let commit = get_last_commit(Some(&repo_path))
+                        .map(|c| format!("{} {}", c.short_sha, c.subject));
 
                     if branch.is_some() || commit.is_some() {
                         output.push_str("git_context:\n");
@@ -2052,7 +2015,8 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         &self,
         Parameters(request): Parameters<PrepCommitRequest>,
     ) -> Result<CallToolResult, McpError> {
-        use std::process::Command;
+        use crate::git::{get_current_branch, get_last_commit, get_remote_url};
+        use std::process::Command; // For diff stats
 
         let repo_path = match &request.path {
             Some(p) => self.resolve_path(p).await,
@@ -2086,42 +2050,12 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
             }
         }
 
-        // Get git context
-        let branch = Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(&repo_path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let remote = Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(&repo_path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-        let commit_info = Command::new("git")
-            .args(["log", "-1", "--format=%h|%s"])
-            .current_dir(&repo_path)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-        let (last_commit_hash, last_commit_message) = if let Some(info) = commit_info {
-            let parts: Vec<&str> = info.splitn(2, '|').collect();
-            if parts.len() >= 2 {
-                (Some(parts[0].to_string()), Some(parts[1].to_string()))
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
+        // Get git context (DEDUP-104: uses shared git module)
+        let branch = get_current_branch(Some(&repo_path)).unwrap_or_else(|_| "unknown".to_string());
+        let remote = get_remote_url(None, Some(&repo_path));
+        let (last_commit_hash, last_commit_message) = get_last_commit(Some(&repo_path))
+            .map(|c| (Some(c.short_sha), Some(c.subject)))
+            .unwrap_or((None, None));
 
         let git_context = GitContext {
             branch,

@@ -7,7 +7,11 @@ use crate::cache::CacheDir;
 use crate::cli::{CommitArgs, OutputFormat};
 use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
-use crate::git::{get_staged_changes, get_unstaged_changes, is_git_repo, ChangeType, ChangedFile};
+use crate::git::{
+    get_current_branch, get_last_commit, get_remote_url, get_staged_changes, get_unstaged_changes,
+    is_git_repo, ChangeType, ChangedFile,
+};
+use crate::parsing::parse_and_extract;
 use crate::Lang;
 
 /// Run the commit command - prepare information for commit message
@@ -47,42 +51,12 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
         }
     }
 
-    // Get git context
-    let branch = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(&repo_dir)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let remote = Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(&repo_dir)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-    let commit_info = Command::new("git")
-        .args(["log", "-1", "--format=%h|%s"])
-        .current_dir(&repo_dir)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-    let (last_commit_hash, last_commit_message) = if let Some(info) = commit_info {
-        let parts: Vec<&str> = info.splitn(2, '|').collect();
-        if parts.len() >= 2 {
-            (Some(parts[0].to_string()), Some(parts[1].to_string()))
-        } else {
-            (None, None)
-        }
-    } else {
-        (None, None)
-    };
+    // Get git context (DEDUP-104: uses shared git module)
+    let branch = get_current_branch(Some(&repo_dir)).unwrap_or_else(|_| "unknown".to_string());
+    let remote = get_remote_url(None, Some(&repo_dir));
+    let (last_commit_hash, last_commit_message) = get_last_commit(Some(&repo_dir))
+        .map(|c| (Some(c.short_sha), Some(c.subject)))
+        .unwrap_or((None, None));
 
     // Get staged changes
     let staged_changes = get_staged_changes(Some(&repo_dir))?;
@@ -462,26 +436,7 @@ fn get_diff_stats(repo_dir: &std::path::Path, file_path: &str) -> (usize, usize)
         .unwrap_or((0, 0))
 }
 
-fn parse_and_extract(
-    file_path: &std::path::Path,
-    source: &str,
-    lang: Lang,
-) -> Result<crate::SemanticSummary> {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&lang.tree_sitter_language())
-        .map_err(|e| McpDiffError::ParseFailure {
-            message: format!("Failed to set language: {}", e),
-        })?;
-
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| McpDiffError::ParseFailure {
-            message: "Failed to parse file".to_string(),
-        })?;
-
-    crate::extract::extract(file_path, source, &tree, lang)
-}
+// parse_and_extract removed - now uses crate::parsing::parse_and_extract (DEDUP-103)
 
 fn format_file_list(
     files: &[AnalyzedFile],

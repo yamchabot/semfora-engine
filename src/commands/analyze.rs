@@ -15,9 +15,10 @@ use crate::git::{
     get_file_at_ref, get_repo_root, get_staged_changes, get_unstaged_changes, ChangeType,
     ChangedFile,
 };
+use crate::parsing::{parse_and_extract, parse_and_extract_with_options};
 use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyzer};
 use crate::{
-    encode_toon, encode_toon_directory, extract, fs_utils, generate_repo_overview, is_test_file,
+    encode_toon, encode_toon_directory, fs_utils, generate_repo_overview, is_test_file,
     CacheDir, Lang, SemanticSummary, ShardWriter,
 };
 
@@ -107,7 +108,7 @@ fn run_single_file(ctx: &CommandContext, args: &AnalyzeArgs, file_path: &Path) -
         eprintln!("Read {} bytes from {}", source.len(), file_path.display());
     }
 
-    let summary = parse_and_extract(file_path, &source, lang, args.print_ast)?;
+    let summary = parse_and_extract_with_options(file_path, &source, lang, args.print_ast)?;
 
     let toon_output = encode_toon(&summary);
     let json_pretty =
@@ -573,38 +574,12 @@ fn run_all_commits(_ctx: &CommandContext, _args: &AnalyzeArgs, base_ref: &str) -
 // Helper Functions
 // ============================================
 
-/// Parse and extract semantic information from source code
-fn parse_and_extract(
-    file_path: &Path,
-    source: &str,
-    lang: Lang,
-    print_ast: bool,
-) -> Result<SemanticSummary> {
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&lang.tree_sitter_language())
-        .map_err(|e| McpDiffError::ParseFailure {
-            message: format!("Failed to set language for {}: {}", file_path.display(), e),
-        })?;
-
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| McpDiffError::ParseFailure {
-            message: format!("Failed to parse file: {}", file_path.display()),
-        })?;
-
-    if print_ast {
-        eprintln!("=== AST for {} ===", file_path.display());
-        eprintln!("{}", tree.root_node().to_sexp());
-        eprintln!("=================");
-    }
-
-    extract(file_path, source, &tree, lang)
-}
-
-/// Parse and extract with string source (for parallel processing)
+/// Parse and extract with string source (for parallel processing).
+///
+/// Uses the shared parsing module (DEDUP-103).
+#[inline]
 fn parse_and_extract_string(file_path: &Path, source: &str, lang: Lang) -> Result<SemanticSummary> {
-    parse_and_extract(file_path, source, lang, false)
+    parse_and_extract(file_path, source, lang)
 }
 
 /// Collect files for analysis

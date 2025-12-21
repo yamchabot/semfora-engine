@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cache::CacheDir;
-use crate::extract::extract;
 use crate::lang::Lang;
+use crate::parsing::parse_and_extract;
 use crate::schema::SemanticSummary;
 use crate::search::is_test_file;
 use crate::shard::ShardWriter;
@@ -215,22 +215,7 @@ fn collect_files_recursive(
     }
 }
 
-/// Parse a file and extract semantic summary
-fn parse_and_extract(
-    file_path: &Path,
-    source: &str,
-    lang: Lang,
-) -> anyhow::Result<SemanticSummary> {
-    let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&lang.tree_sitter_language())?;
-
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| anyhow::anyhow!("Failed to parse {}", file_path.display()))?;
-
-    let summary = extract(file_path, source, &tree, lang)?;
-    Ok(summary)
-}
+// parse_and_extract removed - now uses crate::parsing::parse_and_extract (DEDUP-103)
 
 #[cfg(test)]
 mod tests {
