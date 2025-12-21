@@ -77,11 +77,11 @@ async fn run_serve_async(args: &ServeArgs) -> crate::Result<()> {
     // Start background services for automatic layer updates (unless disabled)
     let _watcher_handle = if !args.no_watch {
         let file_watcher = FileWatcher::new(repo_path.clone());
-        let handle = file_watcher
-            .start(Arc::clone(&server_state))
-            .map_err(|e| McpDiffError::ConfigError {
+        let handle = file_watcher.start(Arc::clone(&server_state)).map_err(|e| {
+            McpDiffError::ConfigError {
                 message: format!("Failed to start file watcher: {}", e),
-            })?;
+            }
+        })?;
         tracing::info!("Started FileWatcher for live index updates");
         Some(handle)
     } else {
@@ -91,11 +91,12 @@ async fn run_serve_async(args: &ServeArgs) -> crate::Result<()> {
 
     let _poller_handle = if !args.no_git_poll {
         let git_poller = GitPoller::new(repo_path.clone());
-        let handle = git_poller
-            .start(Arc::clone(&server_state))
-            .map_err(|e| McpDiffError::ConfigError {
-                message: format!("Failed to start git poller: {}", e),
-            })?;
+        let handle =
+            git_poller
+                .start(Arc::clone(&server_state))
+                .map_err(|e| McpDiffError::ConfigError {
+                    message: format!("Failed to start git poller: {}", e),
+                })?;
         tracing::info!("Started GitPoller for branch/commit updates");
         Some(handle)
     } else {
