@@ -67,6 +67,24 @@ pub struct LangGrammar {
     pub assignment_nodes: &'static [&'static str],
 
     // =========================================================================
+    // Variable Symbol Detection (for first-class variable symbols)
+    // =========================================================================
+    /// Module-level variable nodes (constants, statics, top-level declarations)
+    /// e.g., ["const_item", "static_item"] for Rust, ["var_declaration", "const_declaration"] for Go
+    /// These become Variable symbols when not inside a local scope.
+    pub module_var_nodes: &'static [&'static str],
+
+    /// Class/struct field declaration nodes
+    /// e.g., ["field_declaration"] for Java/Go, ["public_field_definition"] for TS
+    /// These become Variable symbols when inside a class body.
+    pub field_nodes: &'static [&'static str],
+
+    /// Nodes that define local scope (variables inside these are filtered out)
+    /// e.g., function bodies, loop bodies, if blocks
+    /// Used to distinguish module-level from local variables.
+    pub local_scope_nodes: &'static [&'static str],
+
+    // =========================================================================
     // Function Calls
     // =========================================================================
     /// Function/method call nodes
@@ -261,6 +279,18 @@ pub static RUST_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_expression"],
     var_declaration_nodes: &["let_declaration"],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &["const_item", "static_item"],
+    field_nodes: &[],  // Rust struct fields are part of struct_item, not separate
+    local_scope_nodes: &[
+        "function_item",
+        "block",
+        "for_expression",
+        "while_expression",
+        "loop_expression",
+        "if_expression",
+        "match_expression",
+        "closure_expression",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &["await_expression"],
     import_nodes: &["use_declaration"],
@@ -292,6 +322,17 @@ pub static GO_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[], // Go uses defer/recover, not try/catch
     var_declaration_nodes: &["short_var_declaration", "var_declaration"],
     assignment_nodes: &["assignment_statement"],
+    module_var_nodes: &["var_declaration", "const_declaration"],
+    field_nodes: &["field_declaration"],
+    local_scope_nodes: &[
+        "function_declaration",
+        "method_declaration",
+        "block",
+        "for_statement",
+        "if_statement",
+        "switch_statement",
+        "select_statement",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &[], // Go doesn't have await
     import_nodes: &["import_spec"],
@@ -325,6 +366,19 @@ pub static JAVA_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement", "try_with_resources_statement"],
     var_declaration_nodes: &["local_variable_declaration", "field_declaration"],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &[],  // Java uses static fields in classes
+    field_nodes: &["field_declaration"],
+    local_scope_nodes: &[
+        "method_declaration",
+        "constructor_declaration",
+        "block",
+        "for_statement",
+        "enhanced_for_statement",
+        "while_statement",
+        "do_statement",
+        "if_statement",
+        "try_statement",
+    ],
     call_nodes: &["method_invocation"],
     await_nodes: &[], // Java uses CompletableFuture, not await
     import_nodes: &["import_declaration"],
@@ -370,6 +424,20 @@ pub static CSHARP_GRAMMAR: LangGrammar = LangGrammar {
         "property_declaration",
     ],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &[],  // C# uses static fields in classes
+    field_nodes: &["field_declaration", "property_declaration"],
+    local_scope_nodes: &[
+        "method_declaration",
+        "constructor_declaration",
+        "local_function_statement",
+        "block",
+        "for_statement",
+        "foreach_statement",
+        "while_statement",
+        "do_statement",
+        "if_statement",
+        "try_statement",
+    ],
     call_nodes: &["invocation_expression"],
     await_nodes: &["await_expression"],
     import_nodes: &["using_directive"],
@@ -401,6 +469,16 @@ pub static PYTHON_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["assignment"],
     assignment_nodes: &["assignment", "augmented_assignment"],
+    module_var_nodes: &[],  // Python assignments are ambiguous - handled via class body detection
+    field_nodes: &[],  // Python class attrs are assignments in class body
+    local_scope_nodes: &[
+        "function_definition",
+        "for_statement",
+        "while_statement",
+        "if_statement",
+        "with_statement",
+        "try_statement",
+    ],
     call_nodes: &["call"],
     await_nodes: &["await"],
     import_nodes: &["import_statement", "import_from_statement"],
@@ -439,6 +517,22 @@ pub static JAVASCRIPT_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["variable_declaration", "lexical_declaration"],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &["variable_declaration", "lexical_declaration"],
+    field_nodes: &["field_definition", "public_field_definition"],
+    local_scope_nodes: &[
+        "function_declaration",
+        "function_expression",
+        "arrow_function",
+        "method_definition",
+        "statement_block",
+        "for_statement",
+        "for_in_statement",
+        "for_of_statement",
+        "while_statement",
+        "do_statement",
+        "if_statement",
+        "try_statement",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &["await_expression"],
     import_nodes: &["import_statement"],
@@ -477,6 +571,22 @@ pub static TYPESCRIPT_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["variable_declaration", "lexical_declaration"],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &["variable_declaration", "lexical_declaration"],
+    field_nodes: &["public_field_definition", "field_definition", "property_signature"],
+    local_scope_nodes: &[
+        "function_declaration",
+        "function_expression",
+        "arrow_function",
+        "method_definition",
+        "statement_block",
+        "for_statement",
+        "for_in_statement",
+        "for_of_statement",
+        "while_statement",
+        "do_statement",
+        "if_statement",
+        "try_statement",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &["await_expression"],
     import_nodes: &["import_statement"],
@@ -508,6 +618,16 @@ pub static C_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[], // C doesn't have try/catch
     var_declaration_nodes: &["declaration"],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &["declaration"],  // File-scope declarations
+    field_nodes: &["field_declaration"],
+    local_scope_nodes: &[
+        "function_definition",
+        "compound_statement",
+        "for_statement",
+        "while_statement",
+        "do_statement",
+        "if_statement",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &[],
     import_nodes: &["preproc_include"],
@@ -540,6 +660,18 @@ pub static CPP_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["declaration"],
     assignment_nodes: &["assignment_expression"],
+    module_var_nodes: &["declaration"],  // Namespace/file scope
+    field_nodes: &["field_declaration"],
+    local_scope_nodes: &[
+        "function_definition",
+        "compound_statement",
+        "for_statement",
+        "for_range_loop",
+        "while_statement",
+        "do_statement",
+        "if_statement",
+        "try_statement",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &["co_await_expression"],
     import_nodes: &["preproc_include"],
@@ -583,6 +715,18 @@ pub static KOTLIN_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_expression"],
     var_declaration_nodes: &["property_declaration", "variable_declaration"],
     assignment_nodes: &["assignment"],
+    module_var_nodes: &["property_declaration"],  // Top-level properties
+    field_nodes: &["property_declaration"],  // Class properties
+    local_scope_nodes: &[
+        "function_declaration",
+        "block",
+        "for_statement",
+        "while_statement",
+        "do_while_statement",
+        "if_expression",
+        "when_expression",
+        "try_expression",
+    ],
     call_nodes: &["call_expression"],
     await_nodes: &[], // Kotlin uses coroutines, not await expressions
     import_nodes: &["import_header"],
@@ -618,6 +762,17 @@ pub static BASH_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[], // Bash uses trap, not try/catch
     var_declaration_nodes: &["variable_assignment"],
     assignment_nodes: &["variable_assignment"],
+    module_var_nodes: &["variable_assignment"],  // Script-level variables
+    field_nodes: &[],  // Bash doesn't have classes
+    local_scope_nodes: &[
+        "function_definition",
+        "compound_statement",
+        "for_statement",
+        "while_statement",
+        "until_statement",
+        "if_statement",
+        "case_statement",
+    ],
     call_nodes: &["command"],
     await_nodes: &[],
     import_nodes: &["command"], // source/dot commands act as imports
@@ -654,6 +809,17 @@ pub static GRADLE_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["variable_definition", "assignment"],
     assignment_nodes: &["assignment"],
+    module_var_nodes: &["variable_definition"],  // Script-level variables
+    field_nodes: &["field_declaration"],
+    local_scope_nodes: &[
+        "function_definition",
+        "block",
+        "for_statement",
+        "for_in_statement",
+        "while_statement",
+        "if_statement",
+        "try_statement",
+    ],
     // Groovy has method_invocation for foo() and juxt_function_call for foo "bar"
     call_nodes: &["method_invocation", "juxt_function_call"],
     await_nodes: &[],
@@ -696,6 +862,9 @@ pub static HCL_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[],
     var_declaration_nodes: &["attribute"],
     assignment_nodes: &["attribute"],
+    module_var_nodes: &["attribute"],  // HCL attributes at block level
+    field_nodes: &[],  // HCL doesn't have classes
+    local_scope_nodes: &["block"],  // Nested blocks are local scope
     // HCL function calls and references
     call_nodes: &["function_call"],
     await_nodes: &[],

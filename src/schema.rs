@@ -694,6 +694,8 @@ pub enum SymbolKind {
     Module,
     /// Type alias
     TypeAlias,
+    /// Variable declaration (module-level constant, static, or class field)
+    Variable,
 }
 
 impl SymbolKind {
@@ -710,6 +712,7 @@ impl SymbolKind {
             Self::Enum => "enum",
             Self::Module => "module",
             Self::TypeAlias => "type_alias",
+            Self::Variable => "variable",
         }
     }
 
@@ -726,6 +729,7 @@ impl SymbolKind {
             "enum" => Self::Enum,
             "module" | "mod" => Self::Module,
             "type_alias" | "type" => Self::TypeAlias,
+            "variable" | "var" | "const" | "static" | "field" => Self::Variable,
             _ => Self::Function, // Default fallback
         }
     }

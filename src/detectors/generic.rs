@@ -141,6 +141,21 @@ fn collect_symbols_recursive(
                 Some(SymbolKind::Trait)
             } else if grammar.enum_nodes.contains(&kind_str) {
                 Some(SymbolKind::Enum)
+            } else if grammar.module_var_nodes.contains(&kind_str) {
+                // Module-level variable (const, static, top-level declaration)
+                // Only extract if NOT inside a local scope
+                if !is_in_local_scope(&current_node, grammar) {
+                    Some(SymbolKind::Variable)
+                } else {
+                    None
+                }
+            } else if grammar.field_nodes.contains(&kind_str) {
+                // Class/struct field - only extract if inside a class body
+                if is_class_field(&current_node, grammar) {
+                    Some(SymbolKind::Variable)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -183,6 +198,59 @@ fn collect_symbols_recursive(
         }
         did_visit_children = true;
     }
+}
+
+// =============================================================================
+// Variable Symbol Scope Detection
+// =============================================================================
+
+/// Check if a node is inside a local scope (function body, loop, etc.)
+/// Variables inside local scopes are filtered out - only module-level variables become symbols.
+fn is_in_local_scope(node: &Node, grammar: &LangGrammar) -> bool {
+    let mut parent = node.parent();
+    while let Some(p) = parent {
+        let kind = p.kind();
+        // If we hit a local scope, the variable is local (filter it out)
+        if grammar.local_scope_nodes.contains(&kind) {
+            return true;
+        }
+        // If we hit program/source_file/module root, it's module-level (keep it)
+        if kind == "program"
+            || kind == "source_file"
+            || kind == "translation_unit"
+            || kind == "module"
+            || kind == "compilation_unit"
+        {
+            return false;
+        }
+        parent = p.parent();
+    }
+    // Reached root without hitting local scope - it's module-level
+    false
+}
+
+/// Check if a node is a class field (direct child of class body)
+/// Returns true if the node is inside a class/struct body but not inside a method.
+fn is_class_field(node: &Node, grammar: &LangGrammar) -> bool {
+    if let Some(parent) = node.parent() {
+        let parent_kind = parent.kind();
+        // Check if parent looks like a class body
+        if parent_kind.contains("body")
+            || parent_kind.contains("class_body")
+            || parent_kind.contains("struct_body")
+            || parent_kind == "declaration_list"
+            || parent_kind == "field_declaration_list"
+        {
+            // Verify grandparent is a class/struct node
+            if let Some(grandparent) = parent.parent() {
+                let gp_kind = grandparent.kind();
+                return grammar.class_nodes.contains(&gp_kind)
+                    || gp_kind.contains("class")
+                    || gp_kind.contains("struct");
+            }
+        }
+    }
+    false
 }
 
 /// Extract decorators/attributes from a symbol node
@@ -1382,5 +1450,200 @@ def buildApp() {
             call_names.contains(&"processResources"),
             "buildApp should call processResources"
         );
+    }
+}
+
+#[cfg(test)]
+mod debug_const_tests {
+    use tree_sitter::Parser;
+    
+    fn print_node(node: tree_sitter::Node, source: &str, indent: usize) {
+        let indent_str = "  ".repeat(indent);
+        let text = if node.child_count() == 0 && node.byte_range().len() < 50 {
+            format!(" = {:?}", &source[node.byte_range()])
+        } else {
+            String::new()
+        };
+        
+        println!("{}{}{}", indent_str, node.kind(), text);
+        
+        for i in 0..node.child_count() {
+            if let Some(child) = node.child(i) {
+                if let Some(field_name) = node.field_name_for_child(i as u32) {
+                    println!("{}  [field: {}]", indent_str, field_name);
+                }
+                print_node(child, source, indent + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn debug_rust_const_tree() {
+        let source = r#"pub const SCHEMA_VERSION: &str = "2.1";
+const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+static GLOBAL_COUNTER: u64 = 0;
+fn main() {}
+"#;
+
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        
+        println!("\n=== TREE-SITTER OUTPUT FOR RUST CONSTS ===\n");
+        print_node(tree.root_node(), source, 0);
+        println!("\n===========================================\n");
+    }
+
+    #[test]
+    fn debug_const_extraction_flow() {
+        use super::*;
+        use crate::detectors::grammar::RUST_GRAMMAR;
+
+        let source = r#"pub const SCHEMA_VERSION: &str = "2.1";
+const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+static GLOBAL_COUNTER: u64 = 0;
+fn main() {}
+"#;
+
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+
+        println!("\n=== CONST EXTRACTION DEBUG ===\n");
+
+        let grammar = &RUST_GRAMMAR;
+        let root = tree.root_node();
+        let mut cursor = root.walk();
+
+        for child in root.children(&mut cursor) {
+            let kind = child.kind();
+            println!("Node kind: {}", kind);
+            println!("  - Is in module_var_nodes? {}", grammar.module_var_nodes.contains(&kind));
+            println!("  - Is in function_nodes? {}", grammar.function_nodes.contains(&kind));
+
+            if grammar.module_var_nodes.contains(&kind) {
+                println!("  - Checking is_in_local_scope...");
+                let in_local = is_in_local_scope(&child, grammar);
+                println!("  - is_in_local_scope: {}", in_local);
+
+                if !in_local {
+                    println!("  - Attempting to extract name...");
+
+                    // Try the configured name field first
+                    if let Some(name_node) = child.child_by_field_name(grammar.name_field) {
+                        println!("  - Found name field node: kind={}, text={:?}",
+                            name_node.kind(),
+                            &source[name_node.byte_range()]);
+                    } else {
+                        println!("  - name_field '{}' NOT FOUND", grammar.name_field);
+                    }
+
+                    // Full extraction attempt
+                    if let Some(name) = extract_symbol_name(&child, source, grammar) {
+                        println!("  - EXTRACTED NAME: {}", name);
+                    } else {
+                        println!("  - NAME EXTRACTION FAILED!");
+                    }
+                }
+            }
+            println!();
+        }
+
+        println!("=================================\n");
+    }
+
+    #[test]
+    fn debug_full_extraction() {
+        use super::*;
+        use crate::detectors::grammar::RUST_GRAMMAR;
+        use crate::schema::SemanticSummary;
+
+        let source = r#"pub const SCHEMA_VERSION: &str = "2.1";
+const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+static GLOBAL_COUNTER: u64 = 0;
+fn main() {}
+pub struct Foo {}
+"#;
+
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+
+        let mut summary = SemanticSummary {
+            file: "test.rs".to_string(),
+            language: "rust".to_string(),
+            ..Default::default()
+        };
+
+        println!("\n=== FULL EXTRACTION DEBUG ===\n");
+
+        // Call the actual extraction
+        extract_with_grammar(&mut summary, source, &tree, &RUST_GRAMMAR).unwrap();
+
+        println!("Symbols extracted: {}", summary.symbols.len());
+        for sym in &summary.symbols {
+            println!("  - {} ({:?}) lines {}-{}", sym.name, sym.kind, sym.start_line, sym.end_line);
+        }
+
+        println!("\nPrimary symbol: {:?}", summary.symbol);
+        println!("Primary kind: {:?}", summary.symbol_kind);
+
+        println!("\n=================================\n");
+
+        // Assert we got the expected symbols
+        assert!(summary.symbols.iter().any(|s| s.name == "SCHEMA_VERSION"), "SCHEMA_VERSION not found!");
+        assert!(summary.symbols.iter().any(|s| s.name == "FNV_OFFSET"), "FNV_OFFSET not found!");
+        assert!(summary.symbols.iter().any(|s| s.name == "GLOBAL_COUNTER"), "GLOBAL_COUNTER not found!");
+        assert!(summary.symbols.iter().any(|s| s.name == "main"), "main not found!");
+        assert!(summary.symbols.iter().any(|s| s.name == "Foo"), "Foo not found!");
+    }
+
+    #[test]
+    fn debug_schema_rs_extraction() {
+        use super::*;
+        use crate::detectors::grammar::RUST_GRAMMAR;
+        use crate::schema::SemanticSummary;
+        use std::fs;
+
+        // Read the actual schema.rs file
+        let source = fs::read_to_string("/home/kadajett/Dev/Semfora_org/semfora-engine/src/schema.rs")
+            .expect("Could not read schema.rs");
+
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(&source, None).unwrap();
+
+        let mut summary = SemanticSummary {
+            file: "src/schema.rs".to_string(),
+            language: "rust".to_string(),
+            ..Default::default()
+        };
+
+        extract_with_grammar(&mut summary, &source, &tree, &RUST_GRAMMAR).unwrap();
+
+        println!("\n=== SCHEMA.RS EXTRACTION ===\n");
+        println!("Total symbols in summary.symbols: {}", summary.symbols.len());
+
+        // Count by kind
+        let mut kind_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for sym in &summary.symbols {
+            *kind_counts.entry(format!("{:?}", sym.kind)).or_insert(0) += 1;
+        }
+
+        for (kind, count) in &kind_counts {
+            println!("  {} x {}", kind, count);
+        }
+
+        // Print first 5 of each kind
+        println!("\nSample Variable symbols:");
+        for sym in summary.symbols.iter().filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable)).take(5) {
+            println!("  - {} (lines {}-{})", sym.name, sym.start_line, sym.end_line);
+        }
+
+        println!("\n=================================\n");
+
+        // Assert there are Variables
+        let var_count = summary.symbols.iter().filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable)).count();
+        assert!(var_count > 0, "Expected Variable symbols but found {}", var_count);
     }
 }
