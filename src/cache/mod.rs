@@ -245,6 +245,30 @@ pub struct CacheDir {
 }
 
 impl CacheDir {
+    /// Check if a path is in a temporary directory (tests use these)
+    /// If so, we store the cache inside the temp dir so it gets cleaned up automatically
+    fn is_temp_path(path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+        let temp_dir_str = std::env::temp_dir().to_string_lossy().to_string();
+        // Check common temp directory patterns
+        path_str.starts_with("/tmp/")
+            || path_str.starts_with("/var/tmp/")
+            || path_str.contains("/tmp.")
+            || path_str.contains("\\Temp\\")
+            || path_str.contains("\\tmp\\")
+            || path_str.starts_with(&temp_dir_str)
+    }
+
+    /// Get cache base directory, using in-place cache for temp paths
+    fn get_cache_base_for_path(repo_root: &Path) -> PathBuf {
+        if Self::is_temp_path(repo_root) {
+            // Store cache inside the temp directory so it's cleaned up with the test
+            repo_root.join(".semfora-cache")
+        } else {
+            get_cache_base_dir()
+        }
+    }
+
     /// Create a cache directory for a repository
     pub fn for_repo(repo_path: &Path) -> Result<Self> {
         let repo_root = fs_utils::normalize_path(
@@ -253,7 +277,7 @@ impl CacheDir {
                 .unwrap_or_else(|_| repo_path.to_path_buf()),
         );
         let repo_hash = compute_repo_hash(&repo_root);
-        let cache_base = get_cache_base_dir();
+        let cache_base = Self::get_cache_base_for_path(&repo_root);
         let root = cache_base.join(&repo_hash);
 
         Ok(Self {
@@ -273,7 +297,7 @@ impl CacheDir {
         );
         // Use path-based hash for worktrees (not git remote URL)
         let repo_hash = format!("{:016x}", fnv1a_hash(&repo_root.to_string_lossy()));
-        let cache_base = get_cache_base_dir();
+        let cache_base = Self::get_cache_base_for_path(&repo_root);
         let root = cache_base.join(&repo_hash);
 
         Ok(Self {
