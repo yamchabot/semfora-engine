@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "semfora-engine"
-version = "0.1.0"
+version = "0.7.2-beta"
 dependencies = [
  "anyhow",
  "async-lsp",

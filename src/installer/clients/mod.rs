@@ -18,6 +18,7 @@ pub use openai_codex::OpenAICodexClient;
 pub use vscode::VSCodeClient;
 
 use crate::error::McpDiffError;
+use crate::installer::agents::AgentSupport;
 use crate::installer::platform::Platform;
 use serde_json::Value as JsonValue;
 use std::path::PathBuf;
@@ -120,7 +121,11 @@ impl McpServerConfig {
 }
 
 /// Trait for MCP client implementations
-pub trait McpClient: Send + Sync {
+///
+/// All MCP clients must also implement AgentSupport, which provides
+/// methods for installing workflow agents. Clients that don't support
+/// agents should return `supports_agents() -> false`.
+pub trait McpClient: AgentSupport + Send + Sync {
     /// Get the client identifier (lowercase, hyphenated)
     fn name(&self) -> &'static str;
 

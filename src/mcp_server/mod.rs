@@ -89,6 +89,22 @@ pub use types::*;
 use instructions_fast::MCP_INSTRUCTIONS;
 
 // ============================================================================
+// Large File Handling Constants
+// ============================================================================
+
+/// File size threshold for suggesting summary mode (100KB)
+const LARGE_FILE_BYTES: u64 = 100_000;
+
+/// File size threshold for requiring focus mode (500KB)
+const VERY_LARGE_FILE_BYTES: u64 = 500_000;
+
+/// Line count threshold for large file handling
+const LARGE_FILE_LINES: usize = 3000;
+
+/// Symbol count threshold for automatic summarization
+const LARGE_SYMBOL_COUNT: usize = 50;
+
+// ============================================================================
 // MCP Server Implementation
 // ============================================================================
 
@@ -418,7 +434,74 @@ impl McpDiffServer {
             }
         };
 
-        let summary = match parse_and_extract(&resolved_path, &source, lang) {
+        // Large file detection
+        let file_size = fs::metadata(&resolved_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let line_count = source.lines().count();
+        let has_focus = request.start_line.is_some() && request.end_line.is_some();
+
+        // For very large files without focus, return metadata with navigation hints
+        if (file_size > VERY_LARGE_FILE_BYTES || line_count > LARGE_FILE_LINES) && !has_focus {
+            // Do a quick parse to get symbol count for the hint
+            let symbol_hint = if let Ok(summary) = parse_and_extract(&resolved_path, &source, lang)
+            {
+                format!(
+                    "\nsymbols_found: {}\nhigh_risk_count: {}\n",
+                    summary.symbols.len(),
+                    summary
+                        .symbols
+                        .iter()
+                        .filter(|s| s.behavioral_risk == crate::RiskLevel::High)
+                        .count()
+                )
+            } else {
+                String::new()
+            };
+
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "_type: large_file_notice\n\
+                 file: {}\n\
+                 size_bytes: {}\n\
+                 line_count: {}\n\
+                 language: {}\n\
+                 {}\n\
+                 This file is very large ({:.1}KB, {} lines).\n\
+                 Use focus mode to analyze a specific section:\n\
+                   analyze(path=\"{}\", start_line=N, end_line=M)\n\n\
+                 Or use get_file to see symbol index with line ranges.\n",
+                resolved_path.display(),
+                file_size,
+                line_count,
+                lang.name(),
+                symbol_hint,
+                file_size as f64 / 1024.0,
+                line_count,
+                resolved_path.display()
+            ))]));
+        }
+
+        // Focus mode: extract only specified line range
+        let source_to_analyze = if let (Some(start), Some(end)) =
+            (request.start_line, request.end_line)
+        {
+            let lines: Vec<&str> = source.lines().collect();
+            let start_idx = start.saturating_sub(1);
+            let end_idx = end.min(lines.len());
+
+            if start_idx >= lines.len() {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "start_line {} exceeds file length {} lines",
+                    start, lines.len()
+                ))]));
+            }
+
+            lines[start_idx..end_idx].join("\n")
+        } else {
+            source
+        };
+
+        let summary = match parse_and_extract(&resolved_path, &source_to_analyze, lang) {
             Ok(s) => s,
             Err(e) => {
                 return Ok(CallToolResult::error(vec![Content::text(format!(
@@ -428,11 +511,80 @@ impl McpDiffServer {
             }
         };
 
-        let output = match request.format.as_deref() {
-            Some("json") => {
-                serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".to_string())
+        // Output mode support
+        let output = match request.output_mode.as_deref() {
+            Some("symbols_only") => {
+                // Just list symbols with line ranges
+                let mut out = format!(
+                    "_type: symbols_only\nfile: {}\nsymbol_count: {}\n\n",
+                    resolved_path.display(),
+                    summary.symbols.len()
+                );
+                for sym in &summary.symbols {
+                    out.push_str(&format!(
+                        "- {} ({}) L{}-{}\n",
+                        sym.name,
+                        sym.kind.as_str(),
+                        sym.start_line,
+                        sym.end_line
+                    ));
+                }
+                out
             }
-            _ => encode_toon(&summary),
+            Some("summary") => {
+                // Brief overview only
+                format!(
+                    "_type: analysis_summary\n\
+                     file: {}\n\
+                     language: {}\n\
+                     symbols: {}\n\
+                     calls: {}\n\
+                     high_risk: {}\n",
+                    resolved_path.display(),
+                    summary.language,
+                    summary.symbols.len(),
+                    summary.calls.len(),
+                    summary
+                        .symbols
+                        .iter()
+                        .filter(|s| s.behavioral_risk == crate::RiskLevel::High)
+                        .count()
+                )
+            }
+            _ => {
+                // Full output (default)
+                let mut output = match request.format.as_deref() {
+                    Some("json") => {
+                        serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".to_string())
+                    }
+                    _ => encode_toon(&summary),
+                };
+
+                // Add focus context if applicable
+                if has_focus {
+                    output = format!(
+                        "_type: focused_analysis\n\
+                         file: {}\n\
+                         focus_range: L{}-{}\n\
+                         ---\n{}",
+                        resolved_path.display(),
+                        request.start_line.unwrap_or(1),
+                        request.end_line.unwrap_or(0),
+                        output
+                    );
+                }
+
+                // Symbol count warning for large files
+                if summary.symbols.len() > LARGE_SYMBOL_COUNT {
+                    output = format!(
+                        "# Note: {} symbols found. Consider using output_mode='symbols_only' for overview first.\n\n{}",
+                        summary.symbols.len(),
+                        output
+                    );
+                }
+
+                output
+            }
         };
 
         Ok(CallToolResult::success(vec![Content::text(output)]))

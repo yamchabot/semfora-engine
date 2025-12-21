@@ -7,6 +7,7 @@
 
 use super::{json_utils, ClientStatus, McpClient, McpServerConfig};
 use crate::error::McpDiffError;
+use crate::installer::agents::AgentSupport;
 use crate::installer::platform::Platform;
 use std::path::PathBuf;
 
@@ -105,6 +106,21 @@ impl McpClient for CustomExportClient {
 
     fn backup_config(&self, _platform: &Platform) -> Result<Option<PathBuf>, McpDiffError> {
         json_utils::backup_config(&self.output_path)
+    }
+}
+
+impl AgentSupport for CustomExportClient {
+    fn supports_agents(&self) -> bool {
+        // Custom export doesn't support agent installation
+        false
+    }
+
+    fn global_agents_dir(&self) -> Option<PathBuf> {
+        None
+    }
+
+    fn project_agents_dir(&self) -> Option<PathBuf> {
+        None
     }
 }
 

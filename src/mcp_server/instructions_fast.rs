@@ -17,6 +17,16 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 | "What calls this?" | search → get_callers(hash) | Direct to impact |
 | "Check quality" | get_overview → validate(module) | Need module names first |
 
+## Large File Strategy (>500 lines)
+
+| File Size | Strategy | Why |
+|-----------|----------|-----|
+| <500 lines | get_source(file, start, end) | Direct read is fine |
+| 500-2000 lines | get_file(file_path) → get_source(hash) | Get symbol map first |
+| >2000 lines | analyze(path) → search → get_source(hash) | Never read directly |
+
+**For files >2000 lines:** Use analyze(path) for ~500 token summary, search for specific symbols, get_source(hash) for surgical reads. **NEVER use file Read tool on large files.**
+
 ## Workflows
 
 ### Codebase Audit
@@ -51,6 +61,24 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 | get_callgraph(summary) | ~300 | Coupling overview |
 | validate | ~1-2k | Requires scope |
 | get_callers | ~500 | Before any changes |
+| analyze | ~500 | Semantic summary for any file |
+
+## Pagination Rules
+
+| Tool | Paginate When | Default Limit |
+|------|--------------|---------------|
+| analyze_diff | >20 files | 20 |
+| get_callgraph | >500 edges | 500 |
+| find_duplicates | >30 clusters | 30 |
+
+**Pattern:** First call with `limit: 20, offset: 0`. Check for `next_offset:` in response. Continue with next offset.
+
+## Tool Loading
+
+**BATCH MCPSearch calls in parallel** - don't call sequentially.
+
+**Pre-load on session start (4 tools):**
+- get_context, search, get_source, get_callers
 
 ## Critical Rules
 
@@ -61,6 +89,16 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 5. **Use hashes from results** - don't re-search
 6. **get_callers BEFORE recommending refactoring**
 7. **validate needs scope** (symbol_hash, file_path, or module)
+8. **PAGINATE large results** - use limit/offset when >20 items
+
+## Error Recovery
+
+| Error | Recovery |
+|-------|----------|
+| "Index stale" | index() then retry |
+| "Module not found" | get_overview, copy name exactly |
+| "Output truncated" | Add filters, reduce limit |
+| "File too large" | Use analyze(path) instead of Read |
 
 ## Tools Quick Reference
 
@@ -76,4 +114,7 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 - **NEVER guess module names** - copy EXACTLY from get_overview (e.g., `semfora_pm.db` not `database`)
 - Re-searching symbols you already have (use hash)
 - Recommending refactoring without get_callers
-- validate() with no scope"#;
+- validate() with no scope
+- **NEVER use Read on files >2000 lines** - use analyze(path) + search
+- Sequential MCPSearch calls - batch them in parallel
+- Retrying truncated queries without reducing scope"#;

@@ -2,6 +2,7 @@
 
 use super::{json_utils, ClientStatus, McpClient, McpServerConfig};
 use crate::error::McpDiffError;
+use crate::installer::agents::AgentSupport;
 use crate::installer::platform::{McpClientPaths, Platform};
 use std::path::PathBuf;
 
@@ -107,6 +108,22 @@ impl McpClient for ClaudeDesktopClient {
     }
 }
 
+impl AgentSupport for ClaudeDesktopClient {
+    fn supports_agents(&self) -> bool {
+        // Claude Desktop doesn't have native agent/subagent support
+        // It relies on MCP tools directly
+        false
+    }
+
+    fn global_agents_dir(&self) -> Option<PathBuf> {
+        None
+    }
+
+    fn project_agents_dir(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +133,11 @@ mod tests {
         let client = ClaudeDesktopClient;
         assert_eq!(client.name(), "claude-desktop");
         assert_eq!(client.display_name(), "Claude Desktop");
+    }
+
+    #[test]
+    fn test_no_agent_support() {
+        let client = ClaudeDesktopClient;
+        assert!(!client.supports_agents());
     }
 }

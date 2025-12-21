@@ -6,6 +6,7 @@
 use super::{ClientStatus, McpClient, McpServerConfig};
 use crate::error::McpDiffError;
 use crate::fs_utils;
+use crate::installer::agents::AgentSupport;
 use crate::installer::platform::{McpClientPaths, Platform};
 use serde_json::Value as JsonValue;
 use std::fs;
@@ -230,6 +231,25 @@ impl McpClient for VSCodeClient {
     }
 }
 
+impl AgentSupport for VSCodeClient {
+    fn supports_agents(&self) -> bool {
+        // VS Code can use Continue.dev for agents, but format is complex
+        // For now, mark as unsupported until Continue.dev integration is complete
+        false
+    }
+
+    fn global_agents_dir(&self) -> Option<PathBuf> {
+        // Continue.dev uses ~/.continue/ for global config
+        // Future: dirs::home_dir().map(|h| h.join(".continue"))
+        None
+    }
+
+    fn project_agents_dir(&self) -> Option<PathBuf> {
+        // Future: Some(PathBuf::from(".continue"))
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,5 +268,11 @@ mod tests {
 
         assert_eq!(json.get("type").and_then(|v| v.as_str()), Some("stdio"));
         assert!(json.get("command").is_some());
+    }
+
+    #[test]
+    fn test_no_agent_support_yet() {
+        let client = VSCodeClient;
+        assert!(!client.supports_agents());
     }
 }

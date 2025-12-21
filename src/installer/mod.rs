@@ -29,6 +29,7 @@
 //! semfora-engine uninstall mcp
 //! ```
 
+pub mod agents;
 pub mod clients;
 pub mod config;
 pub mod platform;
@@ -36,6 +37,7 @@ pub mod uninstall;
 pub mod wizard;
 
 use crate::error::McpDiffError;
+use agents::AgentScope;
 use clients::{ClientRegistry, ClientStatus, McpClient, McpServerConfig};
 use config::SemforaConfig;
 use console::style;
@@ -59,6 +61,12 @@ pub struct SetupArgs {
     pub log_level: String,
     /// Dry run - show what would be done
     pub dry_run: bool,
+    /// Install Semfora workflow agents
+    pub with_agents: bool,
+    /// Agent installation scope (global, project, or both)
+    pub agents_scope: AgentScope,
+    /// Only install agents (skip MCP configuration)
+    pub agents_only: bool,
 }
 
 impl Default for SetupArgs {
@@ -71,6 +79,9 @@ impl Default for SetupArgs {
             cache_dir: None,
             log_level: "info".to_string(),
             dry_run: false,
+            with_agents: false,
+            agents_scope: AgentScope::Global,
+            agents_only: false,
         }
     }
 }
@@ -183,10 +194,23 @@ fn run_setup_non_interactive(args: SetupArgs) -> Result<(), McpDiffError> {
     if args.dry_run {
         println!("Dry run - would configure:");
         for name in &clients_to_configure {
-            println!("  • {}", name);
+            if args.with_agents {
+                if let Some(client) = registry.find(name) {
+                    if client.supports_agents() {
+                        println!("  • {} + agents ({})", name, args.agents_scope);
+                    } else {
+                        println!("  • {}", name);
+                    }
+                }
+            } else {
+                println!("  • {}", name);
+            }
         }
         if let Some(ref path) = args.export_config {
             println!("  • Export to: {}", path.display());
+        }
+        if args.with_agents {
+            println!("  Agent scope: {}", args.agents_scope);
         }
         return Ok(());
     }
@@ -242,6 +266,60 @@ fn run_setup_non_interactive(args: SetupArgs) -> Result<(), McpDiffError> {
                     e
                 );
                 error_count += 1;
+            }
+        }
+    }
+
+    // Install agents if requested
+    if args.with_agents {
+        let clients_to_install_agents: Vec<&str> = if let Some(ref client_list) = args.clients {
+            client_list.iter().map(|s| s.as_str()).collect()
+        } else {
+            registry
+                .detect_all(&platform)
+                .iter()
+                .filter_map(|(client, status)| {
+                    if matches!(status, ClientStatus::Found { .. }) && client.supports_agents() {
+                        Some(client.name())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        for client_name in clients_to_install_agents {
+            if let Some(client) = registry.find(client_name) {
+                if client.supports_agents() {
+                    match agents::install_agents(client, args.agents_scope) {
+                        Ok(result) => {
+                            let total = result.total_installed();
+                            if total > 0 {
+                                println!(
+                                    "{} Installed {} agents for {}",
+                                    style("✓").green(),
+                                    total,
+                                    client.display_name()
+                                );
+                            } else if !result.skipped_paths.is_empty() {
+                                println!(
+                                    "{} Agents for {} already up-to-date",
+                                    style("✓").dim(),
+                                    client.display_name()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "{} Failed to install agents for {}: {}",
+                                style("✗").red(),
+                                client.display_name(),
+                                e
+                            );
+                            error_count += 1;
+                        }
+                    }
+                }
             }
         }
     }

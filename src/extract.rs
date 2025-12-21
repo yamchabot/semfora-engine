@@ -6,8 +6,12 @@
 use crate::utils::truncate_to_char_boundary;
 use std::path::Path;
 
-/// Maximum length for raw source fallback when extraction is incomplete
-const MAX_FALLBACK_LEN: usize = 1000;
+/// Minimum fallback length (bytes)
+const MIN_FALLBACK_LEN: usize = 2000;
+
+/// Maximum fallback length (bytes)
+const MAX_FALLBACK_LEN: usize = 10_000;
+
 use tree_sitter::Tree;
 
 use crate::error::Result;
@@ -94,10 +98,29 @@ pub fn extract(file_path: &Path, source: &str, tree: &Tree, lang: Lang) -> Resul
 
     // Add raw fallback if extraction was incomplete
     if !summary.extraction_complete {
-        // Truncate source for fallback if too long (UTF-8 safe)
-        if source.len() > MAX_FALLBACK_LEN {
-            let truncated = truncate_to_char_boundary(source, MAX_FALLBACK_LEN);
-            summary.raw_fallback = Some(format!("{}...", truncated));
+        // Adaptive fallback sizing: 10% of source, clamped between MIN and MAX
+        let adaptive_len = (source.len() / 10).clamp(MIN_FALLBACK_LEN, MAX_FALLBACK_LEN);
+
+        if source.len() > adaptive_len {
+            // Include both head (2/3) and tail (1/3) for context
+            let head_len = adaptive_len * 2 / 3;
+            let tail_len = adaptive_len / 3;
+
+            let head = truncate_to_char_boundary(source, head_len);
+            let omitted = source.len() - head_len - tail_len;
+
+            // Find a valid UTF-8 boundary for tail start
+            let tail_start = source.len().saturating_sub(tail_len);
+            let tail = source
+                .char_indices()
+                .find(|(i, _)| *i >= tail_start)
+                .map(|(i, _)| &source[i..])
+                .unwrap_or("");
+
+            summary.raw_fallback = Some(format!(
+                "{}...\n\n[{} bytes omitted]\n\n...{}",
+                head, omitted, tail
+            ));
         } else {
             summary.raw_fallback = Some(source.to_string());
         }

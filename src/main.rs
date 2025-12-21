@@ -12,7 +12,7 @@ use semfora_engine::commands::{
     run_test, run_validate, CommandContext,
 };
 use semfora_engine::installer::{
-    self, print_available_clients, ConfigArgs, SetupArgs, UninstallArgs,
+    self, agents::AgentScope, print_available_clients, ConfigArgs, SetupArgs, UninstallArgs,
 };
 
 fn main() -> ExitCode {
@@ -86,6 +86,13 @@ fn run() -> semfora_engine::Result<String> {
                 cache_dir: args.cache_dir.clone(),
                 log_level: args.log_level.clone(),
                 dry_run: args.dry_run,
+                with_agents: args.with_agents,
+                agents_scope: match args.agents_scope {
+                    semfora_engine::cli::AgentScopeArg::Global => AgentScope::Global,
+                    semfora_engine::cli::AgentScopeArg::Project => AgentScope::Project,
+                    semfora_engine::cli::AgentScopeArg::Both => AgentScope::Both,
+                },
+                agents_only: args.agents_only,
             };
 
             installer::run_setup(setup_args)?;

@@ -46,6 +46,24 @@ pub struct AnalyzeRequest {
         description = "File extensions to include (e.g., ['ts', 'tsx']). If empty, all supported extensions are included."
     )]
     pub extensions: Option<Vec<String>>,
+
+    /// Start line for focused analysis of large files (1-indexed)
+    #[schemars(
+        description = "Start line for focused analysis (1-indexed). Use with end_line for large files (>2000 lines)."
+    )]
+    pub start_line: Option<usize>,
+
+    /// End line for focused analysis of large files (1-indexed, inclusive)
+    #[schemars(
+        description = "End line for focused analysis (1-indexed, inclusive). Use with start_line for large files."
+    )]
+    pub end_line: Option<usize>,
+
+    /// Output mode: "full" (default), "summary", or "symbols_only"
+    #[schemars(
+        description = "Output mode: 'full' (default - complete TOON), 'summary' (overview only), 'symbols_only' (just symbol list with line ranges)"
+    )]
+    pub output_mode: Option<String>,
 }
 
 /// Request to analyze git diff

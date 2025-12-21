@@ -2,6 +2,7 @@
 
 use super::{json_utils, ClientStatus, McpClient, McpServerConfig};
 use crate::error::McpDiffError;
+use crate::installer::agents::AgentSupport;
 use crate::installer::platform::{McpClientPaths, Platform};
 use std::path::PathBuf;
 
@@ -104,6 +105,23 @@ impl McpClient for ClaudeCodeClient {
             Ok(None)
         }
     }
+}
+
+impl AgentSupport for ClaudeCodeClient {
+    fn supports_agents(&self) -> bool {
+        true
+    }
+
+    fn global_agents_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".claude").join("agents"))
+    }
+
+    fn project_agents_dir(&self) -> Option<PathBuf> {
+        Some(PathBuf::from(".claude").join("agents"))
+    }
+
+    // Use default implementations for agent_file_extension() and convert_agent_template()
+    // Claude Code uses native markdown format, so no conversion needed
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@
 
 use super::{json_utils, ClientStatus, McpClient, McpServerConfig};
 use crate::error::McpDiffError;
+use crate::installer::agents::{AgentSupport, AgentTemplate};
 use crate::installer::platform::Platform;
 use std::path::PathBuf;
 
@@ -134,6 +135,58 @@ impl McpClient for OpenAICodexClient {
     }
 }
 
+impl AgentSupport for OpenAICodexClient {
+    fn supports_agents(&self) -> bool {
+        true
+    }
+
+    fn global_agents_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".codex"))
+    }
+
+    fn project_agents_dir(&self) -> Option<PathBuf> {
+        Some(PathBuf::from(".codex"))
+    }
+
+    fn convert_agent_template(&self, template: &AgentTemplate) -> String {
+        // Codex uses AGENTS.md format with markdown sections
+        // Each agent becomes a section in the file
+        let content = template.content();
+        let body = extract_body_from_template(content);
+
+        format!(
+            r#"## Semfora {} Agent
+
+{}
+"#,
+            capitalize(template.name()),
+            body
+        )
+    }
+}
+
+/// Extract the body content from a template (after YAML frontmatter)
+fn extract_body_from_template(content: &str) -> &str {
+    if content.starts_with("---") {
+        if let Some(end_idx) = content[3..].find("---") {
+            let body_start = end_idx + 6;
+            if body_start < content.len() {
+                return content[body_start..].trim_start();
+            }
+        }
+    }
+    content
+}
+
+/// Capitalize first letter
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +196,11 @@ mod tests {
         let client = OpenAICodexClient;
         assert_eq!(client.name(), "openai-codex");
         assert_eq!(client.display_name(), "OpenAI Codex");
+    }
+
+    #[test]
+    fn test_agent_support() {
+        let client = OpenAICodexClient;
+        assert!(client.supports_agents());
     }
 }

@@ -622,6 +622,30 @@ pub struct SetupArgs {
     /// List available MCP clients
     #[arg(long)]
     pub list_clients: bool,
+
+    /// Install Semfora workflow agents (subagents for AI assistants)
+    #[arg(long)]
+    pub with_agents: bool,
+
+    /// Agent installation scope: global, project, or both
+    #[arg(long, value_enum, default_value = "global")]
+    pub agents_scope: AgentScopeArg,
+
+    /// Only install agents, skip MCP server configuration
+    #[arg(long)]
+    pub agents_only: bool,
+}
+
+/// Agent installation scope for CLI
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+pub enum AgentScopeArg {
+    /// Install agents globally (~/.claude/agents/, ~/.cursor/rules/, etc.)
+    #[default]
+    Global,
+    /// Install agents in current project (.claude/agents/, .cursor/rules/, etc.)
+    Project,
+    /// Install agents in both global and project locations
+    Both,
 }
 
 // ============================================
