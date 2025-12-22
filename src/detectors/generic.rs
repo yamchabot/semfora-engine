@@ -14,19 +14,18 @@
 //! extract_with_grammar(summary, source, tree, &GO_GRAMMAR)?;
 //! ```
 
-use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::detectors::common::{
     find_containing_symbol_by_line, get_node_text, get_node_text_normalized,
 };
 use crate::detectors::grammar::LangGrammar;
-use crate::detectors::locals;
+use crate::detectors::variable_refs;
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::{
-    Call, ControlFlowChange, ControlFlowKind, Location, RefKind, RiskLevel, SemanticSummary,
-    StateChange, SymbolInfo, SymbolKind,
+    Call, ControlFlowChange, ControlFlowKind, FrameworkEntryPoint, Location, RefKind, RiskLevel,
+    SemanticSummary, StateChange, SymbolInfo, SymbolKind,
 };
 use crate::utils::truncate_to_char_boundary;
 
@@ -106,6 +105,8 @@ fn extract_symbols(
             state_changes: Vec::new(),
             decorators: candidate.decorators.clone(),
             behavioral_risk: RiskLevel::Low,
+            is_escape_local: false,
+            framework_entry_point: FrameworkEntryPoint::None,
         };
         summary.symbols.push(symbol_info);
     }
@@ -918,105 +919,15 @@ fn extract_variable_references(
     source: &str,
     grammar: &LangGrammar,
 ) {
-    // Get the language from grammar name
-    let Some(lang) = grammar_name_to_lang(grammar.name) else {
-        return; // No locals query for this language
-    };
-
-    // Get the locals query for this language
-    let Some(locals_query) = locals::get_locals_query(lang) else {
-        return; // No locals.scm available for this language
-    };
-
-    // Extract all references from the AST
-    let references = locals_query.extract_references(root, source);
-
-    // Build a set of module-level Variable symbol names for efficient lookup
-    let var_names: HashSet<&str> = summary
-        .symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::Variable)
-        .map(|s| s.name.as_str())
-        .collect();
-
-    // Skip if no variables to track
-    if var_names.is_empty() {
-        return;
-    }
-
-    // Collect references organized by containing symbol
-    let mut calls_by_symbol: std::collections::HashMap<usize, Vec<Call>> =
-        std::collections::HashMap::new();
-    let mut file_level_refs: Vec<Call> = Vec::new();
-
-    for reference in references {
-        // Only track references to known module-level Variable symbols
-        if !var_names.contains(reference.name.as_str()) {
-            continue;
-        }
-
-        let call = Call {
-            name: reference.name.clone(),
-            object: None,
-            is_awaited: false,
-            in_try: false,
-            is_hook: false,
-            is_io: false,
-            ref_kind: reference.ref_kind,
-            location: Location::new(reference.line, 0),
-        };
-
-        // Find which symbol contains this reference
-        if let Some(symbol_idx) = find_containing_symbol_by_line(reference.line, &summary.symbols) {
-            // Skip if the reference is inside the variable's own definition
-            let defining_symbol = &summary.symbols[symbol_idx];
-            if defining_symbol.kind == SymbolKind::Variable
-                && defining_symbol.name == reference.name
-            {
-                continue;
-            }
-            calls_by_symbol.entry(symbol_idx).or_default().push(call);
-        } else {
-            // Reference is at file level (outside any function/symbol)
-            file_level_refs.push(call);
-        }
-    }
-
-    // Merge variable references into existing symbol calls (deduplicated)
-    for (symbol_idx, var_refs) in calls_by_symbol {
-        if symbol_idx < summary.symbols.len() {
-            let existing_calls = &mut summary.symbols[symbol_idx].calls;
-
-            // Track already-seen variable references to avoid duplicates
-            let mut seen: HashSet<String> = existing_calls
-                .iter()
-                .filter(|c| c.ref_kind.is_variable_ref())
-                .map(|c| c.name.clone())
-                .collect();
-
-            for var_ref in var_refs {
-                if !seen.contains(&var_ref.name) {
-                    seen.insert(var_ref.name.clone());
-                    existing_calls.push(var_ref);
-                }
-            }
-        }
-    }
-
-    // Add file-level variable references to summary.calls (deduplicated)
-    let mut seen: HashSet<String> = summary
-        .calls
-        .iter()
-        .filter(|c| c.ref_kind.is_variable_ref())
-        .map(|c| c.name.clone())
-        .collect();
-
-    for var_ref in file_level_refs {
-        if !seen.contains(&var_ref.name) {
-            seen.insert(var_ref.name.clone());
-            summary.calls.push(var_ref);
-        }
-    }
+    let lang = grammar_name_to_lang(grammar.name);
+    let include_escape_locals = matches!(lang, Some(Lang::CSharp));
+    variable_refs::extract_variable_references(
+        summary,
+        root,
+        source,
+        lang,
+        include_escape_locals,
+    );
 }
 
 // =============================================================================

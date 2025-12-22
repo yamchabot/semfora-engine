@@ -86,6 +86,7 @@ impl SqliteExporter {
         cache: &CacheDir,
         output_path: &Path,
         progress: Option<ProgressCallback>,
+        include_escape_refs: bool,
     ) -> Result<ExportStats> {
         let start = Instant::now();
 
@@ -119,11 +120,16 @@ impl SqliteExporter {
 
         // Insert nodes and get module mapping for edges
         let (nodes_inserted, node_modules) =
-            self.insert_nodes_streaming(&mut conn, cache, &progress)?;
+            self.insert_nodes_streaming(&mut conn, cache, &progress, include_escape_refs)?;
 
         // Insert edges and collect module edge counts
-        let (edges_inserted, module_edge_counts) =
-            self.insert_edges_streaming(&mut conn, cache, &node_modules, &progress)?;
+        let (edges_inserted, module_edge_counts) = self.insert_edges_streaming(
+            &mut conn,
+            cache,
+            &node_modules,
+            &progress,
+            include_escape_refs,
+        )?;
 
         // Insert module-level edges
         let module_edges_inserted =
@@ -234,6 +240,7 @@ impl SqliteExporter {
         conn: &mut Connection,
         cache: &CacheDir,
         progress: &Option<ProgressCallback>,
+        include_escape_refs: bool,
     ) -> Result<(usize, HashMap<String, String>)> {
         let index_path = cache.symbol_index_path();
         if !index_path.exists() {
@@ -269,6 +276,10 @@ impl SqliteExporter {
                 Ok(e) => e,
                 Err(_) => continue,
             };
+
+            if entry.is_escape_local && !include_escape_refs {
+                continue;
+            }
 
             // Track module for this hash
             node_modules.insert(entry.hash.clone(), entry.module.clone());
@@ -357,6 +368,7 @@ impl SqliteExporter {
         cache: &CacheDir,
         node_modules: &HashMap<String, String>,
         progress: &Option<ProgressCallback>,
+        include_escape_refs: bool,
     ) -> Result<(usize, HashMap<(String, String), usize>)> {
         let graph_path = cache.call_graph_path();
         if !graph_path.exists() {
@@ -413,6 +425,9 @@ impl SqliteExporter {
                     for callee_str in split_respecting_quotes(inner) {
                         // Parse edge with optional edge_kind suffix
                         let edge = CallGraphEdge::decode(callee_str);
+                        if edge.edge_kind.is_escape_ref() && !include_escape_refs {
+                            continue;
+                        }
                         let callee = &edge.callee;
                         let edge_kind = edge.edge_kind.as_edge_kind().to_string();
 

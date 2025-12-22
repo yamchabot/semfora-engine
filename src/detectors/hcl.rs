@@ -17,7 +17,10 @@ use tree_sitter::{Node, Tree};
 
 use crate::detectors::common::{find_containing_symbol_by_line, get_node_text, visit_all};
 use crate::error::Result;
-use crate::schema::{Call, RefKind, RiskLevel, SemanticSummary, StateChange, SymbolInfo, SymbolKind};
+use crate::schema::{
+    Call, FrameworkEntryPoint, RefKind, RiskLevel, SemanticSummary, StateChange, SymbolInfo,
+    SymbolKind,
+};
 use crate::utils::truncate_to_char_boundary;
 
 /// Extract semantic information from an HCL file
@@ -179,6 +182,8 @@ fn extract_block_symbol(node: &Node, source: &str) -> Option<SymbolInfo> {
         state_changes: Vec::new(),
         behavioral_risk: RiskLevel::Low,
         decorators: Vec::new(),
+        is_escape_local: false,
+        framework_entry_point: FrameworkEntryPoint::None,
     })
 }
 

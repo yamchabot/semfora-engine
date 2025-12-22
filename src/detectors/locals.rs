@@ -28,7 +28,7 @@
 
 use crate::lang::Lang;
 use crate::schema::RefKind;
-use std::ops::Range;
+use std::{collections::HashSet, ops::Range};
 use tree_sitter::{Language, Node, Query, QueryCursor, StreamingIterator};
 
 /// A reference to a variable/identifier found in source code
@@ -52,12 +52,25 @@ pub struct LocalsQuery {
     definition_idx: Option<u32>,
     #[allow(dead_code)]
     scope_idx: Option<u32>,
+    capture_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalDefinition {
+    pub name: String,
+    pub start_line: usize,
+    pub end_line: usize,
 }
 
 impl LocalsQuery {
     /// Create a new LocalsQuery from a tree-sitter language and query source
     pub fn new(language: &Language, query_src: &str) -> Option<Self> {
         let query = Query::new(language, query_src).ok()?;
+        let capture_names = query
+            .capture_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
 
         // Find capture indices for standard locals captures
         let reference_idx = query.capture_index_for_name("local.reference");
@@ -70,6 +83,7 @@ impl LocalsQuery {
             reference_idx,
             definition_idx,
             scope_idx,
+            capture_names,
         })
     }
 
@@ -119,6 +133,91 @@ impl LocalsQuery {
 
         references
     }
+
+    /// Extract local variable/parameter definitions from an AST
+    ///
+    /// Filters out imports, functions, methods, and type definitions.
+    pub fn extract_local_definitions<'a>(&self, root: &Node<'a>, source: &str) -> HashSet<String> {
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&self.query, *root, source.as_bytes());
+
+        let mut defs = HashSet::new();
+
+        while let Some(m) = matches.next() {
+            for capture in m.captures {
+                let name = self
+                    .capture_names
+                    .get(capture.index as usize)
+                    .map(|s| s.as_str())
+                    .unwrap_or_default();
+
+                if !is_local_definition_capture(name) {
+                    continue;
+                }
+
+                let node = capture.node;
+                let def_name = get_node_text(&node, source);
+
+                if def_name.is_empty() || def_name.len() > 100 {
+                    continue;
+                }
+
+                if is_keyword(&def_name) {
+                    continue;
+                }
+
+                defs.insert(def_name);
+            }
+        }
+
+        defs
+    }
+
+    /// Extract local variable/parameter definitions with source locations.
+    ///
+    /// Filters out imports, functions, methods, and type definitions.
+    pub fn extract_local_definitions_with_locations<'a>(
+        &self,
+        root: &Node<'a>,
+        source: &str,
+    ) -> Vec<LocalDefinition> {
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&self.query, *root, source.as_bytes());
+        let mut defs = Vec::new();
+
+        while let Some(m) = matches.next() {
+            for capture in m.captures {
+                let name = self
+                    .capture_names
+                    .get(capture.index as usize)
+                    .map(|s| s.as_str())
+                    .unwrap_or_default();
+
+                if !is_local_definition_capture(name) {
+                    continue;
+                }
+
+                let node = capture.node;
+                let def_name = get_node_text(&node, source);
+
+                if def_name.is_empty() || def_name.len() > 100 {
+                    continue;
+                }
+
+                if is_keyword(&def_name) {
+                    continue;
+                }
+
+                defs.push(LocalDefinition {
+                    name: def_name,
+                    start_line: node.start_position().row + 1,
+                    end_line: node.end_position().row + 1,
+                });
+            }
+        }
+
+        defs
+    }
 }
 
 /// Get the locals query for a language, if available
@@ -154,6 +253,15 @@ pub fn get_locals_query(lang: Lang) -> Option<LocalsQuery> {
 /// Extract text from a node
 fn get_node_text(node: &Node, source: &str) -> String {
     source[node.byte_range()].to_string()
+}
+
+fn is_local_definition_capture(name: &str) -> bool {
+    name.starts_with("local.definition")
+        && (name.ends_with(".var") || name.ends_with(".parameter") || name == "local.definition")
+        && !name.contains(".import")
+        && !name.contains(".function")
+        && !name.contains(".method")
+        && !name.contains(".type")
 }
 
 /// Determine if a reference is a read, write, or readwrite operation
