@@ -104,6 +104,7 @@ pub mod gradle;
 pub mod grammar;
 pub mod hcl;
 pub mod java;
+pub mod locals;
 // JavaScript is now a directory module with framework support in:
 //   - javascript/core.rs: Generic JS/TS extraction
 //   - javascript/frameworks/: React, Next.js, Express, Angular, Vue

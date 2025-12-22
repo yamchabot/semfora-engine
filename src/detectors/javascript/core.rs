@@ -12,8 +12,8 @@ use crate::detectors::common::{
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::{
-    Argument, Call, ControlFlowChange, ControlFlowKind, Location, Prop, RiskLevel, SemanticSummary,
-    SymbolInfo, SymbolKind,
+    Argument, Call, ControlFlowChange, ControlFlowKind, Location, Prop, RefKind, RiskLevel,
+    SemanticSummary, SymbolInfo, SymbolKind,
 };
 use crate::toon::is_meaningful_call;
 
@@ -967,6 +967,7 @@ pub fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str) {
                     in_try,
                     is_hook: false,
                     is_io,
+                    ref_kind: RefKind::None,
                     location: Location::new(line, node.start_position().column),
                 };
 

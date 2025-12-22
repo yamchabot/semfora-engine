@@ -21,7 +21,8 @@ use crate::duplicate::FunctionSignature;
 use crate::error::Result;
 use crate::module_registry::ModuleRegistrySqlite;
 use crate::schema::{
-    RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind, SCHEMA_VERSION,
+    CallGraphEdge, RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind,
+    SCHEMA_VERSION,
 };
 use crate::toon::{encode_toon, generate_repo_overview_with_modules, is_meaningful_call};
 
@@ -1393,16 +1394,30 @@ fn resolve_call_to_hash(
     call_name: &str,
     lookup: &HashMap<String, Vec<(String, String)>>,
 ) -> String {
-    // Try exact match first
+    // Try exact match first (e.g., "GetGoldAmount" or "PlayerEntity.GetGoldAmount")
     if let Some(matches) = lookup.get(call_name) {
         if matches.len() == 1 {
-            // Unique match - return hash
             return matches[0].0.clone();
         }
-        // Multiple matches - return first hash but log ambiguity
-        // In future, could use import info to disambiguate
         if !matches.is_empty() {
             return matches[0].0.clone();
+        }
+    }
+
+    // If call has an object (e.g., "playerEntity.GetGoldAmount"), try just the method name
+    // This handles cases where we can't infer the type of the object variable
+    if let Some(dot_pos) = call_name.rfind('.') {
+        let method_name = &call_name[dot_pos + 1..];
+        if !method_name.is_empty() {
+            if let Some(matches) = lookup.get(method_name) {
+                if matches.len() == 1 {
+                    return matches[0].0.clone();
+                }
+                // For ambiguous matches, still prefer resolved over external
+                if !matches.is_empty() {
+                    return matches[0].0.clone();
+                }
+            }
         }
     }
 
@@ -1413,10 +1428,11 @@ fn resolve_call_to_hash(
 
 /// Build call graph from summaries with resolved symbol hashes
 /// Parallelized with Rayon for better performance on large codebases
+/// Returns edges with edge_kind to distinguish calls from variable reads/writes
 fn build_call_graph(
     summaries: &[SemanticSummary],
     show_progress: bool,
-) -> HashMap<String, Vec<String>> {
+) -> HashMap<String, Vec<CallGraphEdge>> {
     use crate::overlay::compute_symbol_hash;
 
     let total = summaries.len();
@@ -1430,8 +1446,8 @@ fn build_call_graph(
     // Progress tracking
     let processed = AtomicUsize::new(0);
 
-    // Process summaries in parallel, each producing a vec of (hash, calls) pairs
-    let results: Vec<Vec<(String, Vec<String>)>> = summaries
+    // Process summaries in parallel, each producing a vec of (hash, edges) pairs
+    let results: Vec<Vec<(String, Vec<CallGraphEdge>)>> = summaries
         .par_iter()
         .map(|summary| {
             let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1444,12 +1460,12 @@ fn build_call_graph(
                 );
             }
 
-            let mut entries: Vec<(String, Vec<String>)> = Vec::new();
+            let mut entries: Vec<(String, Vec<CallGraphEdge>)> = Vec::new();
 
             // Process each symbol in the file
             for symbol in &summary.symbols {
                 let hash = compute_symbol_hash(symbol, &summary.file);
-                let mut calls: Vec<String> = Vec::new();
+                let mut edges: Vec<CallGraphEdge> = Vec::new();
 
                 // Extract from the symbol's own calls array
                 for c in &symbol.calls {
@@ -1459,31 +1475,35 @@ fn build_call_graph(
                         c.name.clone()
                     };
                     let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                    if !calls.contains(&resolved) {
-                        calls.push(resolved);
+                    let edge = CallGraphEdge::new(resolved, c.ref_kind);
+
+                    // Deduplicate by callee+edge_kind
+                    if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                        edges.push(edge);
                     }
                 }
 
-                // Extract function calls from symbol's state_changes initializers
+                // Extract function calls from symbol's state_changes initializers (always call kind)
                 for state in &symbol.state_changes {
                     if !state.initializer.is_empty() {
                         if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
                             let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                            if !calls.contains(&resolved) {
-                                calls.push(resolved);
+                            let edge = CallGraphEdge::call(resolved);
+                            if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                                edges.push(edge);
                             }
                         }
                     }
                 }
 
-                if !calls.is_empty() {
-                    entries.push((hash, calls));
+                if !edges.is_empty() {
+                    entries.push((hash, edges));
                 }
             }
 
             // Also process file-level calls
             if let Some(ref symbol_id) = summary.symbol_id {
-                let mut calls: Vec<String> = Vec::new();
+                let mut edges: Vec<CallGraphEdge> = Vec::new();
 
                 for c in &summary.calls {
                     let call_name = if let Some(ref obj) = c.object {
@@ -1492,8 +1512,9 @@ fn build_call_graph(
                         c.name.clone()
                     };
                     let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                    if !calls.contains(&resolved) {
-                        calls.push(resolved);
+                    let edge = CallGraphEdge::new(resolved, c.ref_kind);
+                    if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                        edges.push(edge);
                     }
                 }
 
@@ -1501,26 +1522,28 @@ fn build_call_graph(
                     if !state.initializer.is_empty() {
                         if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
                             let resolved = resolve_call_to_hash(&call_name, &symbol_lookup);
-                            if !calls.contains(&resolved) {
-                                calls.push(resolved);
+                            let edge = CallGraphEdge::call(resolved);
+                            if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                                edges.push(edge);
                             }
                         }
                     }
                 }
 
                 // Include both functions (lowercase) and components (PascalCase) from dependencies
-                // Only exclude Rust-style namespace paths (::)
+                // Only exclude Rust-style namespace paths (::) - these are always call kind
                 for dep in &summary.added_dependencies {
                     if !dep.contains("::") {
                         let resolved = resolve_call_to_hash(dep, &symbol_lookup);
-                        if !calls.contains(&resolved) {
-                            calls.push(resolved);
+                        let edge = CallGraphEdge::call(resolved);
+                        if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                            edges.push(edge);
                         }
                     }
                 }
 
-                if !calls.is_empty() {
-                    entries.push((symbol_id.hash.clone(), calls));
+                if !edges.is_empty() {
+                    entries.push((symbol_id.hash.clone(), edges));
                 }
             }
 
@@ -1529,10 +1552,10 @@ fn build_call_graph(
         .collect();
 
     // Merge results into final graph
-    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    let mut graph: HashMap<String, Vec<CallGraphEdge>> = HashMap::new();
     for entries in results {
-        for (hash, calls) in entries {
-            graph.entry(hash).or_default().extend(calls);
+        for (hash, edges) in entries {
+            graph.entry(hash).or_default().extend(edges);
         }
     }
 
@@ -1629,21 +1652,22 @@ fn extract_call_from_initializer(init: &str) -> Option<String> {
     None
 }
 
-/// Encode call graph
-fn encode_call_graph(graph: &HashMap<String, Vec<String>>) -> String {
+/// Encode call graph with edge_kind information
+/// Format: caller_hash: ["callee1", "callee2:read", "callee3:write"]
+fn encode_call_graph(graph: &HashMap<String, Vec<CallGraphEdge>>) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: call_graph"));
+    lines.push("_type: call_graph".to_string());
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
     lines.push(format!("edges: {}", graph.len()));
 
-    for (symbol_hash, calls) in graph {
-        let calls_str = calls
+    for (symbol_hash, edges) in graph {
+        let edges_str = edges
             .iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|e| e.encode())
             .collect::<Vec<_>>()
             .join(",");
-        lines.push(format!("{}: [{}]", symbol_hash, calls_str));
+        lines.push(format!("{}: [{}]", symbol_hash, edges_str));
     }
 
     lines.join("\n")

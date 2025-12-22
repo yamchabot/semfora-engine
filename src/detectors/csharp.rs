@@ -271,4 +271,60 @@ public class Matcher
             "Should detect pattern matching"
         );
     }
+
+    #[test]
+    fn test_csharp_constructor_calls() {
+        // Test that object_creation_expression (new X()) is detected as a call
+        let source = r#"
+public class QuestMachine
+{
+    void RegisterActionTemplates()
+    {
+        RegisterAction(new CreateNpc(null));
+        var x = new SomeClass();
+        var service = new UserService();
+    }
+}
+"#;
+        let tree = parse_source(source);
+        let mut summary = SemanticSummary {
+            file: "/test/QuestMachine.cs".to_string(),
+            ..Default::default()
+        };
+
+        extract(&mut summary, source, &tree).unwrap();
+
+        // Find the RegisterActionTemplates method
+        let method = summary
+            .symbols
+            .iter()
+            .find(|s| s.name == "RegisterActionTemplates")
+            .expect("Should find RegisterActionTemplates method");
+
+        // Should detect constructor calls
+        let call_names: Vec<&str> = method.calls.iter().map(|c| c.name.as_str()).collect();
+
+        println!("Detected calls in RegisterActionTemplates: {:?}", call_names);
+
+        assert!(
+            call_names.contains(&"CreateNpc"),
+            "Should detect new CreateNpc() constructor call. Got: {:?}",
+            call_names
+        );
+        assert!(
+            call_names.contains(&"SomeClass"),
+            "Should detect new SomeClass() constructor call. Got: {:?}",
+            call_names
+        );
+        assert!(
+            call_names.contains(&"UserService"),
+            "Should detect new UserService() constructor call. Got: {:?}",
+            call_names
+        );
+        assert!(
+            call_names.contains(&"RegisterAction"),
+            "Should also detect regular method call RegisterAction(). Got: {:?}",
+            call_names
+        );
+    }
 }

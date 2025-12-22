@@ -14,16 +14,19 @@
 //! extract_with_grammar(summary, source, tree, &GO_GRAMMAR)?;
 //! ```
 
+use std::collections::HashSet;
 use tree_sitter::{Node, Tree};
 
 use crate::detectors::common::{
     find_containing_symbol_by_line, get_node_text, get_node_text_normalized,
 };
 use crate::detectors::grammar::LangGrammar;
+use crate::detectors::locals;
 use crate::error::Result;
+use crate::lang::Lang;
 use crate::schema::{
-    Call, ControlFlowChange, ControlFlowKind, Location, RiskLevel, SemanticSummary, StateChange,
-    SymbolInfo, SymbolKind,
+    Call, ControlFlowChange, ControlFlowKind, Location, RefKind, RiskLevel, SemanticSummary,
+    StateChange, SymbolInfo, SymbolKind,
 };
 use crate::utils::truncate_to_char_boundary;
 
@@ -46,6 +49,7 @@ pub fn extract_with_grammar(
     extract_state_changes(summary, &root, source, grammar);
     extract_control_flow(summary, &root, source, grammar);
     extract_calls(summary, &root, source, grammar);
+    extract_variable_references(summary, &root, source, grammar);
 
     // Calculate derived metrics
     calculate_complexity(summary);
@@ -798,12 +802,28 @@ fn extract_calls(summary: &mut SemanticSummary, root: &Node, source: &str, gramm
     }
 }
 
+/// Node types that represent constructor/instantiation calls
+const CONSTRUCTOR_NODE_TYPES: &[&str] = &[
+    "object_creation_expression", // C#, Java
+    "new_expression",             // JavaScript, TypeScript
+];
+
 fn extract_call(node: &Node, source: &str, grammar: &LangGrammar) -> Option<Call> {
-    // Get the function name
-    let func_node = node
-        .child_by_field_name("function")
-        .or_else(|| node.child_by_field_name("name"))
-        .or_else(|| node.child(0))?;
+    let node_kind = node.kind();
+
+    // Get the function/type name - constructor nodes have different structure
+    let func_node = if CONSTRUCTOR_NODE_TYPES.contains(&node_kind) {
+        // For constructor calls, the type name is in "type" field (C#/Java) or "constructor" field (JS/TS)
+        // Fallback to child(1) since child(0) is typically the "new" keyword
+        node.child_by_field_name("type")
+            .or_else(|| node.child_by_field_name("constructor"))
+            .or_else(|| node.child(1)) // Skip "new" keyword at child(0)
+    } else {
+        // Regular function calls
+        node.child_by_field_name("function")
+            .or_else(|| node.child_by_field_name("name"))
+            .or_else(|| node.child(0))
+    }?;
 
     let full_name = get_node_text(&func_node, source);
     if full_name.is_empty() || full_name.len() > 100 {
@@ -847,6 +867,7 @@ fn extract_call(node: &Node, source: &str, grammar: &LangGrammar) -> Option<Call
         in_try,
         is_hook,
         is_io,
+        ref_kind: RefKind::None,
         location,
     })
 }
@@ -860,6 +881,142 @@ fn is_inside_try(node: &Node, grammar: &LangGrammar) -> bool {
         current = parent.parent();
     }
     false
+}
+
+// =============================================================================
+// Variable Reference Extraction
+// =============================================================================
+
+/// Map grammar name to Lang enum for locals query lookup
+fn grammar_name_to_lang(name: &str) -> Option<Lang> {
+    match name {
+        "rust" => Some(Lang::Rust),
+        "go" => Some(Lang::Go),
+        "java" => Some(Lang::Java),
+        "csharp" => Some(Lang::CSharp),
+        "python" => Some(Lang::Python),
+        "javascript" => Some(Lang::JavaScript),
+        "typescript" => Some(Lang::TypeScript),
+        "c" => Some(Lang::C),
+        "cpp" => Some(Lang::Cpp),
+        "kotlin" => Some(Lang::Kotlin),
+        "bash" => Some(Lang::Bash),
+        "gradle" => Some(Lang::Gradle),
+        "hcl" => Some(Lang::Hcl),
+        // Config/Markup languages don't have variable references
+        _ => None,
+    }
+}
+
+/// Extract variable references using tree-sitter locals.scm queries
+///
+/// This finds all references to module-level Variable symbols (constants, statics)
+/// and adds them to the symbol's `calls` list with `ref_kind` set to Read/Write.
+fn extract_variable_references(
+    summary: &mut SemanticSummary,
+    root: &Node,
+    source: &str,
+    grammar: &LangGrammar,
+) {
+    // Get the language from grammar name
+    let Some(lang) = grammar_name_to_lang(grammar.name) else {
+        return; // No locals query for this language
+    };
+
+    // Get the locals query for this language
+    let Some(locals_query) = locals::get_locals_query(lang) else {
+        return; // No locals.scm available for this language
+    };
+
+    // Extract all references from the AST
+    let references = locals_query.extract_references(root, source);
+
+    // Build a set of module-level Variable symbol names for efficient lookup
+    let var_names: HashSet<&str> = summary
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Variable)
+        .map(|s| s.name.as_str())
+        .collect();
+
+    // Skip if no variables to track
+    if var_names.is_empty() {
+        return;
+    }
+
+    // Collect references organized by containing symbol
+    let mut calls_by_symbol: std::collections::HashMap<usize, Vec<Call>> =
+        std::collections::HashMap::new();
+    let mut file_level_refs: Vec<Call> = Vec::new();
+
+    for reference in references {
+        // Only track references to known module-level Variable symbols
+        if !var_names.contains(reference.name.as_str()) {
+            continue;
+        }
+
+        let call = Call {
+            name: reference.name.clone(),
+            object: None,
+            is_awaited: false,
+            in_try: false,
+            is_hook: false,
+            is_io: false,
+            ref_kind: reference.ref_kind,
+            location: Location::new(reference.line, 0),
+        };
+
+        // Find which symbol contains this reference
+        if let Some(symbol_idx) = find_containing_symbol_by_line(reference.line, &summary.symbols) {
+            // Skip if the reference is inside the variable's own definition
+            let defining_symbol = &summary.symbols[symbol_idx];
+            if defining_symbol.kind == SymbolKind::Variable
+                && defining_symbol.name == reference.name
+            {
+                continue;
+            }
+            calls_by_symbol.entry(symbol_idx).or_default().push(call);
+        } else {
+            // Reference is at file level (outside any function/symbol)
+            file_level_refs.push(call);
+        }
+    }
+
+    // Merge variable references into existing symbol calls (deduplicated)
+    for (symbol_idx, var_refs) in calls_by_symbol {
+        if symbol_idx < summary.symbols.len() {
+            let existing_calls = &mut summary.symbols[symbol_idx].calls;
+
+            // Track already-seen variable references to avoid duplicates
+            let mut seen: HashSet<String> = existing_calls
+                .iter()
+                .filter(|c| c.ref_kind.is_variable_ref())
+                .map(|c| c.name.clone())
+                .collect();
+
+            for var_ref in var_refs {
+                if !seen.contains(&var_ref.name) {
+                    seen.insert(var_ref.name.clone());
+                    existing_calls.push(var_ref);
+                }
+            }
+        }
+    }
+
+    // Add file-level variable references to summary.calls (deduplicated)
+    let mut seen: HashSet<String> = summary
+        .calls
+        .iter()
+        .filter(|c| c.ref_kind.is_variable_ref())
+        .map(|c| c.name.clone())
+        .collect();
+
+    for var_ref in file_level_refs {
+        if !seen.contains(&var_ref.name) {
+            seen.insert(var_ref.name.clone());
+            summary.calls.push(var_ref);
+        }
+    }
 }
 
 // =============================================================================
@@ -1645,5 +1802,117 @@ pub struct Foo {}
         // Assert there are Variables
         let var_count = summary.symbols.iter().filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable)).count();
         assert!(var_count > 0, "Expected Variable symbols but found {}", var_count);
+    }
+
+    /// Test that variable references are extracted and attributed to symbols
+    #[test]
+    fn test_variable_reference_extraction() {
+        use super::*;
+        use crate::detectors::grammar::RUST_GRAMMAR;
+        use crate::schema::SemanticSummary;
+
+        let source = r#"
+const MAX_SIZE: usize = 100;
+const BUFFER_SIZE: usize = 1024;
+
+fn process_data() {
+    let arr = vec![0; MAX_SIZE];
+    for i in 0..MAX_SIZE {
+        if i < BUFFER_SIZE {
+            println!("{}", i);
+        }
+    }
+}
+
+fn another_function() {
+    let x = MAX_SIZE * 2;
+}
+"#;
+
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+
+        let mut summary = SemanticSummary {
+            file: "test.rs".to_string(),
+            language: "rust".to_string(),
+            ..Default::default()
+        };
+
+        extract_with_grammar(&mut summary, source, &tree, &RUST_GRAMMAR).unwrap();
+
+        // Find the process_data function
+        let process_data = summary.symbols.iter().find(|s| s.name == "process_data");
+        assert!(process_data.is_some(), "Should find process_data function");
+        let process_data = process_data.unwrap();
+
+        // Should have variable references with ref_kind set
+        let var_refs: Vec<_> = process_data.calls.iter().filter(|c| c.ref_kind.is_variable_ref()).collect();
+        assert!(
+            !var_refs.is_empty(),
+            "process_data should have variable references, but found none. Calls: {:?}",
+            process_data.calls
+        );
+
+        // Should reference MAX_SIZE
+        let max_size_refs: Vec<_> = var_refs.iter().filter(|c| c.name == "MAX_SIZE").collect();
+        assert!(
+            !max_size_refs.is_empty(),
+            "Should find reference to MAX_SIZE in process_data"
+        );
+
+        // Find another_function
+        let another_fn = summary.symbols.iter().find(|s| s.name == "another_function");
+        assert!(another_fn.is_some(), "Should find another_function");
+        let another_fn = another_fn.unwrap();
+
+        // Should also reference MAX_SIZE
+        let another_var_refs: Vec<_> = another_fn.calls.iter().filter(|c| c.ref_kind.is_variable_ref()).collect();
+        assert!(
+            !another_var_refs.is_empty(),
+            "another_function should have variable references"
+        );
+    }
+
+    /// Test that local variables inside functions are NOT tracked as references
+    #[test]
+    fn test_local_variables_not_tracked() {
+        use super::*;
+        use crate::detectors::grammar::RUST_GRAMMAR;
+        use crate::schema::SemanticSummary;
+
+        let source = r#"
+fn process() {
+    let local_var = 42;
+    let x = local_var + 1;
+    println!("{}", x);
+}
+"#;
+
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+
+        let mut summary = SemanticSummary {
+            file: "test.rs".to_string(),
+            language: "rust".to_string(),
+            ..Default::default()
+        };
+
+        extract_with_grammar(&mut summary, source, &tree, &RUST_GRAMMAR).unwrap();
+
+        // Find the process function
+        let process_fn = summary.symbols.iter().find(|s| s.name == "process");
+        assert!(process_fn.is_some(), "Should find process function");
+        let process_fn = process_fn.unwrap();
+
+        // Should NOT have variable references (local_var is local, not module-level)
+        let var_refs: Vec<_> = process_fn.calls.iter().filter(|c| c.ref_kind.is_variable_ref()).collect();
+        let local_var_refs: Vec<_> = var_refs.iter().filter(|c| c.name == "local_var").collect();
+        assert!(
+            local_var_refs.is_empty(),
+            "Should NOT track references to local variables, but found: {:?}",
+            local_var_refs
+        );
     }
 }

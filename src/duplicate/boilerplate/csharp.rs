@@ -872,7 +872,7 @@ pub fn is_csharp_record(info: &SymbolInfo) -> bool {
 mod tests {
     use super::*;
     use crate::duplicate::boilerplate::tests::make_symbol;
-    use crate::schema::{Call, ControlFlowChange, ControlFlowKind, Location};
+    use crate::schema::{Call, ControlFlowChange, ControlFlowKind, Location, RefKind};
 
     /// Create a symbol with calls that have object context
     fn make_symbol_with_object_calls(
@@ -891,6 +891,7 @@ mod tests {
                     in_try: false,
                     is_hook: false,
                     is_io: false,
+                    ref_kind: RefKind::None,
                     location: Location::default(),
                 })
                 .collect(),
@@ -923,6 +924,7 @@ mod tests {
                     in_try: false,
                     is_hook: false,
                     is_io: false,
+                    ref_kind: RefKind::None,
                     location: Location::default(),
                 })
                 .collect(),

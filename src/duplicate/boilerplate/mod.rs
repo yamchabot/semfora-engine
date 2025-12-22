@@ -899,7 +899,7 @@ pub fn matches_glob(pattern: &str, path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{Call, ControlFlowChange, ControlFlowKind, Location};
+    use crate::schema::{Call, ControlFlowChange, ControlFlowKind, Location, RefKind};
 
     /// Create a symbol with simple call names (no object)
     pub fn make_symbol(name: &str, calls: Vec<&str>, control_flow: usize) -> SymbolInfo {
@@ -914,6 +914,7 @@ mod tests {
                     in_try: false,
                     is_hook: false,
                     is_io: false,
+                    ref_kind: RefKind::None,
                     location: Location::default(),
                 })
                 .collect(),
@@ -946,6 +947,7 @@ mod tests {
                     in_try: false,
                     is_hook: false,
                     is_io: false,
+                    ref_kind: RefKind::None,
                     location: Location::default(),
                 })
                 .collect(),

@@ -925,6 +925,103 @@ pub struct JsxElement {
     pub location: Location,
 }
 
+/// Kind of reference for variable tracking
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RefKind {
+    /// Not a variable reference (regular function call)
+    #[default]
+    None,
+    /// Reading a variable's value
+    Read,
+    /// Writing/assigning to a variable
+    Write,
+    /// Both reading and writing (e.g., x += 1)
+    ReadWrite,
+}
+
+impl RefKind {
+    /// Returns true if this is any kind of variable reference
+    pub fn is_variable_ref(&self) -> bool {
+        !matches!(self, RefKind::None)
+    }
+
+    /// Returns the edge kind string for SQLite export
+    pub fn as_edge_kind(&self) -> &'static str {
+        match self {
+            RefKind::None => "call",
+            RefKind::Read => "read",
+            RefKind::Write => "write",
+            RefKind::ReadWrite => "readwrite",
+        }
+    }
+
+    /// Parse from edge kind string (for call graph format)
+    pub fn from_edge_kind(s: &str) -> Self {
+        match s {
+            "read" => RefKind::Read,
+            "write" => RefKind::Write,
+            "readwrite" => RefKind::ReadWrite,
+            _ => RefKind::None, // "call" or any other value
+        }
+    }
+}
+
+/// Edge in call graph with edge kind information
+///
+/// Used for call graph storage and SQLite export. Includes
+/// edge_kind to distinguish function calls from variable references.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CallGraphEdge {
+    /// Target symbol hash (callee)
+    pub callee: String,
+    /// Kind of edge: call (function), read, write, or readwrite (variable)
+    pub edge_kind: RefKind,
+}
+
+impl CallGraphEdge {
+    /// Create a new call graph edge
+    pub fn new(callee: String, edge_kind: RefKind) -> Self {
+        Self { callee, edge_kind }
+    }
+
+    /// Create a function call edge (edge_kind = None/call)
+    pub fn call(callee: String) -> Self {
+        Self {
+            callee,
+            edge_kind: RefKind::None,
+        }
+    }
+
+    /// Encode to string for call graph format: "hash" or "hash:kind"
+    pub fn encode(&self) -> String {
+        if self.edge_kind == RefKind::None {
+            format!("\"{}\"", self.callee)
+        } else {
+            format!("\"{}:{}\"", self.callee, self.edge_kind.as_edge_kind())
+        }
+    }
+
+    /// Decode from string: "hash" or "hash:kind"
+    pub fn decode(s: &str) -> Self {
+        let s = s.trim().trim_matches('"');
+        if let Some(colon_pos) = s.rfind(':') {
+            // Check if the suffix after the last colon is an edge kind
+            let suffix = &s[colon_pos + 1..];
+            if matches!(suffix, "read" | "write" | "readwrite" | "call") {
+                return Self {
+                    callee: s[..colon_pos].to_string(),
+                    edge_kind: RefKind::from_edge_kind(suffix),
+                };
+            }
+        }
+        // No edge kind suffix - default to call
+        Self {
+            callee: s.to_string(),
+            edge_kind: RefKind::None,
+        }
+    }
+}
+
 /// Function/method call for analysis
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Call {
@@ -950,6 +1047,10 @@ pub struct Call {
     /// Whether this is an I/O operation
     #[serde(skip)]
     pub is_io: bool,
+
+    /// Kind of variable reference (None = function call, Read/Write/ReadWrite = variable)
+    #[serde(skip)]
+    pub ref_kind: RefKind,
 
     /// Source location
     #[serde(skip)]
