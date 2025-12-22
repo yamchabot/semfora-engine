@@ -352,6 +352,7 @@ impl LayerSynchronizer {
                     risk: format!("{:?}", symbol.behavioral_risk).to_lowercase(),
                     cognitive_complexity: 0, // TODO: Calculate from control_flow
                     max_nesting: 0,          // TODO: Calculate from control_flow
+                    is_escape_local: symbol.is_escape_local,
                     framework_entry_point: symbol.framework_entry_point,
                 };
 

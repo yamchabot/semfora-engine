@@ -105,6 +105,7 @@ fn extract_symbols(
             state_changes: Vec::new(),
             decorators: candidate.decorators.clone(),
             behavioral_risk: RiskLevel::Low,
+            is_escape_local: false,
             framework_entry_point: FrameworkEntryPoint::None,
         };
         summary.symbols.push(symbol_info);

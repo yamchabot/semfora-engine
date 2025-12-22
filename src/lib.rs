@@ -118,6 +118,7 @@ pub mod parsing;
 pub mod paths;
 pub mod ripgrep;
 pub mod risk;
+pub mod trace;
 pub mod schema;
 pub mod search;
 pub mod security;

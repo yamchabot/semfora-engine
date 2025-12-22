@@ -687,6 +687,7 @@ impl McpDiffServer {
             file_types: request.file_types.as_ref().map(|v| v.join(",")),
             case_sensitive: !request.case_insensitive.unwrap_or(true),
             merge_threshold: request.merge_threshold.unwrap_or(3),
+            include_escape_refs: request.include_escape_refs.unwrap_or(false),
         };
 
         // Create command context (TOON format for MCP)
@@ -1157,6 +1158,7 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
             let cache = freshness.cache;
 
             let limit = request.limit.unwrap_or(50).min(200);
+            let include_escape_refs = request.include_escape_refs.unwrap_or(false);
 
             let results = match cache.list_module_symbols(
                 module,
@@ -1173,6 +1175,10 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
                 }
             };
 
+            let results: Vec<_> = results
+                .into_iter()
+                .filter(|entry| include_escape_refs || !entry.is_escape_local)
+                .collect();
             let output = format_module_symbols(module, &results, &cache);
             return Ok(CallToolResult::success(vec![Content::text(output)]));
         }
@@ -1181,6 +1187,7 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         let file_path = request.file_path.as_ref().unwrap();
         let include_source = request.include_source.unwrap_or(false);
         let context = request.context.unwrap_or(2);
+        let include_escape_refs = request.include_escape_refs.unwrap_or(false);
 
         let ctx = CommandContext {
             format: OutputFormat::Toon,
@@ -1195,6 +1202,7 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
             request.kind.as_deref(),
             request.risk.as_deref(),
             context,
+            include_escape_refs,
             &ctx,
         ) {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),

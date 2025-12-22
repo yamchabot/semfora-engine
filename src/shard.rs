@@ -695,6 +695,7 @@ impl ShardWriter {
                         risk: format!("{:?}", symbol_info.behavioral_risk).to_lowercase(),
                         cognitive_complexity: cc,
                         max_nesting: nest,
+                        is_escape_local: symbol_info.is_escape_local,
                         framework_entry_point: symbol_info.framework_entry_point,
                     };
 
@@ -731,6 +732,7 @@ impl ShardWriter {
                     risk: format!("{:?}", summary.behavioral_risk).to_lowercase(),
                     cognitive_complexity: cc,
                     max_nesting: nest,
+                    is_escape_local: false,
                     framework_entry_point: summary.framework_entry_point,
                 };
 
@@ -820,6 +822,7 @@ impl ShardWriter {
                         state_changes: summary.state_changes.clone(),
                         behavioral_risk: summary.behavioral_risk,
                         decorators: Vec::new(),
+                        is_escape_local: false,
                         framework_entry_point: summary.framework_entry_point,
                     };
 

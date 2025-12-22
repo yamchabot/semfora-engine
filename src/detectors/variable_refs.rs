@@ -9,7 +9,9 @@ use tree_sitter::Node;
 use crate::detectors::common::{find_containing_symbol_by_line, get_node_text};
 use crate::detectors::locals;
 use crate::lang::Lang;
-use crate::schema::{Call, Location, RefKind, SemanticSummary, SymbolKind};
+use crate::schema::{
+    Call, FrameworkEntryPoint, Location, RefKind, RiskLevel, SemanticSummary, SymbolInfo, SymbolKind,
+};
 
 /// Extract variable references and attach them to symbols.
 ///
@@ -40,15 +42,33 @@ pub fn extract_variable_references(
         .map(|s| s.name.as_str())
         .collect();
 
-    let escape_locals = if include_escape_locals {
-        let local_defs = locals_query.extract_local_definitions(root, source);
+    let (escape_locals, escape_local_defs) = if include_escape_locals {
+        let local_defs = locals_query.extract_local_definitions_with_locations(root, source);
         let escape_candidates = collect_escape_variable_names(root, source, lang);
-        escape_candidates
-            .into_iter()
-            .filter(|name| local_defs.contains(name))
-            .collect::<HashSet<String>>()
+
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        for def in &local_defs {
+            *name_counts.entry(def.name.clone()).or_default() += 1;
+        }
+
+        let mut escape_locals = HashSet::new();
+        let mut escape_local_defs = Vec::new();
+
+        for def in local_defs {
+            if !escape_candidates.contains(&def.name) {
+                continue;
+            }
+
+            escape_locals.insert(def.name.clone());
+
+            if name_counts.get(&def.name).copied().unwrap_or(0) == 1 {
+                escape_local_defs.push(def);
+            }
+        }
+
+        (escape_locals, escape_local_defs)
     } else {
-        HashSet::new()
+        (HashSet::new(), Vec::new())
     };
 
     if var_names.is_empty() && escape_locals.is_empty() {
@@ -126,6 +146,10 @@ pub fn extract_variable_references(
             summary.calls.push(var_ref);
         }
     }
+
+    if include_escape_locals {
+        add_escape_local_symbols(summary, &escape_local_defs);
+    }
 }
 
 fn map_escape_ref_kind(kind: RefKind) -> RefKind {
@@ -143,6 +167,48 @@ fn collect_escape_variable_names(root: &Node, source: &str, lang: Lang) -> HashS
         }
         Lang::CSharp => collect_csharp_escape_names(root, source),
         _ => HashSet::new(),
+    }
+}
+
+fn add_escape_local_symbols(
+    summary: &mut SemanticSummary,
+    defs: &[locals::LocalDefinition],
+) {
+    if defs.is_empty() {
+        return;
+    }
+
+    let mut existing: HashSet<String> = summary
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Variable)
+        .map(|s| s.name.clone())
+        .collect();
+
+    for def in defs {
+        if !existing.insert(def.name.clone()) {
+            continue;
+        }
+
+        summary.symbols.push(SymbolInfo {
+            name: def.name.clone(),
+            kind: SymbolKind::Variable,
+            start_line: def.start_line,
+            end_line: def.end_line,
+            is_exported: false,
+            is_default_export: false,
+            is_escape_local: true,
+            hash: None,
+            arguments: Vec::new(),
+            props: Vec::new(),
+            return_type: None,
+            calls: Vec::new(),
+            control_flow: Vec::new(),
+            state_changes: Vec::new(),
+            decorators: Vec::new(),
+            behavioral_risk: RiskLevel::Low,
+            framework_entry_point: FrameworkEntryPoint::None,
+        });
     }
 }
 

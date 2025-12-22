@@ -120,7 +120,7 @@ impl SqliteExporter {
 
         // Insert nodes and get module mapping for edges
         let (nodes_inserted, node_modules) =
-            self.insert_nodes_streaming(&mut conn, cache, &progress)?;
+            self.insert_nodes_streaming(&mut conn, cache, &progress, include_escape_refs)?;
 
         // Insert edges and collect module edge counts
         let (edges_inserted, module_edge_counts) = self.insert_edges_streaming(
@@ -240,6 +240,7 @@ impl SqliteExporter {
         conn: &mut Connection,
         cache: &CacheDir,
         progress: &Option<ProgressCallback>,
+        include_escape_refs: bool,
     ) -> Result<(usize, HashMap<String, String>)> {
         let index_path = cache.symbol_index_path();
         if !index_path.exists() {
@@ -275,6 +276,10 @@ impl SqliteExporter {
                 Ok(e) => e,
                 Err(_) => continue,
             };
+
+            if entry.is_escape_local && !include_escape_refs {
+                continue;
+            }
 
             // Track module for this hash
             node_modules.insert(entry.hash.clone(), entry.module.clone());

@@ -182,6 +182,7 @@ fn extract_block_symbol(node: &Node, source: &str) -> Option<SymbolInfo> {
         state_changes: Vec::new(),
         behavioral_risk: RiskLevel::Low,
         decorators: Vec::new(),
+        is_escape_local: false,
         framework_entry_point: FrameworkEntryPoint::None,
     })
 }

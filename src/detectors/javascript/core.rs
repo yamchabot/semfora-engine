@@ -114,6 +114,7 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, source: &str,
                 state_changes: Vec::new(),
                 behavioral_risk: RiskLevel::Low,
                 decorators: Vec::new(),
+                is_escape_local: false,
                 framework_entry_point: FrameworkEntryPoint::None,
             };
 

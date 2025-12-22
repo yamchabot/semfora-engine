@@ -363,6 +363,10 @@ pub struct SearchRequest {
     /// Merge adjacent matches within N lines (for raw mode, default: 3)
     #[schemars(description = "Merge adjacent matches within N lines (raw mode only, default: 3)")]
     pub merge_threshold: Option<usize>,
+
+    /// Include local variables that escape their scope (default: false)
+    #[schemars(description = "Include local variables that escape their scope (default: false)")]
+    pub include_escape_refs: Option<bool>,
 }
 
 /// Unified validate request - auto-detects scope based on provided parameters.
@@ -613,6 +617,10 @@ pub struct GetFileRequest {
     /// Context lines around source (default: 2)
     #[schemars(description = "Lines of context around symbol source (default: 2)")]
     pub context: Option<usize>,
+
+    /// Include local variables that escape their scope
+    #[schemars(description = "Include local variables that escape their scope (default: false)")]
+    pub include_escape_refs: Option<bool>,
 
     /// Repository path
     #[schemars(description = "Path to the repository root (defaults to current directory)")]

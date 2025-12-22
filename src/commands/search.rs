@@ -9,6 +9,7 @@ use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
 use crate::ripgrep::{RipgrepSearcher, SearchOptions};
 use crate::truncate_to_char_boundary;
+use std::collections::HashSet;
 
 /// Run the search command with hybrid search by default
 pub fn run_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String> {
@@ -268,7 +269,10 @@ fn run_symbol_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String> 
         }
     } else {
         // Normal indexed search results
-        let results = search_result.indexed_results.unwrap_or_default();
+        let mut results = search_result.indexed_results.unwrap_or_default();
+        if !args.include_escape_refs {
+            results.retain(|entry| !entry.is_escape_local);
+        }
 
         let json_value = serde_json::json!({
             "_type": "symbol_search",
@@ -330,6 +334,10 @@ fn run_semantic_search(args: &SearchArgs, ctx: &CommandContext) -> Result<String
     if let Some(ref module_filter) = args.module {
         let module_lower = module_filter.to_lowercase();
         results.retain(|r| r.module.to_lowercase() == module_lower);
+    }
+    if !args.include_escape_refs {
+        let escape_hashes = load_escape_local_hashes(&cache);
+        results.retain(|r| !escape_hashes.contains(&r.hash));
     }
 
     results.truncate(args.limit);
@@ -603,7 +611,10 @@ fn get_symbol_matches(cache: &CacheDir, args: &SearchArgs) -> Option<SymbolSearc
             .collect();
         Some(SymbolSearchResults { results })
     } else {
-        let indexed = search_result.indexed_results.unwrap_or_default();
+        let mut indexed = search_result.indexed_results.unwrap_or_default();
+        if !args.include_escape_refs {
+            indexed.retain(|entry| !entry.is_escape_local);
+        }
         let results: Vec<SymbolEntry> = indexed
             .iter()
             .map(|e| SymbolEntry {
@@ -642,6 +653,10 @@ fn get_semantic_matches(cache: &CacheDir, args: &SearchArgs) -> Option<SemanticS
         let module_lower = module_filter.to_lowercase();
         results.retain(|r| r.module.to_lowercase() == module_lower);
     }
+    if !args.include_escape_refs {
+        let escape_hashes = load_escape_local_hashes(cache);
+        results.retain(|r| !escape_hashes.contains(&r.hash));
+    }
 
     results.truncate(args.limit / 2); // Half limit for hybrid
 
@@ -666,6 +681,19 @@ fn get_semantic_matches(cache: &CacheDir, args: &SearchArgs) -> Option<SemanticS
         results: semantic_results,
         suggestions,
     })
+}
+
+fn load_escape_local_hashes(cache: &CacheDir) -> HashSet<String> {
+    cache
+        .load_all_symbol_entries()
+        .map(|entries| {
+            entries
+                .into_iter()
+                .filter(|e| e.is_escape_local)
+                .map(|e| e.hash)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Extract a likely symbol name from a line of code

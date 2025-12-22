@@ -28,6 +28,7 @@ pub mod security;
 pub mod serve;
 pub mod test;
 pub mod toon_parser;
+pub mod trace;
 pub mod validate;
 
 // Re-export command handlers for easy access
@@ -40,6 +41,7 @@ pub use search::run_search;
 pub use security::run_security;
 pub use serve::run_serve;
 pub use test::run_test;
+pub use trace::run_trace;
 pub use validate::{run_duplicates, run_validate};
 
 use crate::cli::OutputFormat;

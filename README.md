@@ -77,13 +77,114 @@ These are critical for large C, C++, embedded, and retro-console codebases.
 
 ### Framework Detection (JavaScript Family)
 
-| Framework   | Detection Method            | Extracted Information                         |
-| ----------- | --------------------------- | --------------------------------------------- |
-| **React**   | Import from `react`         | Components, hooks, forwardRef, memo           |
-| **Next.js** | `/app/`, `/pages/` patterns | API routes, layouts, server/client components |
-| **Express** | Import from `express`       | Route handlers, middleware                    |
-| **Angular** | Decorators (`@Component`)   | Components, services, modules                 |
-| **Vue**     | `.vue` files                | SFC script extraction, Composition API        |
+| Framework                    | Detection Method                    | Extracted Information                              | Status   |
+| ---------------------------- | ----------------------------------- | -------------------------------------------------- | -------- |
+| **React**                    | Import from `react`                 | Components, hooks, forwardRef, memo                | ✅ Done  |
+| **Next.js**                  | `/app/`, `/pages/` patterns         | API routes, layouts, server/client components      | ✅ Done  |
+| **Express**                  | Import from `express`               | Route handlers, middleware                         | ✅ Done  |
+| **Angular**                  | Decorators (`@Component`)           | Components, services, modules                      | ✅ Done  |
+| **Vue**                      | `.vue` files                        | SFC script extraction, Composition API             | ✅ Done  |
+| **NestJS**                   | Decorators + bootstrap              | Controllers, modules, providers                    | ✅ Done  |
+| **Koa**                      | Router + `app.use`                  | Route handlers, middleware                         | ☐ Planned |
+| **Fastify**                  | `fastify.METHOD`, hooks             | Route handlers, lifecycle hooks                    | ☐ Planned |
+| **Hapi**                     | `server.route` + lifecycle hooks    | Route handlers, request lifecycle                  | ☐ Planned |
+| **Sails / Adonis**           | Controller/action patterns          | Route actions, policies                            | ☐ Planned |
+| **Remix**                    | Route module exports                | `loader`, `action`, `default`                      | ☐ Planned |
+| **Astro**                    | Route files + endpoints             | SSR routes, API handlers                           | ☐ Planned |
+| **SvelteKit**                | `+page/+layout/+server` files       | `load`, actions, endpoints                         | ☐ Planned |
+| **Nuxt**                     | `pages/`, `server/api/`, plugins    | Routes, middleware, modules                        | ☐ Planned |
+| **Serverless (Vercel/Netlify/AWS)** | Handler exports                | Serverless entry handlers                          | ☐ Planned |
+| **Cloudflare Workers**       | `fetch`/`scheduled` handlers        | Worker entry points                                | ☐ Planned |
+| **Socket.io / ws**           | Connection + event handlers         | Realtime entry handlers                            | ☐ Planned |
+| **GraphQL (Apollo/Yoga/Helix)** | Resolver map exports             | Resolvers, schema bindings                         | ☐ Planned |
+| **Tooling (Vite/Webpack/Rollup/Babel)** | Config + plugin hooks     | Build entry + plugin hooks                         | ☐ Planned |
+| **CLI (Commander/Yargs/Oclif)** | Command registration             | CLI command handlers                               | ☐ Planned |
+
+---
+
+### Framework Detection (C# / .NET)
+
+| Framework             | Detection Method                  | Extracted Information                       | Status   |
+| --------------------- | --------------------------------- | ------------------------------------------- | -------- |
+| **ASP.NET Core MVC**  | Attributes + controller base       | Controller actions                          | ☐ Planned |
+| **ASP.NET Minimal APIs** | `MapGet/MapPost` handlers       | Route handlers                              | ☐ Planned |
+| **Razor Pages**       | `PageModel` handlers               | Page lifecycle methods                      | ☐ Planned |
+| **Blazor**            | `@page` directives                 | Routed components                           | ☐ Planned |
+| **gRPC**              | Service base classes               | RPC handlers                                | ☐ Planned |
+| **Azure Functions**   | `[FunctionName]` attributes        | Function handlers                           | ☐ Planned |
+| **Unity**             | MonoBehaviour lifecycle            | `Start`, `Update`, `Awake`                  | ☐ Planned |
+| **Godot (C#)**        | Node lifecycle methods             | `_Ready`, `_Process`, `_PhysicsProcess`     | ☐ Planned |
+| **MAUI / Xamarin**    | App lifecycle                      | App entry + page routes                     | ☐ Planned |
+
+---
+
+### Framework Detection (Python)
+
+| Framework          | Detection Method            | Extracted Information              | Status   |
+| ------------------ | --------------------------- | ---------------------------------- | -------- |
+| **Django**         | URL + view patterns          | Views, URL routes                  | ☐ Planned |
+| **Flask**          | `@app.route` decorators      | Route handlers                     | ☐ Planned |
+| **FastAPI**        | `@app.get/post` decorators   | Route handlers, DI                 | ☐ Planned |
+| **Celery / RQ**    | Task decorators              | Task entry points                  | ☐ Planned |
+| **Click / Typer**  | CLI decorators               | Command handlers                   | ☐ Planned |
+| **Airflow**        | DAG declarations             | Workflow entry points              | ☐ Planned |
+
+---
+
+### Framework Detection (Go)
+
+| Framework                | Detection Method            | Extracted Information              | Status   |
+| ------------------------ | --------------------------- | ---------------------------------- | -------- |
+| **net/http**             | Handler registration         | Route handlers                     | ☐ Planned |
+| **Gin/Echo/Fiber/Chi**   | Router registration          | Route handlers                     | ☐ Planned |
+| **gRPC**                 | Service impls                | RPC handlers                       | ☐ Planned |
+| **Cobra**                | Command registration         | CLI command handlers               | ☐ Planned |
+
+---
+
+### Framework Detection (Java/Kotlin)
+
+| Framework                     | Detection Method             | Extracted Information             | Status   |
+| ---------------------------- | ---------------------------- | --------------------------------- | -------- |
+| **Spring Boot / MVC**        | Annotations                  | Controllers, routes               | ☐ Planned |
+| **Micronaut / Quarkus**      | Annotations + DI             | Controllers, beans                | ☐ Planned |
+| **JAX-RS / Jakarta EE**      | Annotations                  | Resource handlers                 | ☐ Planned |
+| **Android (Java/Kotlin)**    | App lifecycle + manifest     | Activities, services              | ☐ Planned |
+| **Ktor**                     | Routing blocks               | Route handlers                    | ☐ Planned |
+| **Jetpack Compose**          | `@Composable`                | UI entry points                   | ☐ Planned |
+
+---
+
+### Framework Detection (Rust)
+
+| Framework                 | Detection Method          | Extracted Information           | Status   |
+| ------------------------ | ------------------------- | ------------------------------- | -------- |
+| **Actix/Axum/Rocket/Warp** | Route macros             | Route handlers                  | ☐ Planned |
+| **Tonic**                | Service trait impls       | RPC handlers                    | ☐ Planned |
+| **Bevy**                 | System registration       | Game systems + app entry        | ☐ Planned |
+
+---
+
+### Framework Detection (C / C++)
+
+| Framework / Domain     | Detection Method          | Extracted Information           | Status   |
+| ---------------------- | ------------------------- | ------------------------------- | -------- |
+| **Unreal Engine**      | Reflection macros         | Gameplay classes, module entry  | ☐ Planned |
+| **SDL/GLFW/Qt**        | App init + event loop     | Application entry               | ☐ Planned |
+| **Embedded / RTOS**    | ISR naming + startup code | Interrupt handlers              | ☐ Planned |
+
+---
+
+### Framework Detection (Swift / PHP / Odin / Dreamcast)
+
+| Framework / Domain | Detection Method           | Extracted Information                  | Status   |
+| ------------------ | -------------------------- | -------------------------------------- | -------- |
+| **SwiftUI**        | `@main` app + `Scene`       | App entry + scene graph                | ☐ Planned |
+| **Vapor**          | Route registration          | Route handlers                         | ☐ Planned |
+| **Laravel/Symfony**| Controller/routes           | Web entry points                       | ☐ Planned |
+| **WordPress**      | Hook/action patterns        | Plugin entry points                    | ☐ Planned |
+| **Odin**           | `package main`, `proc main` | Language entry points                  | ☐ Planned |
+| **Dreamcast/KOS**  | `main`, init routines       | Boot sequence + subsystem entry points | ☐ Planned |
 
 ---
 
@@ -178,6 +279,7 @@ Critical for:
 | **Assembly Integration** | SH-4, ARM, x86 inline asm correlation      |
 | **Driver Patterns**      | IRQ handlers, register maps, init/shutdown |
 | **Build Graphs**         | Makefile + CMake cross-analysis            |
+| **Dreamcast (KOS)**      | Boot sequence, `main`, subsystem init      |
 
 ---
 
@@ -215,6 +317,15 @@ Critical for:
 | Dockerfile     | `Dockerfile` | Structural |
 | PowerShell     | `.ps1`       | Structural |
 | Linker scripts | `.ld`        | Structural |
+
+---
+
+### Priority 6: Odin
+
+| Item    | Details                              |
+| ------- | ------------------------------------ |
+| Parser  | `tree-sitter-odin` (or custom)       |
+| Targets | `package main` + `proc main()`, package init, game libs |
 
 ---
 

@@ -2455,6 +2455,10 @@ pub struct SymbolIndexEntry {
     #[serde(rename = "nest", default, skip_serializing_if = "is_zero_usize")]
     pub max_nesting: usize,
 
+    /// Whether this symbol is a local variable that escapes its scope
+    #[serde(rename = "el", default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_escape_local: bool,
+
     /// Framework entry point type (for filtering dead code false positives)
     #[serde(rename = "fep", default, skip_serializing_if = "FrameworkEntryPoint::is_none")]
     pub framework_entry_point: FrameworkEntryPoint,
@@ -4622,6 +4626,7 @@ mod tests {
             state_changes: Vec::new(),
             behavioral_risk: crate::schema::RiskLevel::Low,
             decorators: Vec::new(),
+            is_escape_local: false,
             framework_entry_point: crate::schema::FrameworkEntryPoint::None,
         };
 
@@ -4805,6 +4810,7 @@ export { formatName, processData };
                 risk: "low".to_string(),
                 cognitive_complexity: 0,
                 max_nesting: 0,
+                is_escape_local: symbol.is_escape_local,
                 framework_entry_point: symbol.framework_entry_point,
             });
         }

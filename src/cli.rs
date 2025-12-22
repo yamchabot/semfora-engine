@@ -50,6 +50,9 @@ pub enum Commands {
     #[command(visible_alias = "q")]
     Query(QueryArgs),
 
+    /// Trace symbol usage across the call graph
+    Trace(TraceArgs),
+
     /// Run quality audits (complexity, duplicates)
     #[command(visible_alias = "v")]
     Validate(ValidateArgs),
@@ -231,6 +234,10 @@ pub struct SearchArgs {
     /// Merge adjacent matches within N lines (for raw search)
     #[arg(long, default_value = "3")]
     pub merge_threshold: usize,
+
+    /// Include local variables that escape their scope
+    #[arg(long)]
+    pub include_escape_refs: bool,
 }
 
 // ============================================
@@ -243,6 +250,57 @@ pub struct QueryArgs {
     /// Query type to execute
     #[command(subcommand)]
     pub query_type: QueryType,
+}
+
+// ============================================
+// Trace Subcommand
+// ============================================
+
+/// Arguments for the trace command
+#[derive(Args, Debug)]
+pub struct TraceArgs {
+    /// Symbol hash or name to trace
+    #[arg(value_name = "TARGET")]
+    pub target: String,
+
+    /// Target kind (function, variable, component, module, file, etc.)
+    #[arg(long)]
+    pub kind: Option<String>,
+
+    /// Trace direction (incoming, outgoing, both)
+    #[arg(long, value_enum, default_value = "both")]
+    pub direction: TraceDirection,
+
+    /// Maximum depth to traverse
+    #[arg(long, default_value = "2")]
+    pub depth: usize,
+
+    /// Maximum edges to return
+    #[arg(long, default_value = "200")]
+    pub limit: usize,
+
+    /// Skip first N edges (for pagination)
+    #[arg(long, default_value = "0")]
+    pub offset: usize,
+
+    /// Include local variables that escape their scope
+    #[arg(long)]
+    pub include_escape_refs: bool,
+
+    /// Include external nodes (ext:*)
+    #[arg(long)]
+    pub include_external: bool,
+
+    /// Path to repository (defaults to current directory)
+    #[arg(long)]
+    pub path: Option<PathBuf>,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+pub enum TraceDirection {
+    Incoming,
+    Outgoing,
+    Both,
 }
 
 /// Types of queries available
@@ -291,6 +349,10 @@ pub enum QueryType {
         /// Limit number of results
         #[arg(long, default_value = "50")]
         limit: usize,
+
+        /// Include local variables that escape their scope
+        #[arg(long)]
+        include_escape_refs: bool,
     },
 
     /// Get a specific symbol by hash or file+line location
@@ -426,6 +488,10 @@ pub enum QueryType {
         /// Lines of context for source snippets
         #[arg(long, default_value = "2")]
         context: usize,
+
+        /// Include local variables that escape their scope
+        #[arg(long)]
+        include_escape_refs: bool,
     },
 
     /// List supported languages
@@ -945,6 +1011,7 @@ impl SearchArgs {
             file_types: None,
             case_sensitive: false,
             merge_threshold: 3,
+            include_escape_refs: false,
         }
     }
 
@@ -969,6 +1036,7 @@ impl SearchArgs {
             file_types: None,
             case_sensitive: false,
             merge_threshold: 3,
+            include_escape_refs: false,
         }
     }
 
@@ -993,6 +1061,7 @@ impl SearchArgs {
             file_types,
             case_sensitive,
             merge_threshold,
+            include_escape_refs: false,
         }
     }
 
@@ -1017,6 +1086,7 @@ impl SearchArgs {
             file_types: None,
             case_sensitive: false,
             merge_threshold: 3,
+            include_escape_refs: false,
         }
     }
 }

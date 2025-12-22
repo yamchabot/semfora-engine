@@ -1151,6 +1151,7 @@ mod tests {
             risk: "low".to_string(),
             cognitive_complexity: cognitive,
             max_nesting: nesting,
+            is_escape_local: false,
             framework_entry_point: crate::schema::FrameworkEntryPoint::None,
         }
     }

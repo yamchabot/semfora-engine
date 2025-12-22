@@ -76,6 +76,10 @@ pub struct SymbolInfo {
     /// Whether this is a default export
     pub is_default_export: bool,
 
+    /// Whether this is a local variable that escapes its defining scope
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_escape_local: bool,
+
     /// Stable hash identifier for this symbol
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
