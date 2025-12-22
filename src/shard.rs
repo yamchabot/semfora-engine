@@ -695,6 +695,7 @@ impl ShardWriter {
                         risk: format!("{:?}", symbol_info.behavioral_risk).to_lowercase(),
                         cognitive_complexity: cc,
                         max_nesting: nest,
+                        framework_entry_point: symbol_info.framework_entry_point,
                     };
 
                     // Write as JSONL (one JSON object per line)
@@ -730,6 +731,7 @@ impl ShardWriter {
                     risk: format!("{:?}", summary.behavioral_risk).to_lowercase(),
                     cognitive_complexity: cc,
                     max_nesting: nest,
+                    framework_entry_point: summary.framework_entry_point,
                 };
 
                 // Write as JSONL (one JSON object per line)

@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::fs_utils;
 use crate::git;
 use crate::overlay::{LayerKind, LayeredIndex, Overlay};
-use crate::schema::{fnv1a_hash, SCHEMA_VERSION};
+use crate::schema::{fnv1a_hash, FrameworkEntryPoint, SCHEMA_VERSION};
 
 /// Normalize symbol kind aliases for filtering
 /// Maps shorthand forms (fn, struct) to full names (function, class)
@@ -2454,6 +2454,10 @@ pub struct SymbolIndexEntry {
     /// Maximum nesting depth
     #[serde(rename = "nest", default, skip_serializing_if = "is_zero_usize")]
     pub max_nesting: usize,
+
+    /// Framework entry point type (for filtering dead code false positives)
+    #[serde(rename = "fep", default, skip_serializing_if = "FrameworkEntryPoint::is_none")]
+    pub framework_entry_point: FrameworkEntryPoint,
 }
 
 fn is_zero_usize(v: &usize) -> bool {
@@ -4801,6 +4805,7 @@ export { formatName, processData };
                 risk: "low".to_string(),
                 cognitive_complexity: 0,
                 max_nesting: 0,
+                framework_entry_point: symbol.framework_entry_point,
             });
         }
 

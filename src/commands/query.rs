@@ -945,19 +945,27 @@ pub fn run_get_callers(
         }
     }
 
-    // Load symbol names for resolution
+    // Load symbol entries for resolution
     let mut symbol_names: HashMap<String, String> = HashMap::new();
+    let mut target_entry: Option<SymbolIndexEntry> = None;
     if let Ok(entries) = cache.load_all_symbol_entries() {
         for entry in entries {
+            if entry.hash == hash {
+                target_entry = Some(entry.clone());
+            }
             symbol_names.insert(entry.hash.clone(), entry.symbol.clone());
         }
     }
 
-    // Get target name
+    // Get target name and framework entry point
     let target_name = symbol_names
         .get(hash)
         .cloned()
         .unwrap_or_else(|| hash.to_string());
+    let target_fep = target_entry
+        .as_ref()
+        .map(|e| e.framework_entry_point)
+        .unwrap_or_default();
 
     // BFS to find callers at each depth level
     let depth = depth.min(3); // Max depth 3 like MCP
@@ -1002,13 +1010,22 @@ pub fn run_get_callers(
         })
         .collect();
 
+    // Include framework entry point info for no-caller symbols
+    let fep_str = if target_fep.is_none() {
+        None
+    } else {
+        Some(format!("{:?}", target_fep).to_lowercase())
+    };
+
     let json_value = serde_json::json!({
         "_type": "callers",
         "target": target_name,
         "target_hash": hash,
         "depth": depth,
         "callers": callers_json,
-        "count": all_callers.len()
+        "count": all_callers.len(),
+        "framework_entry_point": fep_str,
+        "is_framework_entry_point": !target_fep.is_none()
     });
 
     let mut output = String::new();
@@ -1024,7 +1041,14 @@ pub fn run_get_callers(
             output.push_str(&format!("total_callers: {}\n", all_callers.len()));
 
             if all_callers.is_empty() {
-                output.push_str("callers: (none - this may be an entry point or unused)\n");
+                if !target_fep.is_none() {
+                    output.push_str(&format!(
+                        "callers: (none - {} framework entry point)\n",
+                        format!("{:?}", target_fep).to_lowercase()
+                    ));
+                } else {
+                    output.push_str("callers: (none - may be unused or an undetected entry point)\n");
+                }
             } else {
                 output.push_str(&format!(
                     "callers[{}]{{name,hash,depth}}:\n",
@@ -1062,7 +1086,14 @@ pub fn run_get_callers(
             output.push_str(&format!("callers[{}]:\n", all_callers.len()));
 
             if all_callers.is_empty() {
-                output.push_str("  (none - this may be an entry point or unused)\n");
+                if !target_fep.is_none() {
+                    output.push_str(&format!(
+                        "  (none - {} framework entry point)\n",
+                        format!("{:?}", target_fep).to_lowercase()
+                    ));
+                } else {
+                    output.push_str("  (none - may be unused or an undetected entry point)\n");
+                }
             } else {
                 for (caller_hash, caller_name, d) in &all_callers {
                     output.push_str(&format!("  [d{}] {} ({})\n", d, caller_name, caller_hash));
@@ -1647,6 +1678,11 @@ fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> SymbolIndexEn
             .to_string(),
         cognitive_complexity: sym.get("cc").and_then(|c| c.as_u64()).unwrap_or(0) as usize,
         max_nesting: sym.get("nest").and_then(|n| n.as_u64()).unwrap_or(0) as usize,
+        framework_entry_point: sym
+            .get("framework_entry_point")
+            .or_else(|| sym.get("fep"))
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default(),
     }
 }
 
