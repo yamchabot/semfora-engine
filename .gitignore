@@ -15,6 +15,7 @@
 *.txt
 !README.txt
 
+sqlite
 # SQLite exports
 *.sqlite
 *.db
