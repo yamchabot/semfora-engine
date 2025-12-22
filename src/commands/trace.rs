@@ -7,7 +7,7 @@ use crate::trace::{self, TraceOptions};
 use crate::cli::OutputFormat;
 
 pub fn run_trace(options: TraceOptions, ctx: &CommandContext) -> Result<String> {
-    let repo_dir = match options.path {
+    let repo_dir = match options.path.clone() {
         Some(p) => p,
         None => std::env::current_dir().map_err(|e| McpDiffError::FileNotFound {
             path: format!("current directory: {}", e),

@@ -9,8 +9,9 @@ use semfora_engine::analyze_repo_tokens;
 use semfora_engine::cli::{Cli, Commands, ConfigOperation};
 use semfora_engine::commands::{
     run_analyze, run_cache, run_commit, run_index, run_query, run_search, run_security, run_serve,
-    run_test, run_validate, CommandContext,
+    run_test, run_trace, run_validate, CommandContext,
 };
+use semfora_engine::trace;
 use semfora_engine::installer::{
     self, agents::AgentScope, print_available_clients, ConfigArgs, SetupArgs, UninstallArgs,
 };
@@ -148,6 +149,28 @@ fn run() -> semfora_engine::Result<String> {
         // MCP Server Mode
         // ============================================
         Commands::Serve(args) => run_serve(&args),
+
+        // ============================================
+        // Trace
+        // ============================================
+        Commands::Trace(args) => {
+            let options = trace::TraceOptions {
+                target: args.target,
+                target_kind: args.kind,
+                depth: args.depth,
+                limit: args.limit,
+                offset: args.offset,
+                include_escape_refs: args.include_escape_refs,
+                include_external: args.include_external,
+                direction: match args.direction {
+                    semfora_engine::cli::TraceDirection::Incoming => trace::TraceDirection::Incoming,
+                    semfora_engine::cli::TraceDirection::Outgoing => trace::TraceDirection::Outgoing,
+                    semfora_engine::cli::TraceDirection::Both => trace::TraceDirection::Both,
+                },
+                path: args.path,
+            };
+            run_trace(options, &ctx)
+        }
     }
 }
 
