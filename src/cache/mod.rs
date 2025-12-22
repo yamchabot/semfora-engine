@@ -4618,6 +4618,7 @@ mod tests {
             state_changes: Vec::new(),
             behavioral_risk: crate::schema::RiskLevel::Low,
             decorators: Vec::new(),
+            framework_entry_point: crate::schema::FrameworkEntryPoint::None,
         };
 
         let hash1 = compute_symbol_hash(&symbol, "/path/to/file.ts");

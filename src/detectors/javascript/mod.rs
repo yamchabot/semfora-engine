@@ -85,6 +85,10 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree, lang: L
         frameworks::vue::enhance(summary, &root, source);
     }
 
+    if frameworks.is_nestjs {
+        frameworks::nestjs::enhance(summary, source);
+    }
+
     Ok(())
 }
 

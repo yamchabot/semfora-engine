@@ -818,6 +818,7 @@ impl ShardWriter {
                         state_changes: summary.state_changes.clone(),
                         behavioral_risk: summary.behavioral_risk,
                         decorators: Vec::new(),
+                        framework_entry_point: summary.framework_entry_point,
                     };
 
                     let signature = FunctionSignature::from_symbol_info(

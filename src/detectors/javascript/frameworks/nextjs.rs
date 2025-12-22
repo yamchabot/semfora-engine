@@ -9,7 +9,7 @@
 //! - Config files (next.config.js)
 
 use crate::detectors::common::push_unique_insertion;
-use crate::schema::{SemanticSummary, SymbolKind};
+use crate::schema::{FrameworkEntryPoint, SemanticSummary, SymbolKind};
 
 /// Enhance semantic summary with Next.js-specific information
 ///
@@ -17,7 +17,7 @@ use crate::schema::{SemanticSummary, SymbolKind};
 pub fn enhance(summary: &mut SemanticSummary, source: &str) {
     let file_lower = summary.file.to_lowercase();
 
-    // Detect file type and add appropriate insertions
+    // Detect file type and add appropriate insertions + framework entry points
     detect_app_router_patterns(summary, &file_lower, source);
     detect_pages_router_patterns(summary, &file_lower, source);
     detect_api_routes(summary, &file_lower, source);
@@ -25,6 +25,23 @@ pub fn enhance(summary: &mut SemanticSummary, source: &str) {
     detect_config_files(summary, &file_lower, source);
     detect_server_client_components(summary, source);
     detect_data_fetching(summary, source);
+
+    // Also set framework_entry_point on individual symbols
+    propagate_entry_point_to_symbols(summary);
+}
+
+/// Propagate the framework_entry_point from summary to its symbols
+fn propagate_entry_point_to_symbols(summary: &mut SemanticSummary) {
+    if summary.framework_entry_point.is_entry_point() {
+        for symbol in &mut summary.symbols {
+            // Set framework entry point on default exports and primary symbols
+            if symbol.is_default_export || symbol.is_exported {
+                if symbol.framework_entry_point.is_none() {
+                    symbol.framework_entry_point = summary.framework_entry_point;
+                }
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -33,8 +50,9 @@ pub fn enhance(summary: &mut SemanticSummary, source: &str) {
 
 /// Detect App Router file patterns
 fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _source: &str) {
-    // Page component
+    // Page component (app/ directory)
     if file_lower.ends_with("/page.tsx") || file_lower.ends_with("/page.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextPage;
         if summary.symbol_kind == Some(SymbolKind::Component) {
             push_unique_insertion(
                 &mut summary.insertions,
@@ -46,6 +64,7 @@ fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _
 
     // Layout component
     if file_lower.ends_with("/layout.tsx") || file_lower.ends_with("/layout.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextLayout;
         if summary.symbol_kind == Some(SymbolKind::Component) {
             push_unique_insertion(
                 &mut summary.insertions,
@@ -57,6 +76,7 @@ fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _
 
     // Loading component
     if file_lower.ends_with("/loading.tsx") || file_lower.ends_with("/loading.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextPage;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js loading component".to_string(),
@@ -66,6 +86,7 @@ fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _
 
     // Error component
     if file_lower.ends_with("/error.tsx") || file_lower.ends_with("/error.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js error boundary".to_string(),
@@ -75,6 +96,7 @@ fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _
 
     // Not found component
     if file_lower.ends_with("/not-found.tsx") || file_lower.ends_with("/not-found.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js not-found page".to_string(),
@@ -84,6 +106,7 @@ fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _
 
     // Template component
     if file_lower.ends_with("/template.tsx") || file_lower.ends_with("/template.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextLayout;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js template component".to_string(),
@@ -93,6 +116,7 @@ fn detect_app_router_patterns(summary: &mut SemanticSummary, file_lower: &str, _
 
     // Default component (parallel routes)
     if file_lower.ends_with("/default.tsx") || file_lower.ends_with("/default.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextPage;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js default component (parallel route)".to_string(),
@@ -107,8 +131,15 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
         return;
     }
 
-    // _app.tsx
+    // All files in pages/ directory are page components (unless special files)
+    // Set default to NextPage, may be overridden below
+    if summary.framework_entry_point.is_none() {
+        summary.framework_entry_point = FrameworkEntryPoint::NextPage;
+    }
+
+    // _app.tsx - special file
     if file_lower.ends_with("/_app.tsx") || file_lower.ends_with("/_app.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js custom App component".to_string(),
@@ -116,8 +147,9 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
         );
     }
 
-    // _document.tsx
+    // _document.tsx - special file
     if file_lower.ends_with("/_document.tsx") || file_lower.ends_with("/_document.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js custom Document".to_string(),
@@ -125,8 +157,29 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
         );
     }
 
-    // getServerSideProps detection
+    // _error.tsx - special file
+    if file_lower.ends_with("/_error.tsx") || file_lower.ends_with("/_error.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
+    }
+
+    // 404.tsx - special file
+    if file_lower.ends_with("/404.tsx") || file_lower.ends_with("/404.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
+    }
+
+    // 500.tsx - special file
+    if file_lower.ends_with("/500.tsx") || file_lower.ends_with("/500.jsx") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextSpecialFile;
+    }
+
+    // getServerSideProps detection - mark as SSR entry point
     if source.contains("getServerSideProps") {
+        // Mark individual symbols with getServerSideProps name as data fetching
+        for symbol in &mut summary.symbols {
+            if symbol.name == "getServerSideProps" {
+                symbol.framework_entry_point = FrameworkEntryPoint::NextDataFetching;
+            }
+        }
         push_unique_insertion(
             &mut summary.insertions,
             "server-side rendering (SSR)".to_string(),
@@ -136,6 +189,11 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
 
     // getStaticProps detection
     if source.contains("getStaticProps") {
+        for symbol in &mut summary.symbols {
+            if symbol.name == "getStaticProps" {
+                symbol.framework_entry_point = FrameworkEntryPoint::NextDataFetching;
+            }
+        }
         push_unique_insertion(
             &mut summary.insertions,
             "static site generation (SSG)".to_string(),
@@ -145,11 +203,25 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
 
     // getStaticPaths detection
     if source.contains("getStaticPaths") {
+        for symbol in &mut summary.symbols {
+            if symbol.name == "getStaticPaths" {
+                symbol.framework_entry_point = FrameworkEntryPoint::NextDataFetching;
+            }
+        }
         push_unique_insertion(
             &mut summary.insertions,
             "dynamic static paths".to_string(),
             "static paths",
         );
+    }
+
+    // getInitialProps detection (legacy)
+    if source.contains("getInitialProps") {
+        for symbol in &mut summary.symbols {
+            if symbol.name == "getInitialProps" {
+                symbol.framework_entry_point = FrameworkEntryPoint::NextDataFetching;
+            }
+        }
     }
 }
 
@@ -159,10 +231,12 @@ fn detect_pages_router_patterns(summary: &mut SemanticSummary, file_lower: &str,
 
 /// Detect API route handlers
 fn detect_api_routes(summary: &mut SemanticSummary, file_lower: &str, _source: &str) {
-    // App Router API routes
+    // App Router API routes (route.ts/route.js in api/ directory)
     if file_lower.contains("/api/")
         && (file_lower.ends_with("/route.ts") || file_lower.ends_with("/route.js"))
     {
+        summary.framework_entry_point = FrameworkEntryPoint::NextApiRoute;
+
         if let Some(ref sym) = summary.symbol {
             let method = sym.to_uppercase();
             if matches!(
@@ -177,17 +251,29 @@ fn detect_api_routes(summary: &mut SemanticSummary, file_lower: &str, _source: &
             }
         }
 
-        // Check for multiple exported methods
-        let mut methods = Vec::new();
-        for symbol in &summary.symbols {
+        // Mark HTTP method handlers as API routes
+        for symbol in &mut summary.symbols {
             let name_upper = symbol.name.to_uppercase();
             if matches!(
                 name_upper.as_str(),
                 "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS"
             ) {
-                methods.push(name_upper);
+                symbol.framework_entry_point = FrameworkEntryPoint::NextApiRoute;
             }
         }
+
+        // Check for multiple exported methods for insertion
+        let methods: Vec<String> = summary
+            .symbols
+            .iter()
+            .map(|s| s.name.to_uppercase())
+            .filter(|n| {
+                matches!(
+                    n.as_str(),
+                    "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS"
+                )
+            })
+            .collect();
 
         if methods.len() > 1 {
             push_unique_insertion(
@@ -198,8 +284,9 @@ fn detect_api_routes(summary: &mut SemanticSummary, file_lower: &str, _source: &
         }
     }
 
-    // Pages Router API routes
+    // Pages Router API routes (files in pages/api/)
     if file_lower.contains("/pages/api/") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextApiRoute;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js Pages API route".to_string(),
@@ -215,11 +302,19 @@ fn detect_api_routes(summary: &mut SemanticSummary, file_lower: &str, _source: &
 /// Detect Next.js middleware
 fn detect_middleware(summary: &mut SemanticSummary, file_lower: &str, source: &str) {
     if file_lower.ends_with("/middleware.ts") || file_lower.ends_with("/middleware.js") {
+        summary.framework_entry_point = FrameworkEntryPoint::NextMiddleware;
         push_unique_insertion(
             &mut summary.insertions,
             "Next.js middleware".to_string(),
             "middleware",
         );
+
+        // Mark the middleware function export as framework entry point
+        for symbol in &mut summary.symbols {
+            if symbol.name == "middleware" || symbol.is_default_export {
+                symbol.framework_entry_point = FrameworkEntryPoint::NextMiddleware;
+            }
+        }
 
         // Check for matcher config
         if source.contains("matcher") {

@@ -25,8 +25,8 @@ use crate::detectors::locals;
 use crate::error::Result;
 use crate::lang::Lang;
 use crate::schema::{
-    Call, ControlFlowChange, ControlFlowKind, Location, RefKind, RiskLevel, SemanticSummary,
-    StateChange, SymbolInfo, SymbolKind,
+    Call, ControlFlowChange, ControlFlowKind, FrameworkEntryPoint, Location, RefKind, RiskLevel,
+    SemanticSummary, StateChange, SymbolInfo, SymbolKind,
 };
 use crate::utils::truncate_to_char_boundary;
 
@@ -106,6 +106,7 @@ fn extract_symbols(
             state_changes: Vec::new(),
             decorators: candidate.decorators.clone(),
             behavioral_risk: RiskLevel::Low,
+            framework_entry_point: FrameworkEntryPoint::None,
         };
         summary.symbols.push(symbol_info);
     }

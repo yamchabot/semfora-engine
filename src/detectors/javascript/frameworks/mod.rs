@@ -21,6 +21,7 @@
 
 pub mod angular;
 pub mod express;
+pub mod nestjs;
 pub mod nextjs;
 pub mod react;
 pub mod vue;

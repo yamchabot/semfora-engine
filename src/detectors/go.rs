@@ -14,7 +14,7 @@ use crate::detectors::common::get_node_text;
 use crate::detectors::generic::extract_with_grammar;
 use crate::detectors::grammar::GO_GRAMMAR;
 use crate::error::Result;
-use crate::schema::{RiskLevel, SemanticSummary, SymbolInfo, SymbolKind};
+use crate::schema::{FrameworkEntryPoint, RiskLevel, SemanticSummary, SymbolInfo, SymbolKind};
 
 /// Extract semantic information from a Go source file
 pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Result<()> {
@@ -89,6 +89,7 @@ fn find_go_type_symbols(summary: &mut SemanticSummary, root: &Node, source: &str
                 state_changes: Vec::new(),
                 behavioral_risk: RiskLevel::Low,
                 decorators: Vec::new(),
+                framework_entry_point: FrameworkEntryPoint::None,
             };
             summary.symbols.push(symbol_info);
         }
