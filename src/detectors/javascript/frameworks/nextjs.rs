@@ -27,21 +27,7 @@ pub fn enhance(summary: &mut SemanticSummary, source: &str) {
     detect_data_fetching(summary, source);
 
     // Also set framework_entry_point on individual symbols
-    propagate_entry_point_to_symbols(summary);
-}
-
-/// Propagate the framework_entry_point from summary to its symbols
-fn propagate_entry_point_to_symbols(summary: &mut SemanticSummary) {
-    if summary.framework_entry_point.is_entry_point() {
-        for symbol in &mut summary.symbols {
-            // Set framework entry point on default exports and primary symbols
-            if symbol.is_default_export || symbol.is_exported {
-                if symbol.framework_entry_point.is_none() {
-                    symbol.framework_entry_point = summary.framework_entry_point;
-                }
-            }
-        }
-    }
+    super::propagate_entry_point_to_symbols(summary);
 }
 
 // =============================================================================

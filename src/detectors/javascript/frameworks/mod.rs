@@ -28,6 +28,25 @@ pub mod vue;
 
 use crate::schema::SemanticSummary;
 
+/// Propagate the framework_entry_point from summary to its symbols
+///
+/// This shared function is used by framework enhancers (Next.js, NestJS, etc.)
+/// to propagate the file-level framework entry point to individual symbols.
+/// It sets the entry point on exported symbols (including default exports)
+/// that don't already have one set.
+pub fn propagate_entry_point_to_symbols(summary: &mut SemanticSummary) {
+    if summary.framework_entry_point.is_entry_point() {
+        for symbol in &mut summary.symbols {
+            // Set framework entry point on default exports and exported symbols
+            if (symbol.is_default_export || symbol.is_exported)
+                && symbol.framework_entry_point.is_none()
+            {
+                symbol.framework_entry_point = summary.framework_entry_point;
+            }
+        }
+    }
+}
+
 /// Framework detection context
 ///
 /// This struct tracks which frameworks are detected in a file based on

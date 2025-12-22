@@ -92,14 +92,8 @@ fn enhance_python_symbols(summary: &mut SemanticSummary, root: &Node, source: &s
 // Helper Functions
 // ============================================================================
 
-/// Extract the filename stem from a file path
-fn extract_filename_stem(file_path: &str) -> String {
-    std::path::Path::new(file_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_lowercase()
-}
+// Use shared extract_filename_stem from parent module
+use super::extract_filename_stem;
 
 /// Calculate a basic score for symbol prioritization (simplified)
 fn calculate_basic_score(name: &str, filename_stem: &str) -> i32 {

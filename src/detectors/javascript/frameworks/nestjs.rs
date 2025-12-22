@@ -23,18 +23,7 @@ pub fn enhance(summary: &mut SemanticSummary, source: &str) {
     detect_module_patterns(summary, source);
 
     // Propagate framework entry point to symbols
-    propagate_entry_point_to_symbols(summary);
-}
-
-/// Propagate the framework_entry_point from summary to its symbols
-fn propagate_entry_point_to_symbols(summary: &mut SemanticSummary) {
-    if summary.framework_entry_point.is_entry_point() {
-        for symbol in &mut summary.symbols {
-            if symbol.is_exported && symbol.framework_entry_point.is_none() {
-                symbol.framework_entry_point = summary.framework_entry_point;
-            }
-        }
-    }
+    super::propagate_entry_point_to_symbols(summary);
 }
 
 /// Detect NestJS decorator patterns

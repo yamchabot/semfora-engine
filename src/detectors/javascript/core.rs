@@ -142,14 +142,8 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, source: &str,
     }
 }
 
-/// Extract filename stem
-pub fn extract_filename_stem(file_path: &str) -> String {
-    std::path::Path::new(file_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_lowercase()
-}
+// Re-export shared extract_filename_stem for backwards compatibility
+pub use crate::detectors::extract_filename_stem;
 
 /// Collect symbol candidates from the AST
 fn collect_symbol_candidates(

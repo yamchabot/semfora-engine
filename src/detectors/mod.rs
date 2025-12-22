@@ -119,3 +119,21 @@ pub mod shell;
 // Re-export key types for convenience
 pub use generic::extract_with_grammar;
 pub use grammar::{get_grammar, LangGrammar};
+
+/// Extract the filename stem from a file path (lowercase)
+///
+/// This is a shared utility used by multiple language detectors for
+/// symbol selection heuristics (e.g., preferring symbols that match the filename).
+///
+/// # Example
+/// ```
+/// use semfora_engine::detectors::extract_filename_stem;
+/// assert_eq!(extract_filename_stem("/src/UserService.rs"), "userservice");
+/// ```
+pub fn extract_filename_stem(file_path: &str) -> String {
+    std::path::Path::new(file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+}

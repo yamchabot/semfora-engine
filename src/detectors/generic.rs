@@ -437,13 +437,8 @@ fn calculate_symbol_score(
     score
 }
 
-fn extract_filename_stem(file_path: &str) -> String {
-    std::path::Path::new(file_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_lowercase()
-}
+// Use shared extract_filename_stem from parent module
+use super::extract_filename_stem;
 
 // =============================================================================
 // Import Extraction
