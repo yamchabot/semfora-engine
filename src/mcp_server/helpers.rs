@@ -9,6 +9,7 @@ use std::time::SystemTime;
 
 use std::collections::{HashMap, HashSet};
 
+use super::formatting::toon_header;
 use crate::duplicate::DuplicateDetector;
 use crate::indexing::{
     analyze_files_with_stats as indexing_analyze_files_with_stats,
@@ -924,9 +925,7 @@ pub fn validate_single_symbol(
 
 /// Format a single validation result to TOON format
 pub fn format_validation_result(result: &SymbolValidationResult) -> String {
-    let mut output = String::new();
-
-    output.push_str("_type: validation_result\n");
+    let mut output = toon_header("validation_result");
     output.push_str(&format!("symbol: {}\n", result.symbol));
     output.push_str(&format!("file: {}\n", result.file));
     output.push_str(&format!("lines: {}\n", result.lines));
@@ -1000,10 +999,8 @@ pub fn format_batch_validation_results(
     results: &[SymbolValidationResult],
     context_name: &str,
 ) -> String {
-    let mut output = String::new();
-
     // Summary header
-    output.push_str("_type: batch_validation_results\n");
+    let mut output = toon_header("batch_validation_results");
     output.push_str(&format!("context: {}\n", context_name));
     output.push_str(&format!("total_symbols: {}\n", results.len()));
 

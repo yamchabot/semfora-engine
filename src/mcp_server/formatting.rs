@@ -7,6 +7,22 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+// ============================================================================
+// Version Header
+// ============================================================================
+
+/// Package version from Cargo.toml
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Generate TOON header with type and version
+///
+/// All MCP tool responses should start with this header for consistency.
+/// Format: `_type: <type_name>\nversion: <version>\n`
+#[inline]
+pub fn toon_header(type_name: &str) -> String {
+    format!("_type: {}\nversion: {}\n", type_name, VERSION)
+}
+
 use crate::parsing::parse_and_extract;
 use crate::{encode_toon, CacheDir, Lang, SymbolIndexEntry};
 
@@ -29,10 +45,8 @@ pub fn format_diff_output_paginated(
     // Apply pagination
     let page_files: Vec<_> = changed_files.iter().skip(offset).take(limit).collect();
 
-    let mut output = String::new();
-
     // TOON header with pagination metadata
-    output.push_str("_type: analyze_diff\n");
+    let mut output = toon_header("analyze_diff");
     output.push_str(&format!("base: \"{}\"\n", base_ref));
     output.push_str(&format!("target: \"{}\"\n", target_ref));
     output.push_str(&format!("total_files: {}\n", total_files));
@@ -132,10 +146,8 @@ pub fn format_diff_summary(
 ) -> String {
     use std::collections::HashMap;
 
-    let mut output = String::new();
-
     // TOON header
-    output.push_str("_type: analyze_diff_summary\n");
+    let mut output = toon_header("analyze_diff_summary");
     output.push_str(&format!("base: \"{}\"\n", base_ref));
     output.push_str(&format!("target: \"{}\"\n", target_ref));
     output.push_str(&format!("total_files: {}\n", changed_files.len()));
@@ -301,8 +313,7 @@ pub(super) fn format_module_symbols(
     results: &[SymbolIndexEntry],
     cache: &CacheDir,
 ) -> String {
-    let mut output = String::new();
-    output.push_str("_type: module_symbols\n");
+    let mut output = toon_header("module_symbols");
     output.push_str(&format!("module: \"{}\"\n", module));
     output.push_str(&format!("total: {}\n", results.len()));
 

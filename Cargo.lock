@@ -2122,7 +2122,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "semfora-engine"
-version = "0.7.5-beta"
+version = "0.7.6-beta"
 dependencies = [
  "anyhow",
  "async-lsp",

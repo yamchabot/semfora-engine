@@ -24,6 +24,7 @@ pub mod express;
 pub mod nestjs;
 pub mod nextjs;
 pub mod react;
+pub mod redux;
 pub mod vue;
 
 use crate::schema::SemanticSummary;
@@ -73,6 +74,10 @@ pub struct FrameworkContext {
     pub is_hono: bool,
     /// Remix detected
     pub is_remix: bool,
+    /// Redux detected (via imports or patterns)
+    pub is_redux: bool,
+    /// Redux Toolkit detected (modern Redux)
+    pub is_redux_toolkit: bool,
 }
 
 /// Detect which frameworks are in use based on imports and file patterns
@@ -138,6 +143,31 @@ pub fn detect_frameworks(summary: &SemanticSummary, source: &str) -> FrameworkCo
         if dep_lower.starts_with("@remix-run/") {
             ctx.is_remix = true;
             ctx.is_react = true; // Remix implies React
+        }
+
+        // Redux (old-style)
+        if dep_lower == "redux"
+            || dep_lower == "react-redux"
+            || dep == "createStore"
+            || dep == "combineReducers"
+            || dep == "applyMiddleware"
+            || dep == "connect"
+            || dep == "useSelector"
+            || dep == "useDispatch"
+        {
+            ctx.is_redux = true;
+        }
+
+        // Redux Toolkit (modern)
+        if dep_lower == "@reduxjs/toolkit"
+            || dep == "createSlice"
+            || dep == "configureStore"
+            || dep == "createAsyncThunk"
+            || dep == "createApi"
+            || dep == "createSelector"
+        {
+            ctx.is_redux = true;
+            ctx.is_redux_toolkit = true;
         }
 
         // Hooks indicate React
@@ -217,6 +247,96 @@ fn detect_from_source(ctx: &mut FrameworkContext, source: &str) {
     if source.contains("@Controller(") || source.contains("@Get(") || source.contains("@Post(") {
         ctx.is_nestjs = true;
     }
+
+    // Redux patterns (old-style)
+    if source.contains("switch (action.type)")
+        || source.contains("switch(action.type)")
+        || source.contains("action.type ===")
+        || source.contains("combineReducers(")
+        || source.contains("createStore(")
+        || source.contains("useSelector(")
+        || source.contains("useDispatch(")
+        || source.contains("connect(")
+    {
+        ctx.is_redux = true;
+    }
+
+    // Redux Toolkit patterns
+    if source.contains("createSlice(")
+        || source.contains("configureStore(")
+        || source.contains("createAsyncThunk(")
+        || source.contains("createApi(")
+    {
+        ctx.is_redux = true;
+        ctx.is_redux_toolkit = true;
+    }
+
+    // Redux action type constants (old-style)
+    // Pattern: export const SET_ACCESS_TOKEN = 'SET_ACCESS_TOKEN'
+    if has_action_type_constants(source) {
+        ctx.is_redux = true;
+    }
+}
+
+/// Check if source contains Redux action type constant patterns
+fn has_action_type_constants(source: &str) -> bool {
+    // Look for SCREAMING_SNAKE_CASE exports with action-like prefixes
+    for line in source.lines() {
+        let line = line.trim();
+        if line.starts_with("export const ") || line.starts_with("const ") {
+            // Extract the constant name
+            let after_const = if line.starts_with("export const ") {
+                &line[13..]
+            } else {
+                &line[6..]
+            };
+
+            // Find the name (before = or :)
+            if let Some(name_end) = after_const.find(|c| c == '=' || c == ':' || c == ' ') {
+                let name = after_const[..name_end].trim();
+
+                // Check if it's SCREAMING_SNAKE_CASE with action-like prefix
+                if is_action_type_constant(name) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a constant name looks like a Redux action type
+fn is_action_type_constant(name: &str) -> bool {
+    // Must be SCREAMING_SNAKE_CASE (all caps, underscores, maybe numbers)
+    if !name.chars().all(|c| c.is_uppercase() || c == '_' || c.is_numeric()) {
+        return false;
+    }
+
+    // Must have at least one underscore (to distinguish from single-word constants)
+    if !name.contains('_') {
+        return false;
+    }
+
+    // Must contain action-like prefixes/suffixes
+    let lower = name.to_lowercase();
+    lower.starts_with("set_")
+        || lower.starts_with("get_")
+        || lower.starts_with("fetch_")
+        || lower.starts_with("load_")
+        || lower.starts_with("update_")
+        || lower.starts_with("delete_")
+        || lower.starts_with("add_")
+        || lower.starts_with("remove_")
+        || lower.starts_with("clear_")
+        || lower.starts_with("reset_")
+        || lower.starts_with("toggle_")
+        || lower.ends_with("_request")
+        || lower.ends_with("_success")
+        || lower.ends_with("_failure")
+        || lower.ends_with("_error")
+        || lower.ends_with("_pending")
+        || lower.ends_with("_fulfilled")
+        || lower.ends_with("_rejected")
 }
 
 #[cfg(test)]
@@ -269,5 +389,65 @@ mod tests {
 
         let ctx = detect_frameworks(&summary, source);
         assert!(ctx.is_angular);
+    }
+
+    #[test]
+    fn test_framework_detection_redux_switch() {
+        let summary = SemanticSummary::default();
+        let source = r#"
+            export const reducer = (state, action) => {
+                switch (action.type) {
+                    case SET_TOKEN:
+                        return { ...state, token: action.payload }
+                }
+            }
+        "#;
+
+        let ctx = detect_frameworks(&summary, source);
+        assert!(ctx.is_redux, "Redux should be detected from switch (action.type)");
+    }
+
+    #[test]
+    fn test_framework_detection_redux_imports() {
+        let mut summary = SemanticSummary::default();
+        summary.added_dependencies.push("useSelector".to_string());
+        summary.added_dependencies.push("useDispatch".to_string());
+
+        let ctx = detect_frameworks(&summary, "");
+        assert!(ctx.is_redux, "Redux should be detected from useSelector/useDispatch imports");
+    }
+
+    #[test]
+    fn test_framework_detection_redux_toolkit() {
+        let summary = SemanticSummary::default();
+        let source = "const slice = createSlice({ name: 'auth', reducers: {} })";
+
+        let ctx = detect_frameworks(&summary, source);
+        assert!(ctx.is_redux, "Redux should be detected from createSlice");
+        assert!(ctx.is_redux_toolkit, "Redux Toolkit should be detected from createSlice");
+    }
+
+    #[test]
+    fn test_framework_detection_redux_action_types() {
+        let summary = SemanticSummary::default();
+        let source = r#"
+            export const SET_ACCESS_TOKEN = 'SET_ACCESS_TOKEN'
+            export const FETCH_USER_REQUEST = 'user/FETCH_REQUEST'
+        "#;
+
+        let ctx = detect_frameworks(&summary, source);
+        assert!(ctx.is_redux, "Redux should be detected from action type constants");
+    }
+
+    #[test]
+    fn test_action_type_constant_detection() {
+        assert!(is_action_type_constant("SET_ACCESS_TOKEN"));
+        assert!(is_action_type_constant("FETCH_USER_REQUEST"));
+        assert!(is_action_type_constant("ADD_TODO"));
+        assert!(is_action_type_constant("CLEAR_ERRORS"));
+        assert!(is_action_type_constant("UPDATE_USER_SUCCESS"));
+        assert!(!is_action_type_constant("setAccessToken")); // camelCase
+        assert!(!is_action_type_constant("CONSTANT")); // no underscore
+        assert!(!is_action_type_constant("SOME_RANDOM_THING")); // no action-like keyword
     }
 }

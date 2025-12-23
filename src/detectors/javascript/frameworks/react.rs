@@ -12,7 +12,9 @@
 use tree_sitter::Node;
 
 use crate::detectors::common::{get_node_text, push_unique_insertion, visit_all};
-use crate::schema::{Call, FrameworkEntryPoint, SemanticSummary, StateChange, SymbolKind};
+use crate::schema::{
+    Call, FrameworkEntryPoint, SemanticSummary, StateChange, SymbolInfo, SymbolKind,
+};
 
 /// Enhance semantic summary with React-specific information
 ///
@@ -20,6 +22,9 @@ use crate::schema::{Call, FrameworkEntryPoint, SemanticSummary, StateChange, Sym
 pub fn enhance(summary: &mut SemanticSummary, root: &Node, source: &str) {
     // Extract state hooks (useState, useReducer)
     extract_state_hooks(summary, root, source);
+
+    // Extract createContext calls
+    extract_context_creation(summary, root, source);
 
     // Extract effect hooks (useEffect)
     extract_effect_hooks(summary, root, source);
@@ -106,22 +111,71 @@ fn extract_hook_state(summary: &mut SemanticSummary, node: &Node, func_name: &st
             if let Some(name_node) = parent.child_by_field_name("name") {
                 if name_node.kind() == "array_pattern" {
                     let mut cursor = name_node.walk();
+                    let mut found_state = false;
+                    let mut found_setter = false;
+
                     for child in name_node.children(&mut cursor) {
                         if child.kind() == "identifier" {
-                            let state_name = get_node_text(&child, source);
+                            let name = get_node_text(&child, source);
+                            let start_line = child.start_position().row + 1;
+                            let end_line = child.end_position().row + 1;
 
-                            let init = extract_hook_initializer(node, source);
+                            if !found_state {
+                                // First identifier is the state variable
+                                let init = extract_hook_initializer(node, source);
 
-                            summary.state_changes.push(StateChange {
-                                name: state_name.clone(),
-                                state_type: infer_type(&init),
-                                initializer: init,
-                            });
+                                summary.state_changes.push(StateChange {
+                                    name: name.clone(),
+                                    state_type: infer_type(&init),
+                                    initializer: init,
+                                });
 
-                            summary
-                                .insertions
-                                .push(format!("local {} state via {}", state_name, func_name));
-                            break;
+                                summary
+                                    .insertions
+                                    .push(format!("local {} state via {}", name, func_name));
+
+                                // Create a Variable symbol for the state variable
+                                let exists = summary
+                                    .symbols
+                                    .iter()
+                                    .any(|s| s.name == name && s.kind == SymbolKind::Variable);
+
+                                if !exists {
+                                    summary.symbols.push(SymbolInfo {
+                                        name: name.clone(),
+                                        kind: SymbolKind::Variable,
+                                        start_line,
+                                        end_line,
+                                        is_exported: false,
+                                        is_default_export: false,
+                                        framework_entry_point: FrameworkEntryPoint::ReactState,
+                                        ..Default::default()
+                                    });
+                                }
+
+                                found_state = true;
+                            } else if !found_setter {
+                                // Second identifier is the setter function - also create a symbol
+                                let exists = summary
+                                    .symbols
+                                    .iter()
+                                    .any(|s| s.name == name && s.kind == SymbolKind::Variable);
+
+                                if !exists {
+                                    summary.symbols.push(SymbolInfo {
+                                        name: name.clone(),
+                                        kind: SymbolKind::Variable,
+                                        start_line,
+                                        end_line,
+                                        is_exported: false,
+                                        is_default_export: false,
+                                        framework_entry_point: FrameworkEntryPoint::ReactState,
+                                        ..Default::default()
+                                    });
+                                }
+
+                                found_setter = true;
+                            }
                         }
                     }
                 }
@@ -160,6 +214,79 @@ fn infer_type(init: &str) -> String {
         "null".to_string()
     } else {
         "_".to_string()
+    }
+}
+
+// =============================================================================
+// Context Extraction
+// =============================================================================
+
+/// Extract React createContext calls and create Variable symbols for contexts
+///
+/// Detects patterns like:
+/// ```javascript
+/// const MyContext = createContext(defaultValue);
+/// export const ThemeContext = React.createContext({ theme: 'light' });
+/// ```
+fn extract_context_creation(summary: &mut SemanticSummary, root: &Node, source: &str) {
+    visit_all(root, |node| {
+        if node.kind() == "call_expression" {
+            if let Some(func) = node.child_by_field_name("function") {
+                let func_text = get_node_text(&func, source);
+                // Match createContext or React.createContext
+                if func_text == "createContext" || func_text.ends_with(".createContext") {
+                    extract_context_variable(summary, node, source);
+                }
+            }
+        }
+    });
+}
+
+/// Extract the variable name from a createContext call
+fn extract_context_variable(summary: &mut SemanticSummary, node: &Node, source: &str) {
+    // Navigate up to find the variable declarator
+    if let Some(parent) = node.parent() {
+        if parent.kind() == "variable_declarator" {
+            if let Some(name_node) = parent.child_by_field_name("name") {
+                if name_node.kind() == "identifier" {
+                    let context_name = get_node_text(&name_node, source);
+                    let start_line = name_node.start_position().row + 1;
+                    let end_line = name_node.end_position().row + 1;
+
+                    // Check if already exists
+                    let exists = summary
+                        .symbols
+                        .iter()
+                        .any(|s| s.name == context_name && s.kind == SymbolKind::Variable);
+
+                    if !exists {
+                        // Check if it's exported by looking at the grandparent
+                        let is_exported = parent.parent().map_or(false, |gp| {
+                            gp.kind() == "export_statement"
+                                || (gp.kind() == "lexical_declaration"
+                                    && gp.parent().map_or(false, |ggp| {
+                                        ggp.kind() == "export_statement"
+                                    }))
+                        });
+
+                        summary.symbols.push(SymbolInfo {
+                            name: context_name.clone(),
+                            kind: SymbolKind::Variable,
+                            start_line,
+                            end_line,
+                            is_exported,
+                            is_default_export: false,
+                            framework_entry_point: FrameworkEntryPoint::ReactContext,
+                            ..Default::default()
+                        });
+
+                        summary
+                            .insertions
+                            .push(format!("React context {}", context_name));
+                    }
+                }
+            }
+        }
     }
 }
 

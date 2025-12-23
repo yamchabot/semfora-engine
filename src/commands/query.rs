@@ -1059,7 +1059,7 @@ pub fn run_get_callers(
             output = serde_json::to_string_pretty(&json_value).unwrap_or_default();
         }
         OutputFormat::Toon => {
-            output.push_str("_type: callers\n");
+            output.push_str(&super::toon_header("callers"));
             output.push_str(&format!("target: {} ({})\n", target_name, hash));
             output.push_str(&format!("depth: {}\n", depth));
             output.push_str(&format!("total_callers: {}\n", all_callers.len()));
@@ -1556,7 +1556,8 @@ pub fn run_file_symbols(
                 "hint": "File may not be indexed or path doesn't match."
             }).to_string()),
             OutputFormat::Toon | OutputFormat::Text => Ok(format!(
-                "_type: file_symbols\nfile: \"{}\"\nshowing: 0\nsymbols: (none)\nhint: File may not be indexed or path doesn't match.\n",
+                "{}file: \"{}\"\nshowing: 0\nsymbols: (none)\nhint: File may not be indexed or path doesn't match.\n",
+                super::toon_header("file_symbols"),
                 file_path
             )),
         };
@@ -1594,7 +1595,7 @@ pub fn run_file_symbols(
         }
         OutputFormat::Toon => {
             // Compact TOON format with key columns
-            output.push_str("_type: file_symbols\n");
+            output.push_str(&super::toon_header("file_symbols"));
             output.push_str(&format!("file: \"{}\"\n", file_path));
             output.push_str(&format!("showing: {}\n", symbols.len()));
             output.push_str(&format!(

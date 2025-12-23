@@ -785,8 +785,14 @@ pub fn extract_imports(summary: &mut SemanticSummary, root: &Node, source: &str)
                     summary.local_imports.push(normalize_import_path(module));
                 }
 
-                // Extract imported names
-                extract_import_names(&child, source, module, &mut summary.added_dependencies);
+                // Extract imported names and track their source packages
+                extract_import_names(
+                    &child,
+                    source,
+                    module,
+                    &mut summary.added_dependencies,
+                    &mut summary.import_sources,
+                );
             }
         }
     }
@@ -802,8 +808,17 @@ fn normalize_import_path(module: &str) -> String {
     module.trim_start_matches("./").to_string()
 }
 
-/// Extract imported names from import statement
-fn extract_import_names(import: &Node, source: &str, module: &str, deps: &mut Vec<String>) {
+/// Extract imported names from import statement and track their source packages
+fn extract_import_names(
+    import: &Node,
+    source: &str,
+    module: &str,
+    deps: &mut Vec<String>,
+    import_sources: &mut std::collections::HashMap<String, String>,
+) {
+    // Normalize package name for external imports (strip @ scope prefix for display)
+    let package_name = normalize_package_name(module);
+
     let mut cursor = import.walk();
     for child in import.children(&mut cursor) {
         if child.kind() == "import_clause" {
@@ -811,21 +826,43 @@ fn extract_import_names(import: &Node, source: &str, module: &str, deps: &mut Ve
             for inner in child.children(&mut inner_cursor) {
                 match inner.kind() {
                     "identifier" => {
-                        deps.push(get_node_text(&inner, source));
+                        // Default import: import React from 'react'
+                        let name = get_node_text(&inner, source);
+                        deps.push(name.clone());
+                        if !is_local_import(module) {
+                            import_sources.insert(name, package_name.clone());
+                        }
                     }
                     "named_imports" => {
+                        // Named imports: import { useState, useEffect } from 'react'
                         let mut named_cursor = inner.walk();
                         for named in inner.children(&mut named_cursor) {
                             if named.kind() == "import_specifier" {
                                 if let Some(name_node) = named.child_by_field_name("name") {
-                                    deps.push(get_node_text(&name_node, source));
+                                    let original_name = get_node_text(&name_node, source);
+                                    // Check for alias: import { Foo as Bar } from 'pkg'
+                                    let local_name = named
+                                        .child_by_field_name("alias")
+                                        .map(|a| get_node_text(&a, source))
+                                        .unwrap_or_else(|| original_name.clone());
+                                    deps.push(local_name.clone());
+                                    if !is_local_import(module) {
+                                        import_sources.insert(local_name, package_name.clone());
+                                    }
                                 }
                             }
                         }
                     }
                     "namespace_import" => {
+                        // Namespace import: import * as Icons from 'lucide-react'
                         if let Some(name_node) = inner.child_by_field_name("name") {
-                            deps.push(get_node_text(&name_node, source));
+                            let name = get_node_text(&name_node, source);
+                            deps.push(name.clone());
+                            if !is_local_import(module) {
+                                // For namespace imports, mark with special prefix
+                                // so we can handle Icons.ChevronDown -> lucide-react
+                                import_sources.insert(format!("{}.*", name), package_name.clone());
+                            }
                         }
                     }
                     _ => {}
@@ -839,6 +876,18 @@ fn extract_import_names(import: &Node, source: &str, module: &str, deps: &mut Ve
         if let Some(last) = module.split('/').last() {
             deps.push(last.to_string());
         }
+    }
+}
+
+/// Normalize a package name for display
+/// - "@radix-ui/react-accordion" -> "radix-ui/react-accordion"
+/// - "react" -> "react"
+/// - "@stripe/stripe-js" -> "stripe/stripe-js"
+fn normalize_package_name(module: &str) -> String {
+    if module.starts_with('@') {
+        module[1..].to_string()
+    } else {
+        module.to_string()
     }
 }
 

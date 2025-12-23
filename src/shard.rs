@@ -26,6 +26,15 @@ use crate::schema::{
 };
 use crate::toon::{encode_toon, generate_repo_overview_with_modules, is_meaningful_call};
 
+/// Package version from Cargo.toml
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Generate TOON header with type and version for shard files
+#[inline]
+fn toon_header(type_name: &str) -> String {
+    format!("_type: {}\nversion: {}", type_name, VERSION)
+}
+
 // ============================================================================
 // Module Registry - Conflict-Aware Module Name Stripping
 // ============================================================================
@@ -1021,7 +1030,7 @@ impl ShardStats {
 fn encode_repo_overview_with_meta(overview: &RepoOverview, progress: &IndexingStatus) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: repo_overview"));
+    lines.push(toon_header("repo_overview"));
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
 
     if let Some(ref framework) = overview.framework {
@@ -1109,7 +1118,7 @@ pub(crate) fn encode_module_shard(
 ) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: module_shard"));
+    lines.push(toon_header("module_shard"));
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
     lines.push(format!("module: \"{}\"", module_name));
     lines.push(format!("file_count: {}", summaries.len()));
@@ -1208,7 +1217,7 @@ pub(crate) fn encode_module_shard(
 pub(crate) fn encode_symbol_shard(summary: &SemanticSummary) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: symbol_shard"));
+    lines.push(toon_header("symbol_shard"));
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
 
     // Full symbol encoding
@@ -1228,7 +1237,7 @@ pub(crate) fn encode_symbol_shard_from_info(
 ) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: symbol_shard"));
+    lines.push(toon_header("symbol_shard"));
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
     lines.push(format!("file: \"{}\"", summary.file));
     lines.push(format!("language: {}", summary.language));
@@ -1397,10 +1406,12 @@ fn build_symbol_lookup(summaries: &[SemanticSummary]) -> HashMap<String, Vec<(St
 /// Resolve a call name to a symbol hash if possible
 /// Returns the hash if uniquely resolved, or the original name if ambiguous/external
 /// When multiple symbols have the same name, prefers same-file matches (local scope)
+/// For external calls, includes package name if available from import_sources
 fn resolve_call_to_hash(
     call_name: &str,
     lookup: &HashMap<String, Vec<(String, String)>>,
     caller_file_hash: &str,
+    import_sources: &HashMap<String, String>,
 ) -> String {
     // Helper to find best match from a list, preferring same-file matches
     let find_best_match = |matches: &[(String, String)]| -> Option<String> {
@@ -1441,9 +1452,32 @@ fn resolve_call_to_hash(
         }
     }
 
-    // No match - external call, return as-is
+    // No match - external call
     // Prefix with "ext:" to distinguish from hashes
-    format!("ext:{}", call_name)
+    // Include package name if available: ext:package:symbol or ext:symbol
+
+    // Try to find package from import_sources
+    // For call like "Card.Grid", first try "Grid" (method), then "Card" (object)
+    // For call like "useState", try "useState" directly
+    let package = if let Some(dot_pos) = call_name.rfind('.') {
+        let method_name = &call_name[dot_pos + 1..];
+        let object_name = &call_name[..dot_pos];
+        // For nested access like "Card.Grid", extract the root object
+        let root_object = object_name.split('.').next().unwrap_or(object_name);
+
+        // Try method first (e.g., Grid), then object (e.g., Card)
+        import_sources
+            .get(method_name)
+            .or_else(|| import_sources.get(root_object))
+    } else {
+        import_sources.get(call_name)
+    };
+
+    if let Some(pkg) = package {
+        format!("ext:{}:{}", pkg, call_name)
+    } else {
+        format!("ext:{}", call_name)
+    }
 }
 
 /// Build call graph from summaries with resolved symbol hashes
@@ -1505,7 +1539,7 @@ fn build_call_graph(
                     } else {
                         c.name.clone()
                     };
-                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
+                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                     let edge = CallGraphEdge::new(resolved, c.ref_kind);
 
                     // Deduplicate by callee+edge_kind
@@ -1518,7 +1552,7 @@ fn build_call_graph(
                 for state in &symbol.state_changes {
                     if !state.initializer.is_empty() {
                         if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
+                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                             let edge = CallGraphEdge::call(resolved);
                             if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
                                 edges.push(edge);
@@ -1542,7 +1576,7 @@ fn build_call_graph(
                     } else {
                         c.name.clone()
                     };
-                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
+                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                     let edge = CallGraphEdge::new(resolved, c.ref_kind);
                     if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
                         edges.push(edge);
@@ -1552,7 +1586,7 @@ fn build_call_graph(
                 for state in &summary.state_changes {
                     if !state.initializer.is_empty() {
                         if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
+                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                             let edge = CallGraphEdge::call(resolved);
                             if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
                                 edges.push(edge);
@@ -1565,7 +1599,7 @@ fn build_call_graph(
                 // Only exclude Rust-style namespace paths (::) - these are always call kind
                 for dep in &summary.added_dependencies {
                     if !dep.contains("::") {
-                        let resolved = resolve_call_to_hash(dep, &symbol_lookup, &caller_file_hash);
+                        let resolved = resolve_call_to_hash(dep, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                         let edge = CallGraphEdge::call(resolved);
                         if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
                             edges.push(edge);
@@ -1721,7 +1755,7 @@ fn build_import_graph(summaries: &[SemanticSummary]) -> HashMap<String, Vec<Stri
 fn encode_import_graph(graph: &HashMap<String, Vec<String>>) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: import_graph"));
+    lines.push(toon_header("import_graph"));
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
     lines.push(format!("files: {}", graph.len()));
 
@@ -1772,7 +1806,7 @@ fn build_module_graph(
 fn encode_module_graph(graph: &HashMap<String, Vec<String>>) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("_type: module_graph"));
+    lines.push(toon_header("module_graph"));
     lines.push(format!("schema_version: \"{}\"", SCHEMA_VERSION));
     lines.push(format!("modules: {}", graph.len()));
 

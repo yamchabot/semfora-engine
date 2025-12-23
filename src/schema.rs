@@ -654,6 +654,12 @@ pub struct SemanticSummary {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub local_imports: Vec<String>,
 
+    /// Mapping of imported symbol names to their source packages
+    /// e.g., {"useState": "react", "ChevronDown": "lucide-react"}
+    /// Used for tracking which external package each external call comes from
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub import_sources: HashMap<String, String>,
+
     /// State variable changes
     pub state_changes: Vec<StateChange>,
 
@@ -793,6 +799,22 @@ pub enum FrameworkEntryPoint {
     // === React Entry Points ===
     /// React component exported from index file
     ReactRootComponent,
+    /// React useState/useReducer state variable
+    ReactState,
+    /// React Context created via createContext
+    ReactContext,
+
+    // === Redux Entry Points ===
+    /// Redux store configuration (configureStore/createStore)
+    ReduxStore,
+    /// Redux reducer function
+    ReduxReducer,
+    /// Redux Toolkit slice (createSlice)
+    ReduxSlice,
+    /// Redux async thunk (createAsyncThunk)
+    ReduxThunk,
+    /// Redux selector function
+    ReduxSelector,
 
     // === Generic Entry Points ===
     /// CLI entry point (main function)
@@ -831,6 +853,13 @@ impl FrameworkEntryPoint {
             Self::ExpressRoute => "Express route handler",
             Self::ExpressMiddleware => "Express middleware",
             Self::ReactRootComponent => "React root component",
+            Self::ReactState => "React useState/useReducer state variable",
+            Self::ReactContext => "React context via createContext",
+            Self::ReduxStore => "Redux store configuration",
+            Self::ReduxReducer => "Redux reducer function",
+            Self::ReduxSlice => "Redux Toolkit slice",
+            Self::ReduxThunk => "Redux async thunk",
+            Self::ReduxSelector => "Redux selector function",
             Self::CliMain => "CLI main entry point",
             Self::TestFunction => "test function",
             Self::PackageExport => "package export",

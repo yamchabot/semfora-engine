@@ -74,7 +74,7 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
 
     // If no changes at all, return early
     if staged_changes.is_empty() && unstaged_changes.is_empty() {
-        return Ok("_type: prep_commit\n_note: No changes to commit.\n\nstaged_changes: (none)\nunstaged_changes: (none)\n".to_string());
+        return Ok(format!("{}note: No changes to commit.\n\nstaged_changes: (none)\nunstaged_changes: (none)\n", super::toon_header("prep_commit")));
     }
 
     // Analyze files
@@ -126,7 +126,7 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
             output = super::encode_toon(&json_value);
         }
         OutputFormat::Text => {
-            output.push_str("_type: prep_commit\n");
+            output.push_str(&super::toon_header("prep_commit"));
             output
                 .push_str("_note: Information for commit message. This tool DOES NOT commit.\n\n");
 

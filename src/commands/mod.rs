@@ -72,6 +72,18 @@ pub fn encode_toon(value: &serde_json::Value) -> String {
     rtoon::encode_default(value).unwrap_or_else(|e| format!("TOON encoding error: {}", e))
 }
 
+/// Package version from Cargo.toml
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Generate TOON header with type and version
+///
+/// All CLI/MCP tool responses should start with this header for consistency.
+/// Format: `_type: <type_name>\nversion: <version>\n`
+#[inline]
+pub fn toon_header(type_name: &str) -> String {
+    format!("_type: {}\nversion: {}\n", type_name, VERSION)
+}
+
 impl CommandContext {
     /// Create a new CommandContext from CLI args
     pub fn from_cli(format: OutputFormat, verbose: bool, progress: bool) -> Self {

@@ -352,7 +352,7 @@ fn run_find_duplicates(
         }
         OutputFormat::Toon => {
             // Token-optimized format - groups by module (DEDUP-207 enhanced)
-            output.push_str("_type: duplicate_results\n");
+            output.push_str(&super::toon_header("duplicate_results"));
             let showing_start = args.offset + 1;
             let showing_end = args.offset + paginated.len();
             output.push_str(&format!(

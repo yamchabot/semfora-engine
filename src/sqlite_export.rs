@@ -382,8 +382,8 @@ impl SqliteExporter {
         // Track module-level edges for aggregation
         let mut module_edge_counts: HashMap<(String, String), usize> = HashMap::new();
 
-        // Track external nodes we need to create
-        let mut external_nodes: HashMap<String, String> = HashMap::new();
+        // Track external nodes we need to create: hash -> (name, module)
+        let mut external_nodes: HashMap<String, (String, String)> = HashMap::new();
 
         // Batch: (caller_hash, callee_hash, edge_kind)
         let mut batch: Vec<(String, String, String)> = Vec::with_capacity(self.batch_size);
@@ -432,15 +432,31 @@ impl SqliteExporter {
                         let edge_kind = edge.edge_kind.as_edge_kind().to_string();
 
                         // Handle external calls - create node with kind='external'
+                        // Format: ext:package:symbol or ext:symbol (no package)
                         if callee.starts_with("ext:") {
-                            let ext_name = &callee[4..]; // Remove "ext:" prefix
-                            external_nodes.insert(callee.to_string(), ext_name.to_string());
+                            let rest = &callee[4..]; // Remove "ext:" prefix
+                            let (ext_module, ext_name) = if let Some(colon_pos) = rest.find(':') {
+                                // Has package: ext:package:symbol
+                                let pkg = &rest[..colon_pos];
+                                let name = &rest[colon_pos + 1..];
+                                (pkg.to_string(), name.to_string())
+                            } else {
+                                // No package: ext:symbol
+                                ("__external__".to_string(), rest.to_string())
+                            };
+                            external_nodes.insert(callee.to_string(), (ext_name, ext_module));
                         }
 
                         // Track module-level edges (only for known nodes)
                         let caller_mod = node_modules.get(caller).cloned();
                         let callee_mod = if callee.starts_with("ext:") {
-                            Some("__external__".to_string())
+                            // Parse package from ext:package:symbol or use __external__
+                            let rest = &callee[4..];
+                            if let Some(colon_pos) = rest.find(':') {
+                                Some(rest[..colon_pos].to_string())
+                            } else {
+                                Some("__external__".to_string())
+                            }
                         } else {
                             node_modules.get(callee.as_str()).cloned()
                         };
@@ -533,10 +549,11 @@ impl SqliteExporter {
     }
 
     /// Insert external call nodes
+    /// external_nodes maps hash -> (name, module)
     fn insert_external_nodes(
         &self,
         conn: &mut Connection,
-        external_nodes: &HashMap<String, String>,
+        external_nodes: &HashMap<String, (String, String)>,
     ) -> Result<()> {
         let tx = conn.transaction().map_err(|e| McpDiffError::ExportError {
             message: format!("Transaction failed: {}", e),
@@ -547,14 +564,14 @@ impl SqliteExporter {
                 .prepare_cached(
                     "INSERT OR IGNORE INTO nodes
                      (hash, name, kind, module, risk)
-                     VALUES (?1, ?2, 'external', '__external__', 'low')",
+                     VALUES (?1, ?2, 'external', ?3, 'low')",
                 )
                 .map_err(|e| McpDiffError::ExportError {
                     message: format!("Prepare failed: {}", e),
                 })?;
 
-            for (hash, name) in external_nodes {
-                stmt.execute(params![hash, name])
+            for (hash, (name, module)) in external_nodes {
+                stmt.execute(params![hash, name, module])
                     .map_err(|e| McpDiffError::ExportError {
                         message: format!("Insert external node failed: {}", e),
                     })?;

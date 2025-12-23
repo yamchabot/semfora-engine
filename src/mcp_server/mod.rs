@@ -38,7 +38,7 @@ use crate::{
 };
 
 // Re-export types for external use
-use formatting::{format_module_symbols, get_supported_languages};
+use formatting::{format_module_symbols, get_supported_languages, toon_header};
 use helpers::{
     check_cache_staleness_detailed,
     ensure_fresh_index,
@@ -159,8 +159,7 @@ impl McpDiffServer {
             None => self.get_working_dir().await,
         };
 
-        let mut output = String::new();
-        output.push_str("_type: context\n");
+        let mut output = toon_header("context");
 
         // Get repo name from directory
         let repo_name = repo_path
@@ -952,10 +951,7 @@ impl McpDiffServer {
         Parameters(request): Parameters<ServerStatusRequest>,
     ) -> Result<CallToolResult, McpError> {
         let include_layers = request.include_layers.unwrap_or(false);
-        let mut output = String::new();
-
-        output.push_str("_type: server_status\n");
-        output.push_str(&format!("version: {}\n", env!("CARGO_PKG_VERSION")));
+        let mut output = toon_header("server_status");
         output.push_str(&format!(
             "persistent_mode: {}\n",
             self.server_state.is_some()
@@ -1252,8 +1248,7 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 /// Format test results as compact TOON output
 #[allow(dead_code)]
 fn format_test_results(results: &test_runner::TestResults) -> String {
-    let mut output = String::new();
-    output.push_str("_type: test_results\n");
+    let mut output = toon_header("test_results");
     output.push_str(&format!("framework: {}\n", results.framework.as_str()));
     output.push_str(&format!("success: {}\n", results.success));
     output.push_str(&format!("passed: {}\n", results.passed));

@@ -93,6 +93,10 @@ pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree, lang: L
         frameworks::nestjs::enhance(summary, source);
     }
 
+    if frameworks.is_redux {
+        frameworks::redux::enhance(summary, &root, source);
+    }
+
     Ok(())
 }
 
