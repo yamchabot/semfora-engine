@@ -141,6 +141,27 @@ impl Bm25Index {
         self.documents.insert(doc_id, doc);
     }
 
+    /// Add a document when terms are already unique (tf = 1 for all terms).
+    pub fn add_document_unique_terms(&mut self, doc: Bm25Document, terms: Vec<String>) {
+        let doc_id = doc.hash.clone();
+        let doc_length = terms.len() as u32;
+
+        let mut doc = doc;
+        doc.doc_length = doc_length;
+
+        for term in terms {
+            self.inverted_index
+                .entry(term)
+                .or_default()
+                .push(TermEntry {
+                    doc_id: doc_id.clone(),
+                    tf: 1,
+                });
+        }
+
+        self.documents.insert(doc_id, doc);
+    }
+
     /// Finalize the index (compute averages)
     pub fn finalize(&mut self) {
         self.total_docs = self.documents.len() as u32;
@@ -259,8 +280,10 @@ impl Bm25Index {
 
     /// Save index to a file
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let json = serde_json::to_string(self)?;
-        std::fs::write(path, json)
+        let file = std::fs::File::create(path)?;
+        let writer = std::io::BufWriter::new(file);
+        serde_json::to_writer(writer, self)?;
+        Ok(())
     }
 
     /// Load index from a file
@@ -280,6 +303,7 @@ impl Bm25Index {
 /// - Removes common stop words
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut terms = Vec::new();
+    let mut seen = std::collections::HashSet::new();
 
     // Split on whitespace, punctuation, and underscores
     for word in text.split(|c: char| !c.is_alphanumeric()) {
@@ -295,7 +319,10 @@ pub fn tokenize(text: &str) -> Vec<String> {
             if c.is_uppercase() && !current.is_empty() {
                 // Start of new word
                 if current.len() >= 2 && !is_stop_word(&current) {
-                    terms.push(current.to_lowercase());
+                    let lower = current.to_lowercase();
+                    if seen.insert(lower.clone()) {
+                        terms.push(lower);
+                    }
                 }
                 current = String::new();
             }
@@ -304,13 +331,77 @@ pub fn tokenize(text: &str) -> Vec<String> {
 
         // Don't forget the last segment
         if current.len() >= 2 && !is_stop_word(&current) {
-            terms.push(current.to_lowercase());
+            let lower = current.to_lowercase();
+            if seen.insert(lower.clone()) {
+                terms.push(lower);
+            }
         }
 
         // Also add the full word if it's different from segments
         let lower_word = word.to_lowercase();
-        if lower_word.len() >= 2 && !terms.contains(&lower_word) && !is_stop_word(&lower_word) {
-            terms.push(lower_word);
+        if lower_word.len() >= 2 && !is_stop_word(&lower_word) {
+            if seen.insert(lower_word.clone()) {
+                terms.push(lower_word);
+            }
+        }
+    }
+
+    terms
+}
+
+pub fn extract_terms_from_file_path(file_path: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+
+    if let Some(filename) = Path::new(file_path).file_stem() {
+        terms.extend(tokenize(&filename.to_string_lossy()));
+    }
+    if let Some(parent) = Path::new(file_path).parent() {
+        if let Some(dir_name) = parent.file_name() {
+            terms.extend(tokenize(&dir_name.to_string_lossy()));
+        }
+    }
+
+    terms
+}
+
+pub fn extract_terms_from_toon(content: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Extract called function names
+        if trimmed.starts_with("calls") || trimmed.contains("->") {
+            for part in trimmed.split(|c: char| !c.is_alphanumeric() && c != '_') {
+                if part.len() >= 3 {
+                    terms.extend(tokenize(part));
+                }
+            }
+        }
+
+        // Extract from state changes
+        if trimmed.starts_with("state:") || trimmed.contains("let ") || trimmed.contains("var ") {
+            for part in trimmed.split(|c: char| !c.is_alphanumeric() && c != '_') {
+                if part.len() >= 3 {
+                    terms.extend(tokenize(part));
+                }
+            }
+        }
+
+        // Extract from control flow keywords
+        if trimmed.starts_with("if")
+            || trimmed.starts_with("for")
+            || trimmed.starts_with("while")
+            || trimmed.starts_with("match")
+            || trimmed.starts_with("try")
+        {
+            terms.push(
+                trimmed
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_lowercase(),
+            );
         }
     }
 
@@ -330,59 +421,14 @@ pub fn extract_terms_from_symbol(
     terms.extend(tokenize(symbol_name));
 
     // Extract from file path (just filename and parent dir)
-    if let Some(filename) = Path::new(file_path).file_stem() {
-        terms.extend(tokenize(&filename.to_string_lossy()));
-    }
-    if let Some(parent) = Path::new(file_path).parent() {
-        if let Some(dir_name) = parent.file_name() {
-            terms.extend(tokenize(&dir_name.to_string_lossy()));
-        }
-    }
+    terms.extend(extract_terms_from_file_path(file_path));
 
     // Add kind as a term
     terms.push(kind.to_lowercase());
 
     // Extract from TOON content if available
     if let Some(content) = toon_content {
-        // Extract from calls
-        for line in content.lines() {
-            let trimmed = line.trim();
-
-            // Extract called function names
-            if trimmed.starts_with("calls") || trimmed.contains("->") {
-                for part in trimmed.split(|c: char| !c.is_alphanumeric() && c != '_') {
-                    if part.len() >= 3 {
-                        terms.extend(tokenize(part));
-                    }
-                }
-            }
-
-            // Extract from state changes
-            if trimmed.starts_with("state:") || trimmed.contains("let ") || trimmed.contains("var ")
-            {
-                for part in trimmed.split(|c: char| !c.is_alphanumeric() && c != '_') {
-                    if part.len() >= 3 {
-                        terms.extend(tokenize(part));
-                    }
-                }
-            }
-
-            // Extract from control flow keywords
-            if trimmed.starts_with("if")
-                || trimmed.starts_with("for")
-                || trimmed.starts_with("while")
-                || trimmed.starts_with("match")
-                || trimmed.starts_with("try")
-            {
-                terms.push(
-                    trimmed
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("")
-                        .to_lowercase(),
-                );
-            }
-        }
+        terms.extend(extract_terms_from_toon(content));
     }
 
     // Deduplicate while preserving order

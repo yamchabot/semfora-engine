@@ -97,6 +97,7 @@ parking_lot = "0.12"
 
 # Parallel processing
 rayon = "1.10"
+ahash = "0.8"
 
 # File system watching (SEM-101)
 notify = "7.0"

@@ -1896,9 +1896,8 @@ impl CacheDir {
         let module_graph = self.build_module_graph_from_summaries(summaries);
         let module_graph_entries = module_graph.len();
 
-        // Write call graph
-        let call_graph_content = Self::encode_call_graph(&call_graph);
-        std::fs::write(self.call_graph_path(), &call_graph_content)?;
+        // Write call graph (streaming to avoid huge in-memory buffers)
+        Self::write_call_graph(self.call_graph_path(), &call_graph)?;
 
         // Write import graph
         let import_graph_content = Self::encode_import_graph(&import_graph);
@@ -1954,27 +1953,62 @@ impl CacheDir {
     fn resolve_call_to_hash(
         call_name: &str,
         lookup: &std::collections::HashMap<String, Vec<String>>,
-        caller_file_hash: &str,
+        same_file_prefix: &str,
+        import_sources: &std::collections::HashMap<String, String>,
     ) -> String {
-        if let Some(matches) = lookup.get(call_name) {
+        let find_best_match = |matches: &[String]| -> Option<String> {
             if matches.is_empty() {
-                // No matches
-            } else if matches.len() == 1 {
-                return matches[0].clone();
-            } else {
-                // Multiple matches - prefer same file (hash starts with same file_hash prefix)
-                let same_file_prefix = format!("{}:", caller_file_hash);
-                for hash in matches {
-                    if hash.starts_with(&same_file_prefix) {
-                        return hash.clone();
-                    }
+                return None;
+            }
+            if matches.len() == 1 {
+                return Some(matches[0].clone());
+            }
+            for hash in matches {
+                if hash.starts_with(&same_file_prefix) {
+                    return Some(hash.clone());
                 }
-                // No same-file match, fall back to first
-                return matches[0].clone();
+            }
+            // No same-file match, fall back to first
+            Some(matches[0].clone())
+        };
+
+        if let Some(matches) = lookup.get(call_name) {
+            if let Some(resolved) = find_best_match(matches) {
+                return resolved;
             }
         }
-        // External call - prefix with "ext:" to distinguish from hashes
-        format!("ext:{}", call_name)
+
+        // If call has an object (e.g., "playerEntity.GetGoldAmount"), try just the method name
+        if let Some(dot_pos) = call_name.rfind('.') {
+            let method_name = &call_name[dot_pos + 1..];
+            if !method_name.is_empty() {
+                if let Some(matches) = lookup.get(method_name) {
+                    if let Some(resolved) = find_best_match(matches) {
+                        return resolved;
+                    }
+                }
+            }
+        }
+
+        // External call - prefix with "ext:" to distinguish from hashes.
+        // Include package name if available: ext:package:symbol or ext:symbol.
+        let package = if let Some(dot_pos) = call_name.rfind('.') {
+            let method_name = &call_name[dot_pos + 1..];
+            let object_name = &call_name[..dot_pos];
+            let root_object = object_name.split('.').next().unwrap_or(object_name);
+            import_sources
+                .get(method_name)
+                .or_else(|| import_sources.get(root_object))
+                .or_else(|| import_sources.get(&format!("{}.*", root_object)))
+        } else {
+            import_sources.get(call_name)
+        };
+
+        if let Some(pkg) = package {
+            format!("ext:{}:{}", pkg, call_name)
+        } else {
+            format!("ext:{}", call_name)
+        }
     }
 
     /// Build call graph from summaries (caller hash -> callee hashes)
@@ -1999,10 +2033,10 @@ impl CacheDir {
         let total_symbols_from_vec = AtomicUsize::new(0);
         let total_calls_from_symbols = AtomicUsize::new(0);
 
-        // Process summaries in parallel
-        let results: Vec<Vec<(String, Vec<String>)>> = summaries
+        // Process summaries in parallel and reduce without collecting all entries in memory.
+        let graph: HashMap<String, Vec<String>> = summaries
             .par_iter()
-            .map(|summary| {
+            .fold(HashMap::new, |mut local_graph: HashMap<String, Vec<String>>, summary| {
                 let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
                 if total > 100 && (current % 500 == 0 || current == total) {
                     eprintln!(
@@ -2013,17 +2047,21 @@ impl CacheDir {
                     );
                 }
 
-                let mut entries: Vec<(String, Vec<String>)> = Vec::new();
-
                 // Compute file hash once for this file (used to prefer same-file call resolution)
                 let caller_file_hash = crate::overlay::extract_file_hash(
-                    summary.symbol_id.as_ref().map(|s| s.hash.as_str()).unwrap_or("")
-                ).to_string();
+                    summary.symbol_id.as_ref().map(|s| s.hash.as_str()).unwrap_or(""),
+                )
+                .to_string();
                 // Fallback: compute from file path if no symbol_id
                 let caller_file_hash = if caller_file_hash.is_empty() {
                     format!("{:08x}", crate::schema::fnv1a_hash(&summary.file) as u32)
                 } else {
                     caller_file_hash
+                };
+                let same_file_prefix = if caller_file_hash.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}:", caller_file_hash)
                 };
 
                 // Process each symbol in the file
@@ -2031,16 +2069,27 @@ impl CacheDir {
                     total_symbols_from_vec.fetch_add(1, Ordering::Relaxed);
                     let hash = compute_symbol_hash(symbol, &summary.file);
                     let mut calls: Vec<String> = Vec::new();
+                    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
                     // Extract from the symbol's own calls array
                     for c in &symbol.calls {
-                        let call_name = if let Some(ref obj) = c.object {
-                            format!("{}.{}", obj, c.name)
+                        let resolved = if let Some(ref obj) = c.object {
+                            let call_name = format!("{}.{}", obj, c.name);
+                            Self::resolve_call_to_hash(
+                                &call_name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            )
                         } else {
-                            c.name.clone()
+                            Self::resolve_call_to_hash(
+                                &c.name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            )
                         };
-                        let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
-                        if !calls.contains(&resolved) {
+                        if seen.insert(resolved.clone()) {
                             calls.push(resolved);
                         }
                     }
@@ -2051,9 +2100,13 @@ impl CacheDir {
                             if let Some(call_name) =
                                 Self::extract_call_from_initializer(&state.initializer)
                             {
-                                let resolved =
-                                    Self::resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
-                                if !calls.contains(&resolved) {
+                                let resolved = Self::resolve_call_to_hash(
+                                    &call_name,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                );
+                                if seen.insert(resolved.clone()) {
                                     calls.push(resolved);
                                 }
                             }
@@ -2062,22 +2115,33 @@ impl CacheDir {
 
                     if !calls.is_empty() {
                         total_calls_from_symbols.fetch_add(calls.len(), Ordering::Relaxed);
-                        entries.push((hash, calls));
+                        local_graph.entry(hash).or_default().extend(calls);
                     }
                 }
 
                 // Also process file-level calls
                 if let Some(ref symbol_id) = summary.symbol_id {
                     let mut calls: Vec<String> = Vec::new();
+                    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
                     for c in &summary.calls {
-                        let call_name = if let Some(ref obj) = c.object {
-                            format!("{}.{}", obj, c.name)
+                        let resolved = if let Some(ref obj) = c.object {
+                            let call_name = format!("{}.{}", obj, c.name);
+                            Self::resolve_call_to_hash(
+                                &call_name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            )
                         } else {
-                            c.name.clone()
+                            Self::resolve_call_to_hash(
+                                &c.name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            )
                         };
-                        let resolved = Self::resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
-                        if !calls.contains(&resolved) {
+                        if seen.insert(resolved.clone()) {
                             calls.push(resolved);
                         }
                     }
@@ -2087,9 +2151,13 @@ impl CacheDir {
                             if let Some(call_name) =
                                 Self::extract_call_from_initializer(&state.initializer)
                             {
-                                let resolved =
-                                    Self::resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash);
-                                if !calls.contains(&resolved) {
+                                let resolved = Self::resolve_call_to_hash(
+                                    &call_name,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                );
+                                if seen.insert(resolved.clone()) {
                                     calls.push(resolved);
                                 }
                             }
@@ -2110,8 +2178,13 @@ impl CacheDir {
                                 .map(|c| c.is_lowercase())
                                 .unwrap_or(false)
                             {
-                                let resolved = Self::resolve_call_to_hash(dep, &symbol_lookup, &caller_file_hash);
-                                if !calls.contains(&resolved) {
+                                let resolved = Self::resolve_call_to_hash(
+                                    dep,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                );
+                                if seen.insert(resolved.clone()) {
                                     calls.push(resolved);
                                 }
                             }
@@ -2133,21 +2206,18 @@ impl CacheDir {
                             symbol_id.hash.clone()
                         };
 
-                        entries.push((hash, calls));
+                        local_graph.entry(hash).or_default().extend(calls);
                     }
                 }
 
-                entries
+                local_graph
             })
-            .collect();
-
-        // Merge results into final graph
-        let mut graph: HashMap<String, Vec<String>> = HashMap::new();
-        for entries in results {
-            for (hash, calls) in entries {
-                graph.entry(hash).or_default().extend(calls);
-            }
-        }
+            .reduce(HashMap::new, |mut left: HashMap<String, Vec<String>>, right| {
+                for (hash, calls) in right {
+                    left.entry(hash).or_default().extend(calls);
+                }
+                left
+            });
 
         let symbols_count = total_symbols_from_vec.load(Ordering::Relaxed);
         let calls_count = total_calls_from_symbols.load(Ordering::Relaxed);
@@ -2302,6 +2372,7 @@ impl CacheDir {
     }
 
     /// Encode call graph to TOON format
+    #[allow(dead_code)]
     fn encode_call_graph(graph: &std::collections::HashMap<String, Vec<String>>) -> String {
         use crate::schema::SCHEMA_VERSION;
 
@@ -2320,6 +2391,36 @@ impl CacheDir {
         }
 
         lines.join("\n")
+    }
+
+    /// Stream call graph to TOON format without building a giant String in memory.
+    fn write_call_graph(
+        path: std::path::PathBuf,
+        graph: &std::collections::HashMap<String, Vec<String>>,
+    ) -> Result<()> {
+        use crate::schema::SCHEMA_VERSION;
+        use std::io::Write;
+
+        let file = std::fs::File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+
+        writeln!(writer, "_type: call_graph")?;
+        writeln!(writer, "schema_version: \"{}\"", SCHEMA_VERSION)?;
+        writeln!(writer, "edges: {}", graph.len())?;
+
+        for (symbol_hash, calls) in graph {
+            write!(writer, "{}: [", symbol_hash)?;
+            for (idx, call) in calls.iter().enumerate() {
+                if idx > 0 {
+                    writer.write_all(b",")?;
+                }
+                write!(writer, "\"{}\"", call)?;
+            }
+            writer.write_all(b"]\n")?;
+        }
+
+        writer.flush()?;
+        Ok(())
     }
 
     /// Encode import graph to TOON format

@@ -1,16 +1,161 @@
 //! Index command handler - Manage the semantic index
 
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::cache::CacheDir;
 use crate::cli::{IndexArgs, IndexOperation, OutputFormat};
 use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
 use crate::indexing::{analyze_files_parallel, IndexingProgressCallback};
-use crate::shard::ShardWriter;
+use crate::shard::{ShardProgressCallback, ShardWriter};
 use crate::Lang;
 
+struct ProgressState {
+    last_line_len: usize,
+    last_size_check: Instant,
+    last_mem_check: Instant,
+    last_size_bytes: u64,
+    last_mem_bytes: Option<u64>,
+}
+
+struct ProgressReporter {
+    cache_root: PathBuf,
+    state: Mutex<ProgressState>,
+}
+
+impl ProgressReporter {
+    fn new(cache_root: PathBuf) -> Self {
+        Self {
+            cache_root,
+            state: Mutex::new(ProgressState {
+                last_line_len: 0,
+                last_size_check: Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now),
+                last_mem_check: Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now),
+                last_size_bytes: 0,
+                last_mem_bytes: None,
+            }),
+        }
+    }
+
+    fn update(&self, step: &str, current: usize, total: usize) {
+        let percent = if total == 0 {
+            0.0
+        } else {
+            (current as f64 / total as f64) * 100.0
+        };
+
+        let mut state = self.state.lock().unwrap();
+        let now = Instant::now();
+
+        if now.duration_since(state.last_mem_check) >= Duration::from_millis(500) {
+            state.last_mem_bytes = read_rss_bytes();
+            state.last_mem_check = now;
+        }
+
+        if now.duration_since(state.last_size_check) >= Duration::from_secs(1) {
+            state.last_size_bytes = dir_size_bytes(&self.cache_root);
+            state.last_size_check = now;
+        }
+
+        let mem_str = state
+            .last_mem_bytes
+            .map(format_bytes)
+            .unwrap_or_else(|| "n/a".to_string());
+        let size_str = format_bytes(state.last_size_bytes);
+
+        let line = format!(
+            "Progress: {:5.1}% | Step: {} ({}/{}) | RSS: {} | Output: {}",
+            percent, step, current, total, mem_str, size_str
+        );
+
+        let pad_len = state
+            .last_line_len
+            .saturating_sub(line.len());
+        if pad_len > 0 {
+            eprint!("\r{}{}", line, " ".repeat(pad_len));
+        } else {
+            eprint!("\r{}", line);
+        }
+        let _ = std::io::stderr().flush();
+        state.last_line_len = line.len();
+    }
+
+    fn finish(&self) {
+        eprintln!();
+    }
+}
+
+fn read_rss_bytes() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        let content = fs::read_to_string("/proc/self/status").ok()?;
+        for line in content.lines() {
+            if let Some(value) = line.strip_prefix("VmRSS:") {
+                let kb = value
+                    .trim()
+                    .split_whitespace()
+                    .next()
+                    .and_then(|v| v.parse::<u64>().ok())?;
+                return Some(kb * 1024);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+fn dir_size_bytes(root: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(path) = stack.pop() {
+        let entries = match fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            let meta = match fs::symlink_metadata(&entry_path) {
+                Ok(meta) => meta,
+                Err(_) => continue,
+            };
+            let file_type = meta.file_type();
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                stack.push(entry_path);
+            } else {
+                total = total.saturating_add(meta.len());
+            }
+        }
+    }
+
+    total
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut idx = 0usize;
+    while size >= 1024.0 && idx < UNITS.len() - 1 {
+        size /= 1024.0;
+        idx += 1;
+    }
+    if idx == 0 {
+        format!("{} {}", bytes, UNITS[idx])
+    } else {
+        format!("{:.1} {}", size, UNITS[idx])
+    }
+}
 /// Run the index command
 pub fn run_index(args: &IndexArgs, ctx: &CommandContext) -> Result<String> {
     match &args.operation {
@@ -79,7 +224,7 @@ fn run_generate(
         return Ok("Incremental mode: Index exists. Use --force to regenerate.".to_string());
     }
 
-    run_full_index(&repo_dir, &cache, max_depth, &extensions, ctx)
+    run_full_index(&repo_dir, &cache, max_depth, &extensions, ctx, force)
 }
 
 /// Run full index generation
@@ -89,20 +234,38 @@ fn run_full_index(
     max_depth: usize,
     extensions: &[String],
     ctx: &CommandContext,
+    force: bool,
 ) -> Result<String> {
     // Clear existing cache
     if cache.exists() {
-        cache.clear()?;
+        let progress_path = cache.root.join("progress.json");
+        if force || !progress_path.exists() {
+            cache.clear()?;
+        }
+    }
+
+    let reporter = if ctx.progress {
+        Some(Arc::new(ProgressReporter::new(cache.root.clone())))
+    } else {
+        None
+    };
+
+    if let Some(reporter) = &reporter {
+        reporter.update("Collecting files", 0, 1);
     }
 
     // Collect files
     let files = collect_files(repo_dir, max_depth, extensions)?;
 
+    if let Some(reporter) = &reporter {
+        reporter.update("Collecting files", 1, 1);
+    }
+
     if files.is_empty() {
         return Ok("No supported files found to index.".to_string());
     }
 
-    if ctx.verbose {
+    if ctx.verbose && !ctx.progress {
         eprintln!("Indexing {} files...", files.len());
     }
 
@@ -111,14 +274,10 @@ fn run_full_index(
 
     // Process files in parallel (DEDUP-102: fixes the parallelism bug)
     // Previously used sequential for loop, now uses Rayon par_iter()
-    let progress_cb: Option<IndexingProgressCallback> = if ctx.progress {
-        Some(Box::new(|current: usize, total: usize| {
-            eprintln!(
-                "Progress: {}/{} ({:.0}%)",
-                current,
-                total,
-                (current as f64 / total as f64) * 100.0
-            );
+    let progress_cb: Option<IndexingProgressCallback> = if let Some(reporter) = &reporter {
+        let reporter = Arc::clone(reporter);
+        Some(Box::new(move |current: usize, total: usize| {
+            reporter.update("Indexing files", current, total);
         }))
     } else {
         None
@@ -130,7 +289,22 @@ fn run_full_index(
 
     // Add all summaries and write
     writer.add_summaries(summaries.clone());
-    let stats = writer.write_all(&repo_dir.display().to_string())?;
+    let stats = if let Some(reporter) = &reporter {
+        let reporter = Arc::clone(reporter);
+        let progress: ShardProgressCallback = Arc::new(move |step, current, total| {
+            reporter.update(step, current, total);
+        });
+        writer.write_all_with_progress(&repo_dir.display().to_string(), Some(progress))?
+    } else {
+        writer.write_all(&repo_dir.display().to_string())?
+    };
+
+    if let Some(reporter) = &reporter {
+        reporter.finish();
+    }
+
+    let progress_path = cache.root.join("progress.json");
+    let _ = fs::remove_file(progress_path);
 
     let mut output = String::new();
 
@@ -176,7 +350,7 @@ fn run_check(auto_refresh: bool, max_age: u64, ctx: &CommandContext) -> Result<S
 
     if !cache.exists() {
         if auto_refresh {
-            return run_full_index(&repo_dir, &cache, 10, &[], ctx);
+            return run_full_index(&repo_dir, &cache, 10, &[], ctx, false);
         }
         return Ok("No index found. Run `semfora index generate` to create one.".to_string());
     }
@@ -185,7 +359,7 @@ fn run_check(auto_refresh: bool, max_age: u64, ctx: &CommandContext) -> Result<S
     let meta_path = cache.root.join("meta.json");
     if !meta_path.exists() {
         if auto_refresh {
-            return run_full_index(&repo_dir, &cache, 10, &[], ctx);
+            return run_full_index(&repo_dir, &cache, 10, &[], ctx, false);
         }
         return Ok(
             "Index metadata not found. Run `semfora index generate` to regenerate.".to_string(),
@@ -212,7 +386,7 @@ fn run_check(auto_refresh: bool, max_age: u64, ctx: &CommandContext) -> Result<S
 
     if is_stale && auto_refresh {
         eprintln!("Index is stale. Refreshing...");
-        return run_full_index(&repo_dir, &cache, 10, &[], ctx);
+        return run_full_index(&repo_dir, &cache, 10, &[], ctx, false);
     }
 
     let mut output = String::new();

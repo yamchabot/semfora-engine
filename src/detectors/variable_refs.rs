@@ -32,8 +32,6 @@ pub fn extract_variable_references(
         return;
     };
 
-    let references = locals_query.extract_references(root, source);
-
     // Module-level Variable symbols (constants, statics, class fields)
     let var_names: HashSet<&str> = summary
         .symbols
@@ -42,31 +40,39 @@ pub fn extract_variable_references(
         .map(|s| s.name.as_str())
         .collect();
 
+    if !include_escape_locals && var_names.is_empty() {
+        return;
+    }
+
     let (escape_locals, escape_local_defs) = if include_escape_locals {
-        let local_defs = locals_query.extract_local_definitions_with_locations(root, source);
         let escape_candidates = collect_escape_variable_names(root, source, lang);
+        if escape_candidates.is_empty() {
+            (HashSet::new(), Vec::new())
+        } else {
+            let local_defs = locals_query.extract_local_definitions_with_locations(root, source);
 
-        let mut name_counts: HashMap<String, usize> = HashMap::new();
-        for def in &local_defs {
-            *name_counts.entry(def.name.clone()).or_default() += 1;
-        }
-
-        let mut escape_locals = HashSet::new();
-        let mut escape_local_defs = Vec::new();
-
-        for def in local_defs {
-            if !escape_candidates.contains(&def.name) {
-                continue;
+            let mut name_counts: HashMap<String, usize> = HashMap::new();
+            for def in &local_defs {
+                *name_counts.entry(def.name.clone()).or_default() += 1;
             }
 
-            escape_locals.insert(def.name.clone());
+            let mut escape_locals = HashSet::new();
+            let mut escape_local_defs = Vec::new();
 
-            if name_counts.get(&def.name).copied().unwrap_or(0) == 1 {
-                escape_local_defs.push(def);
+            for def in local_defs {
+                if !escape_candidates.contains(&def.name) {
+                    continue;
+                }
+
+                escape_locals.insert(def.name.clone());
+
+                if name_counts.get(&def.name).copied().unwrap_or(0) == 1 {
+                    escape_local_defs.push(def);
+                }
             }
-        }
 
-        (escape_locals, escape_local_defs)
+            (escape_locals, escape_local_defs)
+        }
     } else {
         (HashSet::new(), Vec::new())
     };
@@ -74,6 +80,8 @@ pub fn extract_variable_references(
     if var_names.is_empty() && escape_locals.is_empty() {
         return;
     }
+
+    let references = locals_query.extract_references(root, source);
 
     let mut calls_by_symbol: HashMap<usize, Vec<Call>> = HashMap::new();
     let mut file_level_refs: Vec<Call> = Vec::new();
@@ -213,100 +221,99 @@ fn add_escape_local_symbols(
 }
 
 fn collect_js_escape_names(root: &Node, source: &str) -> HashSet<String> {
-    let mut names = HashSet::new();
+    collect_escape_names(root, source, Lang::JavaScript, is_js_capture_child)
+}
 
-    visit_all(root, |node| {
-        match node.kind() {
-            "call_expression" => {
-                if let Some(args) = node.child_by_field_name("arguments") {
-                    collect_identifiers(&args, source, &mut names, Lang::JavaScript);
+fn collect_csharp_escape_names(root: &Node, source: &str) -> HashSet<String> {
+    collect_escape_names(root, source, Lang::CSharp, is_csharp_capture_child)
+}
+
+fn collect_escape_names(
+    root: &Node,
+    source: &str,
+    lang: Lang,
+    capture_child: fn(&Node, &Node) -> bool,
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut stack: Vec<(Node, bool)> = vec![(*root, false)];
+
+    while let Some((node, capture)) = stack.pop() {
+        if capture && is_identifier_node(&node, lang) {
+            if !is_in_call_function(&node) && !is_member_property_identifier(&node) {
+                let text = get_node_text(&node, source);
+                if !text.is_empty() && text.len() <= 100 {
+                    names.insert(text);
                 }
             }
-            "return_statement" => {
-                if let Some(expr) = node
-                    .child_by_field_name("argument")
-                    .or_else(|| node.child_by_field_name("expression"))
-                {
-                    collect_identifiers(&expr, source, &mut names, Lang::JavaScript);
-                }
-            }
-            "jsx_attribute" => {
-                if let Some(value) = node.child_by_field_name("value") {
-                    collect_identifiers(&value, source, &mut names, Lang::JavaScript);
-                }
-            }
-            "assignment_expression" => {
-                let left = node.child_by_field_name("left");
-                let right = node.child_by_field_name("right");
-                if let (Some(left), Some(right)) = (left, right) {
-                    if matches!(left.kind(), "member_expression" | "subscript_expression") {
-                        collect_identifiers(&right, source, &mut names, Lang::JavaScript);
-                    }
-                }
-            }
-            _ => {}
         }
-    });
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let child_capture = capture || capture_child(&node, &child);
+            stack.push((child, child_capture));
+        }
+    }
 
     names
 }
 
-fn collect_csharp_escape_names(root: &Node, source: &str) -> HashSet<String> {
-    let mut names = HashSet::new();
+fn is_js_capture_child(parent: &Node, child: &Node) -> bool {
+    match parent.kind() {
+        "call_expression" => parent
+            .child_by_field_name("arguments")
+            .map(|args| args == *child)
+            .unwrap_or(false),
+        "return_statement" => parent
+            .child_by_field_name("argument")
+            .or_else(|| parent.child_by_field_name("expression"))
+            .map(|expr| expr == *child)
+            .unwrap_or(false),
+        "jsx_attribute" => parent
+            .child_by_field_name("value")
+            .map(|value| value == *child)
+            .unwrap_or(false),
+        "assignment_expression" => {
+            let left = parent.child_by_field_name("left");
+            let right = parent.child_by_field_name("right");
+            if let (Some(left), Some(right)) = (left, right) {
+                right == *child && matches!(left.kind(), "member_expression" | "subscript_expression")
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
 
-    visit_all(root, |node| {
-        match node.kind() {
-            "invocation_expression" | "object_creation_expression" => {
-                if let Some(args) = find_child_by_kind(node, "argument_list") {
-                    collect_identifiers(&args, source, &mut names, Lang::CSharp);
-                }
-            }
-            "return_statement" => {
-                if let Some(expr) = node.child_by_field_name("expression") {
-                    collect_identifiers(&expr, source, &mut names, Lang::CSharp);
-                }
-            }
-            "assignment_expression" => {
-                let left = node.child_by_field_name("left");
-                let right = node.child_by_field_name("right");
-                if let (Some(left), Some(right)) = (left, right) {
-                    if matches!(
+fn is_csharp_capture_child(parent: &Node, child: &Node) -> bool {
+    match parent.kind() {
+        "invocation_expression" | "object_creation_expression" => {
+            find_child_by_kind(parent, "argument_list")
+                .map(|args| args == *child)
+                .unwrap_or(false)
+        }
+        "return_statement" => parent
+            .child_by_field_name("expression")
+            .map(|expr| expr == *child)
+            .unwrap_or(false),
+        "assignment_expression" => {
+            let left = parent.child_by_field_name("left");
+            let right = parent.child_by_field_name("right");
+            if let (Some(left), Some(right)) = (left, right) {
+                right == *child
+                    && matches!(
                         left.kind(),
                         "member_access_expression"
                             | "member_binding_expression"
                             | "element_access_expression"
                             | "qualified_name"
-                    ) {
-                        collect_identifiers(&right, source, &mut names, Lang::CSharp);
-                    }
-                }
+                    )
+            } else {
+                false
             }
-            _ => {}
         }
-    });
-
-    names
-}
-
-fn collect_identifiers(node: &Node, source: &str, names: &mut HashSet<String>, lang: Lang) {
-    visit_all(node, |child| {
-        if !is_identifier_node(child, lang) {
-            return;
-        }
-
-        if is_in_call_function(child) {
-            return;
-        }
-
-        if is_member_property_identifier(child) {
-            return;
-        }
-
-        let text = get_node_text(child, source);
-        if !text.is_empty() && text.len() <= 100 {
-            names.insert(text);
-        }
-    });
+        _ => false,
+    }
 }
 
 fn is_identifier_node(node: &Node, lang: Lang) -> bool {
@@ -366,32 +373,4 @@ fn find_child_by_kind<'a>(node: &Node<'a>, kind: &str) -> Option<Node<'a>> {
         }
     }
     None
-}
-
-fn visit_all<F>(node: &Node, mut callback: F)
-where
-    F: FnMut(&Node),
-{
-    let mut cursor = node.walk();
-    let mut did_visit_children = false;
-
-    loop {
-        if !did_visit_children {
-            callback(&cursor.node());
-            if cursor.goto_first_child() {
-                did_visit_children = false;
-                continue;
-            }
-        }
-
-        if cursor.goto_next_sibling() {
-            did_visit_children = false;
-            continue;
-        }
-
-        if !cursor.goto_parent() {
-            break;
-        }
-        did_visit_children = true;
-    }
 }

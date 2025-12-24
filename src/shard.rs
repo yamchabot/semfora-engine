@@ -8,21 +8,25 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
-use crate::bm25::{extract_terms_from_symbol, Bm25Document, Bm25Index};
+use crate::bm25::{
+    extract_terms_from_file_path, extract_terms_from_toon, Bm25Document, Bm25Index,
+};
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
 use crate::duplicate::FunctionSignature;
 use crate::error::Result;
 use crate::module_registry::ModuleRegistrySqlite;
 use crate::schema::{
-    CallGraphEdge, RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo, SymbolKind,
-    SCHEMA_VERSION,
+    CallGraphEdge, RefKind, RepoOverview, RiskLevel, SemanticSummary, SymbolId, SymbolInfo,
+    SymbolKind, SCHEMA_VERSION,
 };
 use crate::toon::{encode_toon, generate_repo_overview_with_modules, is_meaningful_call};
 
@@ -33,6 +37,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[inline]
 fn toon_header(type_name: &str) -> String {
     format!("_type: {}\nversion: {}", type_name, VERSION)
+}
+
+fn emit_progress(progress: &Option<ShardProgressCallback>, step: &str, current: usize, total: usize) {
+    if let Some(cb) = progress {
+        cb(step, current, total);
+    }
 }
 
 // ============================================================================
@@ -61,6 +71,17 @@ pub struct ModuleRegistry {
 
     /// Current global strip depth applied to all modules
     strip_depth: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct IndexProgress {
+    version: u32,
+    stages: HashMap<String, StageProgress>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StageProgress {
+    status: String,
 }
 
 impl ModuleRegistry {
@@ -327,6 +348,8 @@ pub struct ShardWriter {
     module_registry: Option<ModuleRegistry>,
 }
 
+pub type ShardProgressCallback = Arc<dyn Fn(&str, usize, usize) + Send + Sync>;
+
 impl ShardWriter {
     /// Create a new shard writer for a repository
     pub fn new(repo_path: &Path) -> Result<Self> {
@@ -498,34 +521,90 @@ impl ShardWriter {
 
     /// Generate and write all shards
     pub fn write_all(&mut self, dir_path: &str) -> Result<ShardStats> {
+        self.write_all_with_progress(dir_path, None)
+    }
+
+    /// Generate and write all shards with optional progress updates.
+    pub fn write_all_with_progress(
+        &mut self,
+        dir_path: &str,
+        progress: Option<ShardProgressCallback>,
+    ) -> Result<ShardStats> {
         let mut stats = ShardStats::default();
+        let mut progress_state = self.load_progress_state();
 
         // Compute optimal module names using conflict-aware stripping
+        emit_progress(&progress, "Module registry", 0, 1);
         self.compute_module_registry();
 
         // Persist registry to SQLite (Phase 2 - enables incremental indexing)
+        emit_progress(&progress, "Module registry", 1, 1);
+        emit_progress(&progress, "Persist registry", 0, 1);
         self.persist_module_registry()?;
+        emit_progress(&progress, "Persist registry", 1, 1);
 
         // Generate overview first (fast, gives agents something to work with)
-        self.write_repo_overview(dir_path, &mut stats)?;
+        if !self.stage_completed("repo_overview", &[self.cache.repo_overview_path()], &progress_state) {
+            emit_progress(&progress, "Repo overview", 0, 1);
+            self.write_repo_overview(dir_path, &mut stats)?;
+            emit_progress(&progress, "Repo overview", 1, 1);
+            self.mark_stage_completed("repo_overview", &mut progress_state)?;
+        }
 
         // Write module shards (using optimal names from registry)
-        self.write_module_shards(&mut stats)?;
+        if !self.stage_completed("module_shards", &[], &progress_state) {
+            emit_progress(&progress, "Module shards", 0, 1);
+            self.write_module_shards(&mut stats)?;
+            emit_progress(&progress, "Module shards", 1, 1);
+            self.mark_stage_completed("module_shards", &mut progress_state)?;
+        }
 
         // Write symbol shards
-        self.write_symbol_shards(&mut stats)?;
+        if !self.stage_completed("symbol_shards", &[], &progress_state) {
+            emit_progress(&progress, "Symbol shards", 0, 1);
+            self.write_symbol_shards(&mut stats)?;
+            emit_progress(&progress, "Symbol shards", 1, 1);
+            self.mark_stage_completed("symbol_shards", &mut progress_state)?;
+        }
 
         // Write graph shards
-        self.write_graph_shards(&mut stats)?;
+        if !self.stage_completed(
+            "graph_shards",
+            &[
+                self.cache.call_graph_path(),
+                self.cache.import_graph_path(),
+                self.cache.module_graph_path(),
+            ],
+            &progress_state,
+        ) {
+            self.write_graph_shards(&mut stats, &progress)?;
+            self.mark_stage_completed("graph_shards", &mut progress_state)?;
+        }
 
         // Write symbol index (query-driven API v1)
-        self.write_symbol_index(&mut stats)?;
+        if !self.stage_completed("symbol_index", &[self.cache.symbol_index_path()], &progress_state) {
+            emit_progress(&progress, "Symbol index", 0, 1);
+            self.write_symbol_index(&mut stats)?;
+            emit_progress(&progress, "Symbol index", 1, 1);
+            self.mark_stage_completed("symbol_index", &mut progress_state)?;
+        }
 
         // Write function signature index (duplicate detection)
-        self.write_signature_index(&mut stats)?;
+        if !self.stage_completed("signature_index", &[self.cache.signature_index_path()], &progress_state)
+        {
+            emit_progress(&progress, "Signature index", 0, 1);
+            self.write_signature_index(&mut stats)?;
+            emit_progress(&progress, "Signature index", 1, 1);
+            self.mark_stage_completed("signature_index", &mut progress_state)?;
+        }
 
         // Write BM25 semantic search index (Phase 3)
-        self.write_bm25_index(&mut stats)?;
+        if !self.stage_completed("bm25_index", &[self.cache.bm25_index_path()], &progress_state) {
+            emit_progress(&progress, "BM25 index", 0, 1);
+            self.write_bm25_index(&mut stats, &progress)?;
+            emit_progress(&progress, "BM25 index", 1, 1);
+            self.mark_stage_completed("bm25_index", &mut progress_state)?;
+        }
 
         Ok(stats)
     }
@@ -554,6 +633,61 @@ impl ShardWriter {
         stats.files_written += 1;
 
         Ok(())
+    }
+
+    fn progress_path(&self) -> std::path::PathBuf {
+        self.cache.root.join("progress.json")
+    }
+
+    fn load_progress_state(&self) -> IndexProgress {
+        let path = self.progress_path();
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(state) = serde_json::from_str::<IndexProgress>(&content) {
+                return state;
+            }
+        }
+        IndexProgress {
+            version: 1,
+            stages: HashMap::new(),
+        }
+    }
+
+    fn mark_stage_completed(&self, stage: &str, state: &mut IndexProgress) -> Result<()> {
+        state.stages.insert(
+            stage.to_string(),
+            StageProgress {
+                status: "completed".to_string(),
+            },
+        );
+        self.save_progress_state(state)
+    }
+
+    fn save_progress_state(&self, state: &IndexProgress) -> Result<()> {
+        let path = self.progress_path();
+        let content = serde_json::to_string_pretty(state).map_err(|e| {
+            crate::McpDiffError::ExtractionFailure {
+                message: format!("Failed to serialize progress state: {}", e),
+            }
+        })?;
+        fs::write(path, content)?;
+        Ok(())
+    }
+
+    fn stage_completed(
+        &self,
+        stage: &str,
+        required_files: &[std::path::PathBuf],
+        state: &IndexProgress,
+    ) -> bool {
+        let completed = state
+            .stages
+            .get(stage)
+            .map(|s| s.status == "completed")
+            .unwrap_or(false);
+        if !completed {
+            return false;
+        }
+        required_files.iter().all(|p| p.exists())
     }
 
     /// Write per-module shards
@@ -617,27 +751,36 @@ impl ShardWriter {
     }
 
     /// Write graph shards (call graph, import graph, module graph)
-    fn write_graph_shards(&self, stats: &mut ShardStats) -> Result<()> {
+    fn write_graph_shards(
+        &self,
+        stats: &mut ShardStats,
+        progress: &Option<ShardProgressCallback>,
+    ) -> Result<()> {
         // Build and write call graph
-        let call_graph = build_call_graph(&self.all_summaries, true);
-        let call_graph_toon = encode_call_graph(&call_graph);
-        fs::write(self.cache.call_graph_path(), &call_graph_toon)?;
-        stats.graph_bytes += call_graph_toon.len();
+        emit_progress(progress, "Call graph", 0, self.all_summaries.len());
+        let call_graph = build_call_graph(&self.all_summaries, progress);
+        let graph_bytes = write_call_graph(&self.cache.call_graph_path(), &call_graph)?;
+        stats.graph_bytes += graph_bytes;
+        emit_progress(progress, "Call graph", self.all_summaries.len(), self.all_summaries.len());
 
         // Build and write import graph
+        emit_progress(progress, "Import graph", 0, 1);
         let import_graph = build_import_graph(&self.all_summaries);
         let import_graph_toon = encode_import_graph(&import_graph);
         fs::write(self.cache.import_graph_path(), &import_graph_toon)?;
         stats.graph_bytes += import_graph_toon.len();
+        emit_progress(progress, "Import graph", 1, 1);
 
         // Build file-to-module mapping for proper module names from registry
         let file_to_module = self.build_file_to_module_map();
 
         // Build and write module graph
+        emit_progress(progress, "Module graph", 0, 1);
         let module_graph = build_module_graph(&self.modules, &file_to_module);
         let module_graph_toon = encode_module_graph(&module_graph);
         fs::write(self.cache.module_graph_path(), &module_graph_toon)?;
         stats.graph_bytes += module_graph_toon.len();
+        emit_progress(progress, "Module graph", 1, 1);
 
         stats.files_written += 3;
         Ok(())
@@ -864,13 +1007,33 @@ impl ShardWriter {
     ///
     /// Generates a BM25 index from all symbols for loose term queries
     /// like "authentication", "error handling", or "database connection".
-    fn write_bm25_index(&self, stats: &mut ShardStats) -> Result<()> {
-        let mut index = Bm25Index::new();
+    fn write_bm25_index(
+        &self,
+        stats: &mut ShardStats,
+        progress: &Option<ShardProgressCallback>,
+    ) -> Result<()> {
+        let index = std::sync::Arc::new(std::sync::Mutex::new(Bm25Index::new()));
+        let entries = AtomicUsize::new(0);
+        let total_docs: usize = self
+            .all_summaries
+            .iter()
+            .map(|summary| {
+                if !summary.symbols.is_empty() {
+                    summary.symbols.len()
+                } else if summary.symbol_id.is_some() {
+                    1
+                } else {
+                    0
+                }
+            })
+            .sum();
 
         // Build file-to-module mapping for proper module names from registry
         let file_to_module = self.build_file_to_module_map();
 
-        for summary in &self.all_summaries {
+        emit_progress(progress, "BM25 index", 0, total_docs.max(1));
+
+        self.all_summaries.par_iter().for_each(|summary| {
             let namespace = SymbolId::namespace_from_path(&summary.file);
             // Get the optimal module name from registry, fallback to extraction
             let module_name = file_to_module
@@ -880,6 +1043,10 @@ impl ShardWriter {
 
             // Get TOON content for term extraction (from the file-level summary)
             let toon_content = encode_toon(summary);
+            let file_terms = extract_terms_from_file_path(&summary.file);
+            let toon_terms = extract_terms_from_toon(&toon_content);
+
+            let mut docs: Vec<(Bm25Document, Vec<String>)> = Vec::new();
 
             // If we have symbols in the new multi-symbol format, use those
             if !summary.symbols.is_empty() {
@@ -888,12 +1055,13 @@ impl ShardWriter {
                     let kind_str = format!("{:?}", symbol_info.kind).to_lowercase();
 
                     // Extract searchable terms from this symbol
-                    let terms = extract_terms_from_symbol(
-                        &symbol_info.name,
-                        &summary.file,
-                        &kind_str,
-                        Some(&toon_content),
-                    );
+                    let mut terms = Vec::new();
+                    terms.extend(crate::bm25::tokenize(&symbol_info.name));
+                    terms.extend(file_terms.iter().cloned());
+                    terms.push(kind_str.clone());
+                    terms.extend(toon_terms.iter().cloned());
+                    let mut seen = std::collections::HashSet::new();
+                    terms.retain(|t| seen.insert(t.clone()));
 
                     let doc = Bm25Document {
                         hash: symbol_id.hash,
@@ -906,8 +1074,7 @@ impl ShardWriter {
                         doc_length: 0, // Will be set by add_document
                     };
 
-                    index.add_document(doc, terms);
-                    stats.bm25_entries += 1;
+                    docs.push((doc, terms));
                 }
             } else if let Some(ref symbol_id) = summary.symbol_id {
                 // Fallback to old single-symbol format
@@ -916,12 +1083,15 @@ impl ShardWriter {
                     .map(|k| format!("{:?}", k).to_lowercase())
                     .unwrap_or_else(|| "unknown".to_string());
 
-                let terms = extract_terms_from_symbol(
+                let mut terms = Vec::new();
+                terms.extend(crate::bm25::tokenize(
                     summary.symbol.as_deref().unwrap_or(""),
-                    &summary.file,
-                    &kind_str,
-                    Some(&toon_content),
-                );
+                ));
+                terms.extend(file_terms.iter().cloned());
+                terms.push(kind_str.clone());
+                terms.extend(toon_terms.iter().cloned());
+                let mut seen = std::collections::HashSet::new();
+                terms.retain(|t| seen.insert(t.clone()));
 
                 let doc = Bm25Document {
                     hash: symbol_id.hash.clone(),
@@ -938,17 +1108,37 @@ impl ShardWriter {
                     doc_length: 0,
                 };
 
-                index.add_document(doc, terms);
-                stats.bm25_entries += 1;
+                docs.push((doc, terms));
             }
-        }
+
+            if docs.is_empty() {
+                return;
+            }
+
+            if let Ok(mut locked) = index.lock() {
+                for (doc, terms) in docs {
+                    locked.add_document_unique_terms(doc, terms);
+                    let current = entries.fetch_add(1, Ordering::Relaxed) + 1;
+                    if current % 1000 == 0 || current == total_docs {
+                        emit_progress(progress, "BM25 index", current, total_docs.max(1));
+                    }
+                }
+            }
+        });
+
+        emit_progress(progress, "BM25 index", total_docs, total_docs.max(1));
+        stats.bm25_entries = entries.load(Ordering::Relaxed);
 
         // Finalize index (compute averages)
-        index.finalize();
+        if let Ok(mut locked) = index.lock() {
+            locked.finalize();
+        }
 
         // Write to cache
         let path = self.cache.bm25_index_path();
-        index.save(&path)?;
+        if let Ok(locked) = index.lock() {
+            locked.save(&path)?;
+        }
 
         stats.bm25_bytes = fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
         stats.files_written += 1;
@@ -1410,7 +1600,7 @@ fn build_symbol_lookup(summaries: &[SemanticSummary]) -> HashMap<String, Vec<(St
 fn resolve_call_to_hash(
     call_name: &str,
     lookup: &HashMap<String, Vec<(String, String)>>,
-    caller_file_hash: &str,
+    same_file_prefix: &str,
     import_sources: &HashMap<String, String>,
 ) -> String {
     // Helper to find best match from a list, preferring same-file matches
@@ -1421,8 +1611,6 @@ fn resolve_call_to_hash(
         if matches.len() == 1 {
             return Some(matches[0].0.clone());
         }
-        // Multiple matches - prefer same file (hash starts with same file_hash prefix)
-        let same_file_prefix = format!("{}:", caller_file_hash);
         for (hash, _namespace) in matches {
             if hash.starts_with(&same_file_prefix) {
                 return Some(hash.clone());
@@ -1485,14 +1673,11 @@ fn resolve_call_to_hash(
 /// Returns edges with edge_kind to distinguish calls from variable reads/writes
 fn build_call_graph(
     summaries: &[SemanticSummary],
-    show_progress: bool,
+    progress: &Option<ShardProgressCallback>,
 ) -> HashMap<String, Vec<CallGraphEdge>> {
     use crate::overlay::compute_symbol_hash;
 
     let total = summaries.len();
-    if show_progress && total > 100 {
-        eprintln!("Building call graph from {} files...", total);
-    }
 
     // Build lookup for resolving call names to hashes (must be done before parallel phase)
     let symbol_lookup = build_symbol_lookup(summaries);
@@ -1500,50 +1685,65 @@ fn build_call_graph(
     // Progress tracking
     let processed = AtomicUsize::new(0);
 
-    // Process summaries in parallel, each producing a vec of (hash, edges) pairs
-    let results: Vec<Vec<(String, Vec<CallGraphEdge>)>> = summaries
+    let graph_fast: ahash::AHashMap<String, Vec<CallGraphEdge>> = summaries
         .par_iter()
-        .map(|summary| {
+        .with_min_len(32)
+        .fold(
+            ahash::AHashMap::new,
+            |mut local_graph: ahash::AHashMap<String, Vec<CallGraphEdge>>, summary| {
             let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
-            if show_progress && total > 100 && (current % 500 == 0 || current == total) {
-                eprintln!(
-                    "  Call graph progress: {}/{} ({:.1}%)",
-                    current,
-                    total,
-                    (current as f64 / total as f64) * 100.0
-                );
+            if total > 100 && (current % 500 == 0 || current == total) {
+                emit_progress(progress, "Call graph", current, total);
             }
-
-            let mut entries: Vec<(String, Vec<CallGraphEdge>)> = Vec::new();
 
             // Compute file hash once for this file (used to prefer same-file call resolution)
             let caller_file_hash = crate::overlay::extract_file_hash(
-                summary.symbol_id.as_ref().map(|s| s.hash.as_str()).unwrap_or("")
-            ).to_string();
+                summary.symbol_id.as_ref().map(|s| s.hash.as_str()).unwrap_or(""),
+            )
+            .to_string();
             // Fallback: compute from file path if no symbol_id
             let caller_file_hash = if caller_file_hash.is_empty() {
                 format!("{:08x}", crate::schema::fnv1a_hash(&summary.file) as u32)
             } else {
                 caller_file_hash
             };
+            let same_file_prefix = if caller_file_hash.is_empty() {
+                String::new()
+            } else {
+                format!("{}:", caller_file_hash)
+            };
 
             // Process each symbol in the file
             for symbol in &summary.symbols {
                 let hash = compute_symbol_hash(symbol, &summary.file);
                 let mut edges: Vec<CallGraphEdge> = Vec::new();
+                let mut seen: ahash::AHashSet<(String, RefKind)> = ahash::AHashSet::new();
 
                 // Extract from the symbol's own calls array
                 for c in &symbol.calls {
-                    let call_name = if let Some(ref obj) = c.object {
-                        format!("{}.{}", obj, c.name)
+                    let resolved = if let Some(ref obj) = c.object {
+                        let mut call_name = String::with_capacity(obj.len() + 1 + c.name.len());
+                        call_name.push_str(obj);
+                        call_name.push('.');
+                        call_name.push_str(&c.name);
+                        resolve_call_to_hash(
+                            &call_name,
+                            &symbol_lookup,
+                            &same_file_prefix,
+                            &summary.import_sources,
+                        )
                     } else {
-                        c.name.clone()
+                        resolve_call_to_hash(
+                            &c.name,
+                            &symbol_lookup,
+                            &same_file_prefix,
+                            &summary.import_sources,
+                        )
                     };
-                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                     let edge = CallGraphEdge::new(resolved, c.ref_kind);
 
                     // Deduplicate by callee+edge_kind
-                    if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                    if seen.insert((edge.callee.clone(), edge.edge_kind)) {
                         edges.push(edge);
                     }
                 }
@@ -1552,9 +1752,14 @@ fn build_call_graph(
                 for state in &symbol.state_changes {
                     if !state.initializer.is_empty() {
                         if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
+                            let resolved = resolve_call_to_hash(
+                                &call_name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            );
                             let edge = CallGraphEdge::call(resolved);
-                            if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                            if seen.insert((edge.callee.clone(), edge.edge_kind)) {
                                 edges.push(edge);
                             }
                         }
@@ -1562,23 +1767,37 @@ fn build_call_graph(
                 }
 
                 if !edges.is_empty() {
-                    entries.push((hash, edges));
+                    local_graph.entry(hash).or_default().extend(edges);
                 }
             }
 
             // Also process file-level calls
             if let Some(ref symbol_id) = summary.symbol_id {
                 let mut edges: Vec<CallGraphEdge> = Vec::new();
+                let mut seen: ahash::AHashSet<(String, RefKind)> = ahash::AHashSet::new();
 
                 for c in &summary.calls {
-                    let call_name = if let Some(ref obj) = c.object {
-                        format!("{}.{}", obj, c.name)
+                    let resolved = if let Some(ref obj) = c.object {
+                        let mut call_name = String::with_capacity(obj.len() + 1 + c.name.len());
+                        call_name.push_str(obj);
+                        call_name.push('.');
+                        call_name.push_str(&c.name);
+                        resolve_call_to_hash(
+                            &call_name,
+                            &symbol_lookup,
+                            &same_file_prefix,
+                            &summary.import_sources,
+                        )
                     } else {
-                        c.name.clone()
+                        resolve_call_to_hash(
+                            &c.name,
+                            &symbol_lookup,
+                            &same_file_prefix,
+                            &summary.import_sources,
+                        )
                     };
-                    let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
                     let edge = CallGraphEdge::new(resolved, c.ref_kind);
-                    if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                    if seen.insert((edge.callee.clone(), edge.edge_kind)) {
                         edges.push(edge);
                     }
                 }
@@ -1586,9 +1805,14 @@ fn build_call_graph(
                 for state in &summary.state_changes {
                     if !state.initializer.is_empty() {
                         if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                            let resolved = resolve_call_to_hash(&call_name, &symbol_lookup, &caller_file_hash, &summary.import_sources);
+                            let resolved = resolve_call_to_hash(
+                                &call_name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            );
                             let edge = CallGraphEdge::call(resolved);
-                            if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                            if seen.insert((edge.callee.clone(), edge.edge_kind)) {
                                 edges.push(edge);
                             }
                         }
@@ -1599,36 +1823,41 @@ fn build_call_graph(
                 // Only exclude Rust-style namespace paths (::) - these are always call kind
                 for dep in &summary.added_dependencies {
                     if !dep.contains("::") {
-                        let resolved = resolve_call_to_hash(dep, &symbol_lookup, &caller_file_hash, &summary.import_sources);
+                        let resolved = resolve_call_to_hash(
+                            dep,
+                            &symbol_lookup,
+                            &same_file_prefix,
+                            &summary.import_sources,
+                        );
                         let edge = CallGraphEdge::call(resolved);
-                        if !edges.iter().any(|e| e.callee == edge.callee && e.edge_kind == edge.edge_kind) {
+                        if seen.insert((edge.callee.clone(), edge.edge_kind)) {
                             edges.push(edge);
                         }
                     }
                 }
 
                 if !edges.is_empty() {
-                    entries.push((symbol_id.hash.clone(), edges));
+                    local_graph
+                        .entry(symbol_id.hash.clone())
+                        .or_default()
+                        .extend(edges);
                 }
             }
 
-            entries
+            local_graph
         })
-        .collect();
+        .reduce(ahash::AHashMap::new, |mut left, right| {
+            for (hash, edges) in right {
+                left.entry(hash).or_default().extend(edges);
+            }
+            left
+        });
 
-    // Merge results into final graph
-    let mut graph: HashMap<String, Vec<CallGraphEdge>> = HashMap::new();
-    for entries in results {
-        for (hash, edges) in entries {
-            graph.entry(hash).or_default().extend(edges);
-        }
+    if total > 0 {
+        emit_progress(progress, "Call graph", total, total);
     }
 
-    if show_progress && total > 100 {
-        eprintln!("  Call graph complete: {} entries", graph.len());
-    }
-
-    graph
+    graph_fast.into_iter().collect()
 }
 
 /// Extract a function call name from an initializer expression
@@ -1719,6 +1948,7 @@ fn extract_call_from_initializer(init: &str) -> Option<String> {
 
 /// Encode call graph with edge_kind information
 /// Format: caller_hash: ["callee1", "callee2:read", "callee3:write"]
+#[allow(dead_code)]
 fn encode_call_graph(graph: &HashMap<String, Vec<CallGraphEdge>>) -> String {
     let mut lines = Vec::new();
 
@@ -1736,6 +1966,38 @@ fn encode_call_graph(graph: &HashMap<String, Vec<CallGraphEdge>>) -> String {
     }
 
     lines.join("\n")
+}
+
+fn write_call_graph(path: &Path, graph: &HashMap<String, Vec<CallGraphEdge>>) -> Result<usize> {
+    let file = fs::File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    let mut bytes = 0usize;
+
+    let header = format!(
+        "_type: call_graph\nschema_version: \"{}\"\nedges: {}\n",
+        SCHEMA_VERSION,
+        graph.len()
+    );
+    writer.write_all(header.as_bytes())?;
+    bytes += header.len();
+
+    for (symbol_hash, edges) in graph {
+        let mut line = String::new();
+        line.push_str(symbol_hash);
+        line.push_str(": [");
+        for (idx, edge) in edges.iter().enumerate() {
+            if idx > 0 {
+                line.push(',');
+            }
+            line.push_str(&edge.encode());
+        }
+        line.push_str("]\n");
+        writer.write_all(line.as_bytes())?;
+        bytes += line.len();
+    }
+
+    writer.flush()?;
+    Ok(bytes)
 }
 
 /// Build import graph from summaries

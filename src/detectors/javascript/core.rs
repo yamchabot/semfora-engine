@@ -879,16 +879,10 @@ fn extract_import_names(
     }
 }
 
-/// Normalize a package name for display
-/// - "@radix-ui/react-accordion" -> "radix-ui/react-accordion"
-/// - "react" -> "react"
-/// - "@stripe/stripe-js" -> "stripe/stripe-js"
+/// Normalize a package name for external tracking.
+/// Preserve scopes so manifests can match exact package IDs.
 fn normalize_package_name(module: &str) -> String {
-    if module.starts_with('@') {
-        module[1..].to_string()
-    } else {
-        module.to_string()
-    }
+    module.to_string()
 }
 
 // =============================================================================
@@ -1187,8 +1181,17 @@ exports.processData = function(data) {
         let path = PathBuf::from("/test/api.js");
         let summary = extract(&path, source, &tree, Lang::JavaScript).unwrap();
 
-        // Should have 2 symbols (CommonJS exports)
-        assert_eq!(summary.symbols.len(), 2, "Should have 2 CommonJS exports");
+        // Should have 2 exported function symbols (CommonJS exports)
+        let exported_functions: Vec<_> = summary
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Function && s.is_exported)
+            .collect();
+        assert_eq!(
+            exported_functions.len(),
+            2,
+            "Should have 2 CommonJS exported functions"
+        );
 
         // fetchUsers should have calls
         let fetch_users = summary.symbols.iter().find(|s| s.name == "fetchUsers");
