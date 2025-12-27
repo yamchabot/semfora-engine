@@ -40,11 +40,23 @@ pub fn parse_shellcheck_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
 fn parse_shellcheck_item(item: &serde_json::Value, dir: &Path) -> Option<LintIssue> {
     let file = item.get("file")?.as_str()?.to_string();
     let line = item.get("line")?.as_u64()? as usize;
-    let column = item.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
-    let end_line = item.get("endLine").and_then(|e| e.as_u64()).map(|e| e as usize);
-    let end_column = item.get("endColumn").and_then(|e| e.as_u64()).map(|e| e as usize);
+    let column = item
+        .get("column")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
+    let end_line = item
+        .get("endLine")
+        .and_then(|e| e.as_u64())
+        .map(|e| e as usize);
+    let end_column = item
+        .get("endColumn")
+        .and_then(|e| e.as_u64())
+        .map(|e| e as usize);
 
-    let level = item.get("level").and_then(|l| l.as_str()).unwrap_or("warning");
+    let level = item
+        .get("level")
+        .and_then(|l| l.as_str())
+        .unwrap_or("warning");
     let severity = match level {
         "error" => LintSeverity::Error,
         "warning" => LintSeverity::Warning,

@@ -39,8 +39,14 @@ fn parse_tflint_issue(issue: &serde_json::Value, dir: &Path) -> Option<LintIssue
     let message = issue.get("message")?.as_str()?.to_string();
 
     let rule = issue.get("rule")?;
-    let rule_name = rule.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
-    let severity_str = rule.get("severity").and_then(|s| s.as_str()).unwrap_or("error");
+    let rule_name = rule
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("unknown");
+    let severity_str = rule
+        .get("severity")
+        .and_then(|s| s.as_str())
+        .unwrap_or("error");
 
     let severity = match severity_str {
         "error" => LintSeverity::Error,
@@ -53,11 +59,20 @@ fn parse_tflint_issue(issue: &serde_json::Value, dir: &Path) -> Option<LintIssue
     let filename = range.get("filename").and_then(|f| f.as_str()).unwrap_or("");
     let start = range.get("start")?;
     let line = start.get("line")?.as_u64()? as usize;
-    let column = start.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
+    let column = start
+        .get("column")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     let end = range.get("end");
-    let end_line = end.and_then(|e| e.get("line")).and_then(|l| l.as_u64()).map(|l| l as usize);
-    let end_column = end.and_then(|e| e.get("column")).and_then(|c| c.as_u64()).map(|c| c as usize);
+    let end_line = end
+        .and_then(|e| e.get("line"))
+        .and_then(|l| l.as_u64())
+        .map(|l| l as usize);
+    let end_column = end
+        .and_then(|e| e.get("column"))
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     // Make path relative
     let file_path = PathBuf::from(filename);
@@ -102,7 +117,9 @@ pub fn parse_terraform_validate_output(stdout: &str, dir: &Path) -> Vec<LintIssu
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout) {
         if let Some(diagnostics) = json.get("diagnostics").and_then(|d| d.as_array()) {
             for diagnostic in diagnostics {
-                if let Some(parsed) = parse_terraform_diagnostic(diagnostic, dir, Linter::TerraformValidate) {
+                if let Some(parsed) =
+                    parse_terraform_diagnostic(diagnostic, dir, Linter::TerraformValidate)
+                {
                     issues.push(parsed);
                 }
             }
@@ -112,16 +129,26 @@ pub fn parse_terraform_validate_output(stdout: &str, dir: &Path) -> Vec<LintIssu
     issues
 }
 
-fn parse_terraform_diagnostic(diagnostic: &serde_json::Value, dir: &Path, linter: Linter) -> Option<LintIssue> {
+fn parse_terraform_diagnostic(
+    diagnostic: &serde_json::Value,
+    dir: &Path,
+    linter: Linter,
+) -> Option<LintIssue> {
     let summary = diagnostic.get("summary")?.as_str()?.to_string();
-    let detail = diagnostic.get("detail").and_then(|d| d.as_str()).unwrap_or("");
+    let detail = diagnostic
+        .get("detail")
+        .and_then(|d| d.as_str())
+        .unwrap_or("");
     let message = if detail.is_empty() {
         summary
     } else {
         format!("{}: {}", summary, detail)
     };
 
-    let severity_str = diagnostic.get("severity").and_then(|s| s.as_str()).unwrap_or("error");
+    let severity_str = diagnostic
+        .get("severity")
+        .and_then(|s| s.as_str())
+        .unwrap_or("error");
     let severity = match severity_str {
         "error" => LintSeverity::Error,
         "warning" => LintSeverity::Warning,
@@ -132,11 +159,20 @@ fn parse_terraform_diagnostic(diagnostic: &serde_json::Value, dir: &Path, linter
     let filename = range.get("filename").and_then(|f| f.as_str()).unwrap_or("");
     let start = range.get("start")?;
     let line = start.get("line")?.as_u64()? as usize;
-    let column = start.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
+    let column = start
+        .get("column")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     let end = range.get("end");
-    let end_line = end.and_then(|e| e.get("line")).and_then(|l| l.as_u64()).map(|l| l as usize);
-    let end_column = end.and_then(|e| e.get("column")).and_then(|c| c.as_u64()).map(|c| c as usize);
+    let end_line = end
+        .and_then(|e| e.get("line"))
+        .and_then(|l| l.as_u64())
+        .map(|l| l as usize);
+    let end_column = end
+        .and_then(|e| e.get("column"))
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     // Make path relative
     let file_path = PathBuf::from(filename);

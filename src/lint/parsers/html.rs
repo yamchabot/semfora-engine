@@ -48,7 +48,10 @@ pub fn parse_htmlhint_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
 fn parse_htmlhint_issue(issue: &serde_json::Value, file: &str, dir: &Path) -> Option<LintIssue> {
     let message = issue.get("message")?.as_str()?.to_string();
     let line = issue.get("line")?.as_u64()? as usize;
-    let column = issue.get("col").and_then(|c| c.as_u64()).map(|c| c as usize);
+    let column = issue
+        .get("col")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     // Get severity from "type" field
     let severity = match issue.get("type").and_then(|t| t.as_str()) {
@@ -144,7 +147,10 @@ fn parse_html_validate_message(
 ) -> Option<LintIssue> {
     let message = msg.get("message")?.as_str()?.to_string();
     let line = msg.get("line")?.as_u64()? as usize;
-    let column = msg.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
+    let column = msg
+        .get("column")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     // Get severity from numeric value (1=warn, 2=error)
     let severity = match msg.get("severity").and_then(|s| s.as_u64()) {

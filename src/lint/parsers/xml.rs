@@ -121,7 +121,8 @@ config.xml:15: parser error : Premature end of data in tag root line 1"#;
 
     #[test]
     fn test_parse_validity_error() {
-        let output = "schema.xml:5: validity error : Element 'root': No matching global declaration";
+        let output =
+            "schema.xml:5: validity error : Element 'root': No matching global declaration";
 
         let issues = parse_xmllint_output("", output, Path::new("."));
         assert_eq!(issues.len(), 1);

@@ -25,7 +25,12 @@ use std::path::Path;
 use crate::lint::types::{LintIssue, Linter};
 
 /// Parse linter output based on linter type
-pub fn parse_linter_output(linter: Linter, stdout: &str, stderr: &str, dir: &Path) -> Vec<LintIssue> {
+pub fn parse_linter_output(
+    linter: Linter,
+    stdout: &str,
+    stderr: &str,
+    dir: &Path,
+) -> Vec<LintIssue> {
     match linter {
         // Rust
         Linter::Clippy => rust::parse_clippy_output(stdout, stderr, dir),

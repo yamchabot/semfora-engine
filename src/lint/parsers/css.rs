@@ -35,10 +35,7 @@ pub fn parse_stylelint_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
     // Stylelint outputs an array of file results
     if let Some(results) = json.as_array() {
         for result in results {
-            let file = result
-                .get("source")
-                .and_then(|s| s.as_str())
-                .unwrap_or("");
+            let file = result.get("source").and_then(|s| s.as_str()).unwrap_or("");
 
             if let Some(warnings) = result.get("warnings").and_then(|w| w.as_array()) {
                 for warning in warnings {
@@ -53,10 +50,17 @@ pub fn parse_stylelint_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
     issues
 }
 
-fn parse_stylelint_warning(warning: &serde_json::Value, file: &str, dir: &Path) -> Option<LintIssue> {
+fn parse_stylelint_warning(
+    warning: &serde_json::Value,
+    file: &str,
+    dir: &Path,
+) -> Option<LintIssue> {
     let message = warning.get("text")?.as_str()?.to_string();
     let line = warning.get("line")?.as_u64()? as usize;
-    let column = warning.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
+    let column = warning
+        .get("column")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize);
 
     // Get severity from string value
     let severity = match warning.get("severity").and_then(|s| s.as_str()) {

@@ -72,7 +72,9 @@ pub fn parse_stylecop_output(stdout: &str, stderr: &str, dir: &Path) -> Vec<Lint
 /// - Models/User.cs(5,1): info IDE0001: Simplify name
 fn parse_msbuild_diagnostic_line(line: &str, dir: &Path, linter: Linter) -> Option<LintIssue> {
     // Skip lines that don't look like diagnostics
-    if !line.contains("): ") || (!line.contains(": error ") && !line.contains(": warning ") && !line.contains(": info ")) {
+    if !line.contains("): ")
+        || (!line.contains(": error ") && !line.contains(": warning ") && !line.contains(": info "))
+    {
         return None;
     }
 
@@ -117,7 +119,10 @@ fn parse_msbuild_diagnostic_line(line: &str, dir: &Path, linter: Linter) -> Opti
         let msg = &rest_after_severity[colon_pos + 2..];
         (code.trim().to_string(), msg.trim().to_string())
     } else {
-        ("unknown".to_string(), rest_after_severity.trim().to_string())
+        (
+            "unknown".to_string(),
+            rest_after_severity.trim().to_string(),
+        )
     };
 
     // Make path relative to dir

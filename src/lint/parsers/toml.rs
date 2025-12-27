@@ -57,7 +57,10 @@ fn parse_taplo_error(error: &serde_json::Value, dir: &Path) -> Option<LintIssue>
         .map(|c| c as usize + 1);
 
     let end = range.get("end");
-    let end_line = end.and_then(|e| e.get("line")).and_then(|l| l.as_u64()).map(|l| l as usize + 1);
+    let end_line = end
+        .and_then(|e| e.get("line"))
+        .and_then(|l| l.as_u64())
+        .map(|l| l as usize + 1);
     let end_column = end
         .and_then(|e| e.get("column"))
         .and_then(|c| c.as_u64())

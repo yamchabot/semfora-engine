@@ -84,9 +84,10 @@ pub fn detect_csharp_linters(dir: &Path) -> Vec<DetectedLinter> {
     // We detect via dotnet build with /warnaserror
     if dotnet_available && has_project {
         // Check for explicit analyzer configuration
-        let has_analyzers_config = has_analyzers_in_directory_build_props(dir, "EnableNETAnalyzers")
-            || has_analyzers_in_directory_build_props(dir, "AnalysisLevel")
-            || has_analyzers_in_directory_build_props(dir, "AnalysisMode");
+        let has_analyzers_config =
+            has_analyzers_in_directory_build_props(dir, "EnableNETAnalyzers")
+                || has_analyzers_in_directory_build_props(dir, "AnalysisLevel")
+                || has_analyzers_in_directory_build_props(dir, "AnalysisMode");
 
         // Roslyn analyzers are enabled by default in .NET 5+, so always add if project exists
         linters.push(DetectedLinter {

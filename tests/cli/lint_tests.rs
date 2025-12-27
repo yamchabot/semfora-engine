@@ -75,10 +75,7 @@ edition = "2021"
 #[test]
 fn test_lint_detect_js_eslint() {
     let repo = TestRepo::new();
-    repo.add_file(
-        "package.json",
-        r#"{"name": "test", "version": "1.0.0"}"#,
-    );
+    repo.add_file("package.json", r#"{"name": "test", "version": "1.0.0"}"#);
     repo.add_file(".eslintrc.json", r#"{"env": {"node": true}}"#);
     repo.add_file("src/index.js", "console.log('hello');");
 
@@ -95,10 +92,7 @@ fn test_lint_detect_js_eslint() {
 #[test]
 fn test_lint_detect_js_biome() {
     let repo = TestRepo::new();
-    repo.add_file(
-        "package.json",
-        r#"{"name": "test", "version": "1.0.0"}"#,
-    );
+    repo.add_file("package.json", r#"{"name": "test", "version": "1.0.0"}"#);
     repo.add_file(
         "biome.json",
         r#"{"$schema": "https://biomejs.dev/schemas/1.0.0/schema.json"}"#,
@@ -118,10 +112,7 @@ fn test_lint_detect_js_biome() {
 #[test]
 fn test_lint_detect_js_prettier() {
     let repo = TestRepo::new();
-    repo.add_file(
-        "package.json",
-        r#"{"name": "test", "version": "1.0.0"}"#,
-    );
+    repo.add_file("package.json", r#"{"name": "test", "version": "1.0.0"}"#);
     repo.add_file(".prettierrc", r#"{"semi": true}"#);
     repo.add_file("src/index.js", "const x = 1;");
 
@@ -138,14 +129,8 @@ fn test_lint_detect_js_prettier() {
 #[test]
 fn test_lint_detect_typescript() {
     let repo = TestRepo::new();
-    repo.add_file(
-        "package.json",
-        r#"{"name": "test", "version": "1.0.0"}"#,
-    );
-    repo.add_file(
-        "tsconfig.json",
-        r#"{"compilerOptions": {"strict": true}}"#,
-    );
+    repo.add_file("package.json", r#"{"name": "test", "version": "1.0.0"}"#);
+    repo.add_file("tsconfig.json", r#"{"compilerOptions": {"strict": true}}"#);
     repo.add_file("src/index.ts", "export const hello: string = 'world';");
 
     let output = repo.run_cli_success(&["lint", "detect", "-f", "json"]);
@@ -165,34 +150,37 @@ fn test_lint_detect_typescript() {
 #[test]
 fn test_lint_detect_python_ruff() {
     let repo = TestRepo::new();
-    repo.add_file("pyproject.toml", r#"
+    repo.add_file(
+        "pyproject.toml",
+        r#"
 [tool.ruff]
 line-length = 88
-"#);
+"#,
+    );
     repo.add_file("src/main.py", "def hello():\n    print('hello')");
 
     let output = repo.run_cli_success(&["lint", "detect", "-f", "json"]);
     let json = assert_valid_json(&output, "lint detect ruff");
 
     let output_str = output.to_lowercase();
-    assert!(
-        output_str.contains("ruff"),
-        "Should detect Ruff: {output}"
-    );
+    assert!(output_str.contains("ruff"), "Should detect Ruff: {output}");
 }
 
 #[test]
 fn test_lint_detect_python_mypy() {
     let repo = TestRepo::new();
     // Need pyproject.toml or requirements.txt for Python detection
-    repo.add_file("pyproject.toml", r#"
+    repo.add_file(
+        "pyproject.toml",
+        r#"
 [project]
 name = "test"
 version = "0.1.0"
 
 [tool.mypy]
 strict = true
-"#);
+"#,
+    );
     repo.add_file("mypy.ini", "[mypy]\nstrict = True");
     repo.add_file("src/main.py", "def hello() -> str:\n    return 'hello'");
 
@@ -200,10 +188,7 @@ strict = true
     let json = assert_valid_json(&output, "lint detect mypy");
 
     let output_str = output.to_lowercase();
-    assert!(
-        output_str.contains("mypy"),
-        "Should detect mypy: {output}"
-    );
+    assert!(output_str.contains("mypy"), "Should detect mypy: {output}");
 }
 
 // ============================================================================
@@ -214,13 +199,16 @@ strict = true
 fn test_lint_detect_go() {
     let repo = TestRepo::new();
     repo.add_file("go.mod", "module example.com/test\n\ngo 1.21");
-    repo.add_file("main.go", r#"
+    repo.add_file(
+        "main.go",
+        r#"
 package main
 
 func main() {
     println("hello")
 }
-"#);
+"#,
+    );
 
     let output = repo.run_cli_success(&["lint", "detect", "-f", "json"]);
     let json = assert_valid_json(&output, "lint detect go");
@@ -232,8 +220,14 @@ func main() {
 
     let output_str = output.to_lowercase();
     // Check for Go linters OR recognize it as a Go project (even without tools)
-    let has_go_linters = output_str.contains("gofmt") || output_str.contains("golangci") || output_str.contains("vet");
-    let recognized_as_go = output_str.contains("go") || json.get("linters").map(|l| l.as_array().map(|a| a.is_empty()).unwrap_or(true)).unwrap_or(true);
+    let has_go_linters = output_str.contains("gofmt")
+        || output_str.contains("golangci")
+        || output_str.contains("vet");
+    let recognized_as_go = output_str.contains("go")
+        || json
+            .get("linters")
+            .map(|l| l.as_array().map(|a| a.is_empty()).unwrap_or(true))
+            .unwrap_or(true);
 
     assert!(
         has_go_linters || recognized_as_go,
@@ -279,10 +273,7 @@ edition = "2021"
     let json = assert_valid_json(&output, "lint detect json format");
 
     // Should be valid JSON with expected fields
-    assert!(
-        json.is_object(),
-        "JSON output should be an object"
-    );
+    assert!(json.is_object(), "JSON output should be an object");
 }
 
 #[test]
@@ -417,7 +408,10 @@ edition = "2021"
     // For Rust projects, clippy should be installed by default
     // so recommendations may be empty or suggest other tools
     assert!(
-        output.contains("recommend") || output.contains("No") || output.contains("clippy") || output.len() > 0,
+        output.contains("recommend")
+            || output.contains("No")
+            || output.contains("clippy")
+            || output.len() > 0,
         "Should provide some output: {output}"
     );
 }
@@ -436,7 +430,10 @@ fn test_lint_detect_no_linters() {
     let json = assert_valid_json(&output, "lint detect empty");
 
     // Should handle gracefully with zero linters
-    assert!(json.is_object(), "Should return valid JSON even with no linters");
+    assert!(
+        json.is_object(),
+        "Should return valid JSON even with no linters"
+    );
 }
 
 #[test]

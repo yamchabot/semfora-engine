@@ -16,30 +16,21 @@ pub fn parse_detekt_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
                     .get("ruleSet")
                     .and_then(|r| r.as_str())
                     .unwrap_or("detekt");
-                let rule_id = finding
-                    .get("ruleId")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("");
+                let rule_id = finding.get("ruleId").and_then(|r| r.as_str()).unwrap_or("");
                 let message = finding
                     .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("");
 
                 if let Some(location) = finding.get("location") {
-                    let file = location
-                        .get("file")
-                        .and_then(|f| f.as_str())
-                        .unwrap_or("");
+                    let file = location.get("file").and_then(|f| f.as_str()).unwrap_or("");
                     let file_path = PathBuf::from(file);
                     let relative_file = file_path
                         .strip_prefix(dir)
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_else(|_| file.to_string());
 
-                    let line = location
-                        .get("line")
-                        .and_then(|l| l.as_u64())
-                        .unwrap_or(1) as usize;
+                    let line = location.get("line").and_then(|l| l.as_u64()).unwrap_or(1) as usize;
                     let column = location
                         .get("column")
                         .and_then(|c| c.as_u64())
@@ -131,16 +122,16 @@ pub fn parse_ktlint_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
 
             if let Some(errors) = result.get("errors").and_then(|e| e.as_array()) {
                 for error in errors {
-                    let line = error
-                        .get("line")
-                        .and_then(|l| l.as_u64())
-                        .unwrap_or(1) as usize;
+                    let line = error.get("line").and_then(|l| l.as_u64()).unwrap_or(1) as usize;
                     let column = error
                         .get("column")
                         .and_then(|c| c.as_u64())
                         .map(|c| c as usize);
                     let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
-                    let rule = error.get("rule").and_then(|r| r.as_str()).unwrap_or("ktlint");
+                    let rule = error
+                        .get("rule")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("ktlint");
 
                     issues.push(LintIssue {
                         file: relative_file.clone(),

@@ -27,8 +27,8 @@ pub fn detect_json_linters(dir: &Path) -> Vec<DetectedLinter> {
     let npx_available = is_command_available("npx");
 
     // jsonlint - detectable via npm dependency
-    let has_jsonlint = has_npm_dev_dependency(dir, "jsonlint")
-        || has_npm_dev_dependency(dir, "@prantlf/jsonlint");
+    let has_jsonlint =
+        has_npm_dev_dependency(dir, "jsonlint") || has_npm_dev_dependency(dir, "@prantlf/jsonlint");
 
     if npx_available && has_jsonlint {
         linters.push(DetectedLinter {

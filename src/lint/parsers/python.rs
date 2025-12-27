@@ -213,7 +213,10 @@ pub fn parse_pylint_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
                 .map(|c| c as usize);
 
             // Pylint uses type: fatal, error, warning, convention, refactor, info
-            let type_str = result.get("type").and_then(|t| t.as_str()).unwrap_or("error");
+            let type_str = result
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("error");
             let symbol = result
                 .get("symbol")
                 .and_then(|s| s.as_str())

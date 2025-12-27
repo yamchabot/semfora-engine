@@ -74,7 +74,10 @@ pub fn parse_cpplint_output(stdout: &str, stderr: &str, dir: &Path) -> Vec<LintI
 
     for line in output.lines() {
         // Skip empty lines and summary lines
-        if line.is_empty() || line.starts_with("Done processing") || line.starts_with("Total errors") {
+        if line.is_empty()
+            || line.starts_with("Done processing")
+            || line.starts_with("Total errors")
+        {
             continue;
         }
 
