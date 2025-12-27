@@ -57,7 +57,7 @@ pub fn resolve_path_or_cwd(path: &str) -> Result<PathBuf> {
     }
 }
 
-/// Resolve path from Option<PathBuf>, defaulting to CWD if None.
+/// Resolve path from `Option<PathBuf>`, defaulting to CWD if None.
 ///
 /// This variant is useful when working with clap parsed arguments
 /// that are already PathBuf.

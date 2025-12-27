@@ -65,7 +65,7 @@ pub fn parse_cppcheck_output(stdout: &str, stderr: &str, dir: &Path) -> Vec<Lint
 /// filename:line:  message  [category/rule]
 ///
 /// Standard format:
-/// filename:line:  message  [category/rule] [confidence]
+/// filename:line:  message  \[category/rule\] \[confidence\]
 pub fn parse_cpplint_output(stdout: &str, stderr: &str, dir: &Path) -> Vec<LintIssue> {
     let mut issues = Vec::new();
 
@@ -235,7 +235,7 @@ fn parse_gcc_style_diagnostic(line: &str, dir: &Path, linter: Linter) -> Option<
 }
 
 /// Parse cpplint output line
-/// Format: file:line:  message  [category/rule] [confidence]
+/// Format: file:line:  message  \[category/rule\] \[confidence\]
 fn parse_cpplint_line(line: &str, dir: &Path) -> Option<LintIssue> {
     // Split on ":  " (note: two spaces) to separate location from message
     // But first extract file:line

@@ -1688,6 +1688,7 @@ pub struct Foo {}
     }
 
     #[test]
+    #[ignore] // Depends on hardcoded local path, for manual debugging only
     fn debug_schema_rs_extraction() {
         use super::*;
         use crate::detectors::grammar::RUST_GRAMMAR;
