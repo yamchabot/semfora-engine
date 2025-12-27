@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::cli::{LintArgs, LintOperation, OutputFormat};
 use crate::commands::CommandContext;
 use crate::error::Result;
-use crate::lint_runner::{detect_linters, get_recommendations, DetectedLinter};
+use crate::lint::{detect_linters, get_recommendations, DetectedLinter};
 
 /// Run the lint command
 pub fn run_lint(args: &LintArgs, ctx: &CommandContext) -> Result<String> {
@@ -48,7 +48,7 @@ fn run_lint_scan(
     fixable_only: bool,
     ctx: &CommandContext,
 ) -> Result<String> {
-    use crate::lint_runner::{run_lint, LintRunOptions, LintSeverity, Linter};
+    use crate::lint::{run_lint, LintRunOptions, LintSeverity, Linter};
 
     let project_dir = path
         .clone()
@@ -176,7 +176,7 @@ fn run_lint_fix(
     safe_only: bool,
     ctx: &CommandContext,
 ) -> Result<String> {
-    use crate::lint_runner::{run_lint, LintRunOptions, Linter};
+    use crate::lint::{run_lint, LintRunOptions, Linter};
 
     let project_dir = path
         .clone()

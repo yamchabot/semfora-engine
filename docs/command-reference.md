@@ -14,6 +14,7 @@ This document provides a comprehensive reference of all CLI commands and MCP too
 | `semfora-engine validate` | Run quality audits (complexity, duplicates) |
 | `semfora-engine index` | Manage the semantic index |
 | `semfora-engine cache` | Manage the cache |
+| `semfora-engine lint` | Run linters and code quality tools (auto-detects language) |
 | `semfora-engine security` | Security scanning and CVE detection |
 | `semfora-engine test` | Run or detect tests |
 | `semfora-engine commit` | Prepare information for writing a commit message |
@@ -67,6 +68,45 @@ This document provides a comprehensive reference of all CLI commands and MCP too
 | `semfora-engine config set <KEY> <VALUE>` | Set a configuration value |
 | `semfora-engine config reset` | Reset configuration to defaults |
 
+### Lint Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `semfora-engine lint detect` | Detect available linters for the project |
+| `semfora-engine lint scan` | Run linters and report issues |
+| `semfora-engine lint fix` | Apply automatic fixes (dry-run by default) |
+| `semfora-engine lint recommend` | Get linter recommendations for the project |
+
+**Supported Linters (26 linters across 16 languages):**
+
+| Category | Languages | Linters |
+|----------|-----------|---------|
+| Core 4 | Rust | Clippy, rustfmt |
+| | JavaScript/TypeScript | ESLint, Biome, Prettier, TSC, Oxlint |
+| | Python | Ruff, Black, Mypy, Pylint |
+| | Go | golangci-lint, gofmt, go vet |
+| JVM | Java | Checkstyle, SpotBugs, PMD |
+| | Kotlin | detekt, ktlint |
+| Systems | C/C++ | clang-tidy, cppcheck, cpplint |
+| | C# | dotnet-format, Roslyn, StyleCop |
+| Web | HTML | HTMLHint, html-validate |
+| | CSS/SCSS | Stylelint |
+| Config | JSON/YAML/TOML/XML | jsonlint, yamllint, taplo, xmllint |
+| Infrastructure | Terraform | TFLint, terraform validate/fmt |
+| | Shell | ShellCheck, shfmt |
+| Documentation | Markdown | markdownlint |
+
+**Lint Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--linter <NAME>` | Force a specific linter (e.g., `clippy`, `eslint`, `ruff`) |
+| `--limit <N>` | Maximum issues to return (default: 100) |
+| `--severity-filter <LEVEL>` | Filter by severity: `error`, `warning`, `info` |
+| `--fixable-only` | Only show issues that can be auto-fixed |
+| `--safe-only` | Only apply safe auto-fixes (with `fix` subcommand) |
+| `--dry-run` | Show what would be fixed without making changes |
+
 ---
 
 ## MCP Tools
@@ -119,6 +159,12 @@ These tools are available when using semfora-engine as an MCP server for AI agen
 |------|-------------|
 | `test` | Unified test runner - runs tests by default (auto-detects framework). Use `detect_only=true` to only detect available test frameworks without running. |
 
+### Linting
+
+| Tool | Description |
+|------|-------------|
+| `lint` | Unified linter - auto-detects and runs linters across 16 languages (26 linters). Use `detect_only=true` to list available linters, `mode="fix"` to auto-fix. Supports: Rust, JS/TS, Python, Go, Java, Kotlin, C/C++, C#, HTML, CSS, JSON, YAML, TOML, XML, Terraform, Shell, Markdown. |
+
 ### Security
 
 | Tool | Description |
@@ -146,6 +192,9 @@ These tools are available when using semfora-engine as an MCP server for AI agen
 | Find what calls a function | `semfora-engine query callers <hash>` | `get_callers` |
 | Find duplicates | `semfora-engine validate --duplicates` | `find_duplicates` |
 | Check code quality | `semfora-engine validate <target>` | `validate` |
+| Run linter | `semfora-engine lint scan` | `lint` |
+| Auto-fix lint issues | `semfora-engine lint fix` | `lint` (with `mode="fix"`) |
+| Detect available linters | `semfora-engine lint detect` | `lint` (with `detect_only=true`) |
 | Run tests | `semfora-engine test` | `test` |
 | Security scan | `semfora-engine security scan` | `security` |
 | Prepare commit message | `semfora-engine commit` | `prep_commit` |

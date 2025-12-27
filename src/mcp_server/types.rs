@@ -506,9 +506,9 @@ pub struct TestRequest {
 // Lint Request
 // ============================================================================
 
-/// Unified linter - scans for issues by default (auto-detects framework).
-/// Use detect_only=true to only detect available linters without running.
-/// Use mode="fix" to apply auto-fixes.
+/// Unified linter - auto-detects and runs linters across 16 languages (26 linters).
+/// Use detect_only=true to list available linters, mode="fix" to auto-fix.
+/// Supports: Rust, JS/TS, Python, Go, Java, Kotlin, C/C++, C#, HTML, CSS, JSON, YAML, TOML, XML, Terraform, Shell, Markdown.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LintRequest {
     /// Path to the project directory (defaults to current directory)

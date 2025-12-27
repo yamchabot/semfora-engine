@@ -908,7 +908,7 @@ impl McpDiffServer {
 
     /// Unified lint handler - scans for issues by default.
     #[tool(
-        description = "Unified linter - scans for issues by default (auto-detects linters). Use detect_only=true to only detect available linters. Supports Core 4 languages: Rust (clippy, rustfmt), JS/TS (ESLint, Prettier, Biome, TSC), Python (ruff, black, mypy), Go (golangci-lint, gofmt, go vet)."
+        description = "Unified linter - auto-detects and runs linters. Use detect_only=true to list available linters. Use mode=\"fix\" to auto-fix.\n\n**26 linters across 16 languages:**\n• Core: Rust (clippy/rustfmt), JS/TS (ESLint/Biome/Prettier/TSC), Python (ruff/black/mypy), Go (golangci-lint/gofmt)\n• JVM: Java (Checkstyle/PMD/SpotBugs), Kotlin (detekt/ktlint)\n• Systems: C/C++ (clang-tidy/cppcheck), C# (dotnet-format/Roslyn)\n• Web: HTML (HTMLHint), CSS (Stylelint)\n• Config: JSON/YAML/TOML/XML linters\n• Infra: Terraform (tflint), Shell (shellcheck/shfmt), Markdown\n\n**When to use:** Run after editing code, before commits, or to audit code quality. Typically once per editing session."
     )]
     async fn lint(
         &self,

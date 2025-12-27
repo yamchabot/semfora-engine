@@ -20,6 +20,7 @@ Complete reference for all semfora-engine MCP tools.
 | `find_duplicates` | Duplicate detection | ~1-2k | Duplication audit |
 | `index` | Refresh index | ~100 | When stale |
 | `test` | Run tests | ~varies | Test execution |
+| `lint` | Run linters | ~1-2k | Code quality checks |
 | `security` | CVE scanning | ~1-2k | Security audits |
 | `prep_commit` | Commit prep | ~500 | Before committing |
 
@@ -263,6 +264,56 @@ Run or discover tests.
 
 **Output:** Varies
 - Test results or discovery
+
+---
+
+### lint
+
+Run linters and code quality tools. Auto-detects available linters.
+
+**Parameters:**
+- `path` (optional): Project path (defaults to current directory)
+- `detect_only` (optional): Just detect available linters, don't run
+- `mode` (optional): "scan" (default), "fix", "typecheck", "recommend"
+- `linter` (optional): Force specific linter (e.g., "clippy", "eslint", "ruff")
+- `limit` (optional): Max issues to return (default: 100)
+- `severity_filter` (optional): Filter by severity levels
+- `fixable_only` (optional): Only show issues that can be auto-fixed
+- `safe_only` (optional): Only apply safe fixes (for fix mode)
+- `dry_run` (optional): Preview fixes without applying
+
+**Output:** ~1-2k tokens
+- Detected linters with versions
+- Lint issues (file, line, severity, message)
+- Fix suggestions when available
+
+**Supported Linters (26 linters across 16 languages):**
+
+| Category | Languages | Linters |
+|----------|-----------|---------|
+| Core 4 | Rust | Clippy, rustfmt |
+| | JavaScript/TypeScript | ESLint, Biome, Prettier, TSC, Oxlint |
+| | Python | Ruff, Black, Mypy, Pylint |
+| | Go | golangci-lint, gofmt, go vet |
+| JVM | Java | Checkstyle, SpotBugs, PMD |
+| | Kotlin | detekt, ktlint |
+| Systems | C/C++ | clang-tidy, cppcheck, cpplint |
+| | C# | dotnet-format, Roslyn, StyleCop |
+| Web | HTML | HTMLHint, html-validate |
+| | CSS/SCSS | Stylelint |
+| Config | JSON/YAML/TOML/XML | jsonlint, yamllint, taplo, xmllint |
+| Infrastructure | Terraform | TFLint, terraform validate/fmt |
+| | Shell | ShellCheck, shfmt |
+| Documentation | Markdown | markdownlint |
+
+**When to use:** Run after editing code, before commits, or for code quality audits. Typically once per editing session.
+
+**Example:**
+```json
+{ "detect_only": true }  // List available linters
+{ "mode": "fix", "safe_only": true }  // Apply safe fixes
+{ "linter": "clippy" }  // Force specific linter
+```
 
 ---
 

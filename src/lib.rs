@@ -111,7 +111,7 @@ pub mod git;
 pub mod indexing;
 pub mod installer;
 pub mod lang;
-pub mod lint_runner;
+pub mod lint;
 pub mod mcp_server;
 pub mod module_registry;
 pub mod overlay;
@@ -246,4 +246,9 @@ pub use indexing::{
 // Re-export parsing utilities (CLI/MCP unification - DEDUP-103)
 pub use parsing::{parse_and_extract, parse_and_extract_with_options};
 
-// Test change to trigger semfora-ci workflow
+// Re-export lint types (unified multi-language linting)
+pub use lint::{
+    collect_config_hashes, detect_linters, get_recommendations, run_lint, run_single_linter,
+    ConfigHash, DetectedLinter, LintCache, LintCapabilities, LintCategory, LintCommand, LintIssue,
+    LintRecommendation, LintResults, LintRunOptions, LintSeverity, Linter, SingleLinterResult,
+};
