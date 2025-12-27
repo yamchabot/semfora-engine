@@ -14,9 +14,10 @@ Produces highly compressed semantic summaries, enabling efficient code review wi
 **One `search()` call runs BOTH symbol AND semantic search by default!**
 
 ```
-search("auth")
+search("auth", limit: 10)
 -> Returns SYMBOL MATCHES (exact names) + RELATED CODE (conceptual matches)
 ```
+Variables are hidden by default. Use `symbol_scope: "variables"` or `"both"` if needed.
 
 | Mode | When to Use | Example |
 |------|-------------|---------|
@@ -31,7 +32,7 @@ search("auth")
 
 1. `get_context()` -> Git + project info (~200 tokens) - USE FIRST
 2. `get_overview()` -> Architecture + modules (~500 tokens) - **NOTE THE MODULE NAMES**
-3. `search("your query")` -> Unified search (symbol + semantic)
+3. `search("your query", limit: 10)` -> Unified search (symbol + semantic)
 4. `get_callers(hash)` -> Before modifying, check impact
 5. `get_source(hash)` -> Surgical code read for editing
 
@@ -49,7 +50,7 @@ For comprehensive quality audits:
 
 ### DO: Use unified search
 ```
-search("Request", include_source: true)
+search("Request", include_source: true, limit: 10)
 ```
 One call returns BOTH symbol matches AND related code + source (~1,200 tokens)
 
@@ -81,7 +82,7 @@ TOTAL: ~6,000 tokens
 |------|--------|-------|
 | `get_context` | ~200 | Use FIRST |
 | `get_overview` | ~500 | Architecture + optional modules |
-| `search` (hybrid) | ~1,200 | Symbol + semantic combined - USE THIS |
+| `search` (hybrid) | ~1,200 | Symbol + semantic combined - USE THIS (default 10 results) |
 | `search` (symbols only) | ~400 | 20 results |
 | `search` (semantic only) | ~800 | 20 results with scores |
 | `search` (raw) | ~1,000 | 50 regex matches |
@@ -91,8 +92,10 @@ TOTAL: ~6,000 tokens
 ## The 18 Tools
 
 ### Query-Driven (Most Efficient)
-- **search**: Unified search - runs BOTH symbol AND semantic by default!
+- **search**: Unified search - runs BOTH symbol AND semantic by default (prefer hybrid)!
   - Default: hybrid mode (best for most queries)
+  - Default to `limit: 10` unless you need more
+  - Variables hidden by default (`symbol_scope: "variables"` or `"both"` to include)
   - `mode: "symbols"`: exact name match only
   - `mode: "semantic"`: BM25 conceptual only
   - `mode: "raw"`: regex for comments/strings

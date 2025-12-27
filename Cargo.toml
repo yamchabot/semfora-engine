@@ -1,6 +1,6 @@
 [package]
 name = "semfora-engine"
-version = "0.7.6-beta"
+version = "0.7.7-beta"
 edition = "2021"
 description = "Semantic code analyzer with TOON output"
 license = "MIT"

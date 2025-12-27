@@ -324,36 +324,9 @@ export function handler{}(data: any) {{
 }
 
 // ============================================================================
-// SECURITY AUDIT WORKFLOW
+// SECURITY AUDIT WORKFLOW - DISABLED (command hidden from CLI/MCP)
 // ============================================================================
-
-/// Test security scanning workflow
-#[test]
-fn test_workflow_security_audit() {
-    let repo = TestRepo::new();
-    repo.add_file(
-        "src/auth.ts",
-        r#"
-export function authenticate(username: string, password: string) {
-    // This would be a potential SQL injection pattern
-    const query = `SELECT * FROM users WHERE username='${username}'`;
-    return query;
-}
-"#,
-    );
-    repo.generate_index().unwrap();
-
-    // Run security scan
-    let security = repo.run_cli_success(&["security", "scan"]);
-    assert!(
-        security.contains("pattern") || security.contains("No security") || !security.is_empty(),
-        "Security scan should complete"
-    );
-
-    // Get stats about patterns
-    let stats = repo.run_cli_success(&["security", "stats"]);
-    assert!(!stats.is_empty(), "Security stats should return output");
-}
+// Security tests disabled - command hidden from CLI (kept in src/commands/security.rs for future use)
 
 // ============================================================================
 // MULTILANG WORKFLOW

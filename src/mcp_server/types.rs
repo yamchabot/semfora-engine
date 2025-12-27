@@ -333,6 +333,12 @@ pub struct SearchRequest {
     #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
     pub kind: Option<String>,
 
+    /// Symbol scope (functions, variables, both)
+    #[schemars(
+        description = "Symbol scope: 'functions' (non-variable symbols), 'variables', or 'both' (default: functions)"
+    )]
+    pub symbol_scope: Option<String>,
+
     /// Filter by risk level (high, medium, low) - only for symbol/hybrid modes
     #[schemars(
         description = "Filter by risk level (high, medium, low) - symbol/hybrid modes only"
@@ -413,6 +419,12 @@ pub struct ValidateRequest {
     )]
     pub kind: Option<String>,
 
+    /// Symbol scope (functions, variables, both)
+    #[schemars(
+        description = "Symbol scope: 'functions' (non-variable symbols), 'variables', or 'both' (default: functions)"
+    )]
+    pub symbol_scope: Option<String>,
+
     /// Maximum symbols to validate for file/module scope (default: 100)
     #[schemars(
         description = "Maximum symbols to validate for file/module scope (default: 100, max: 500)"
@@ -490,57 +502,64 @@ pub struct TestRequest {
     pub timeout: Option<u64>,
 }
 
-/// Unified security request - scans for CVE patterns by default.
-/// Use `update: true` to update patterns, or `stats_only: true` to view pattern statistics.
+// ============================================================================
+// Lint Request
+// ============================================================================
+
+/// Unified linter - scans for issues by default (auto-detects framework).
+/// Use detect_only=true to only detect available linters without running.
+/// Use mode="fix" to apply auto-fixes.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct SecurityRequest {
-    /// Path to the repository (defaults to current directory)
-    #[schemars(description = "Path to the repository root (defaults to current directory)")]
+pub struct LintRequest {
+    /// Path to the project directory (defaults to current directory)
+    #[schemars(description = "Path to the project directory (defaults to current directory)")]
     pub path: Option<String>,
 
-    /// Only show pattern statistics (no scanning)
-    #[schemars(description = "Only show pattern statistics without scanning (default: false)")]
-    pub stats_only: Option<bool>,
-
-    /// Update patterns from URL or file before scanning
-    #[schemars(description = "Update patterns from URL or file (default: false = just scan)")]
-    pub update: Option<bool>,
-
-    /// URL to fetch patterns from (for update mode)
+    /// Lint mode: "scan" (default), "fix", "typecheck", or "recommend"
     #[schemars(
-        description = "URL to fetch patterns from (for update mode, uses default if not provided)"
+        description = "Lint mode: 'scan' (check for issues), 'fix' (auto-fix), 'typecheck' (type check only), 'recommend' (suggest linters). Default: scan"
     )]
-    pub url: Option<String>,
+    pub mode: Option<String>,
 
-    /// Path to local pattern file (for update mode, alternative to URL)
-    #[schemars(description = "Path to local security_patterns.bin file (for update mode)")]
-    pub file_path: Option<String>,
+    /// Only detect linters without running (default: false)
+    #[schemars(
+        description = "Only detect available linters without running (default: false = run linters)"
+    )]
+    pub detect_only: Option<bool>,
 
-    /// Force pattern update even if versions match
-    #[schemars(description = "Force update even if versions match (default: false)")]
-    pub force: Option<bool>,
+    /// Force a specific linter (clippy, eslint, ruff, golangci-lint, etc.)
+    #[schemars(
+        description = "Force a specific linter (clippy, eslint, ruff, golangci-lint, etc.). Auto-detects if not specified."
+    )]
+    pub linter: Option<String>,
 
-    // --- Scan mode options ---
-    /// Filter to a specific module
-    #[schemars(description = "Filter CVE scan to a specific module")]
-    pub module: Option<String>,
-
-    /// Filter by severity levels (CRITICAL, HIGH, MEDIUM, LOW)
-    #[schemars(description = "Filter by severity levels (e.g., ['CRITICAL', 'HIGH'])")]
+    /// Filter issues by severity (error, warning, info, hint)
+    #[schemars(
+        description = "Filter by severity levels (e.g., ['error', 'warning']). Shows all by default."
+    )]
     pub severity_filter: Option<Vec<String>>,
 
-    /// Filter by CWE categories
-    #[schemars(description = "Filter by CWE categories (e.g., ['CWE-89', 'CWE-79'])")]
-    pub cwe_filter: Option<Vec<String>>,
-
-    /// Minimum similarity threshold (default: 0.75)
-    #[schemars(description = "Minimum similarity threshold for CVE matching (default: 0.75)")]
-    pub min_similarity: Option<f32>,
-
-    /// Maximum matches to return (default: 100)
-    #[schemars(description = "Maximum CVE matches to return (default: 100)")]
+    /// Maximum issues to return (default: 100)
+    #[schemars(description = "Maximum issues to return (default: 100)")]
     pub limit: Option<usize>,
+
+    /// Only show issues that can be auto-fixed (default: false)
+    #[schemars(description = "Only show fixable issues (default: false)")]
+    pub fixable_only: Option<bool>,
+
+    /// Dry run for fix mode - show what would be fixed without changing files
+    #[schemars(description = "Dry run - show what would be fixed without changing files (default: false)")]
+    pub dry_run: Option<bool>,
+
+    /// Only apply safe fixes in fix mode (default: false)
+    #[schemars(description = "Only apply safe auto-fixes (default: false)")]
+    pub safe_only: Option<bool>,
 }
+
+// ============================================================================
+// SecurityRequest - HIDDEN (internal use only, not exposed via MCP)
+// ============================================================================
+// Kept for potential future use. See src/commands/security.rs for implementation.
 
 // ============================================================================
 // Legacy Search Types (kept for backward compatibility during transition)
@@ -564,6 +583,12 @@ pub struct SearchSymbolsRequest {
     /// Optional: filter by symbol kind (fn, struct, component, enum, etc.)
     #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
     pub kind: Option<String>,
+
+    /// Symbol scope (functions, variables, both)
+    #[schemars(
+        description = "Symbol scope: 'functions' (non-variable symbols), 'variables', or 'both' (default: functions)"
+    )]
+    pub symbol_scope: Option<String>,
 
     /// Optional: filter by risk level (high, medium, low)
     #[schemars(description = "Filter by risk level (high, medium, low)")]
@@ -601,6 +626,12 @@ pub struct GetFileRequest {
     /// Optional: filter by symbol kind
     #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
     pub kind: Option<String>,
+
+    /// Symbol scope (functions, variables, both)
+    #[schemars(
+        description = "Symbol scope: 'functions' (non-variable symbols), 'variables', or 'both' (default: functions)"
+    )]
+    pub symbol_scope: Option<String>,
 
     /// Optional: filter by risk level (only applies to module mode)
     #[schemars(description = "Filter by risk level (high, medium, low)")]
@@ -811,6 +842,12 @@ pub struct SearchAndGetSymbolsRequest {
     /// Optional: filter by symbol kind (fn, struct, component, enum, trait, etc.)
     #[schemars(description = "Filter by symbol kind (fn, struct, component, enum, trait, etc.)")]
     pub kind: Option<String>,
+
+    /// Symbol scope (functions, variables, both)
+    #[schemars(
+        description = "Symbol scope: 'functions' (non-variable symbols), 'variables', or 'both' (default: functions)"
+    )]
+    pub symbol_scope: Option<String>,
 
     /// Optional: filter by risk level (high, medium, low)
     #[schemars(description = "Filter by risk level (high, medium, low)")]

@@ -11,7 +11,7 @@
 //! - `validate` - Quality audits (complexity, duplicates)
 //! - `index` - Manage the semantic index
 //! - `cache` - Manage the cache
-//! - `security` - CVE scanning and pattern management
+//! - `security` - CVE scanning and pattern management (internal use only)
 //! - `test` - Run or detect tests
 //! - `commit` - Prepare commit information
 //!
@@ -22,8 +22,10 @@ pub mod analyze;
 pub mod cache;
 pub mod commit;
 pub mod index;
+pub mod lint;
 pub mod query;
 pub mod search;
+// Security module kept for internal use - not exposed via CLI
 pub mod security;
 pub mod serve;
 pub mod test;
@@ -36,9 +38,11 @@ pub use analyze::run_analyze;
 pub use cache::run_cache;
 pub use commit::run_commit;
 pub use index::run_index;
+pub use lint::run_lint;
 pub use query::{run_file_symbols, run_get_callgraph, run_get_callers, run_get_source, run_get_symbol, run_overview, run_query};
 pub use search::run_search;
-pub use security::run_security;
+// Security not re-exported - internal use only
+// pub use security::run_security;
 pub use serve::run_serve;
 pub use test::run_test;
 pub use trace::run_trace;
@@ -62,7 +66,7 @@ impl Default for CommandContext {
         Self {
             format: OutputFormat::Text,
             verbose: false,
-            progress: false,
+            progress: true,
         }
     }
 }

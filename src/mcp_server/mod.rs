@@ -27,10 +27,10 @@ use tokio::sync::Mutex;
 use crate::{
     // CLI types for MCP->CLI handler consolidation
     cli::{
-        AnalyzeArgs, CommitArgs, IndexArgs, IndexOperation, OutputFormat, SearchArgs, SecurityArgs,
-        SecurityOperation, TestArgs, ValidateArgs,
+        AnalyzeArgs, CommitArgs, IndexArgs, IndexOperation, LintArgs, LintOperation,
+        OutputFormat, SearchArgs, SymbolScope, TestArgs, ValidateArgs,
     },
-    commands::{run_analyze, run_commit, run_duplicates, run_file_symbols, run_get_callgraph, run_get_callers, run_get_source, run_get_symbol, run_index, run_overview, run_search, run_security, run_test, run_validate, CommandContext},
+    commands::{run_analyze, run_commit, run_duplicates, run_file_symbols, run_get_callgraph, run_get_callers, run_get_source, run_get_symbol, run_index, run_lint, run_overview, run_search, run_test, run_validate, CommandContext},
     server::ServerState,
     test_runner::{self},
     utils::truncate_to_char_boundary,
@@ -638,7 +638,7 @@ impl McpDiffServer {
     // ========================================================================
 
     #[tool(
-        description = "Unified search - runs BOTH symbol and semantic search by default (hybrid mode). Returns symbol matches AND conceptually related code in one call. Use mode='symbols' for exact name match only, mode='semantic' for BM25 conceptual search, or mode='raw' for regex patterns in comments/strings."
+        description = "Unified search - runs BOTH symbol and semantic search by default (hybrid mode). Returns symbol matches AND conceptually related code in one call. Use mode='symbols' for exact name match only, mode='semantic' for BM25 conceptual search, or mode='raw' for regex patterns in comments/strings. Variables are hidden by default; use symbol_scope='variables' or 'both' to include."
     )]
     async fn search(
         &self,
@@ -686,6 +686,7 @@ impl McpDiffServer {
             file_types: request.file_types.as_ref().map(|v| v.join(",")),
             case_sensitive: !request.case_insensitive.unwrap_or(true),
             merge_threshold: request.merge_threshold.unwrap_or(3),
+            symbol_scope: SymbolScope::from_optional(request.symbol_scope.as_deref()),
             include_escape_refs: request.include_escape_refs.unwrap_or(false),
         };
 
@@ -737,6 +738,7 @@ impl McpDiffServer {
             threshold: request.duplicate_threshold.unwrap_or(0.85),
             include_boilerplate: false,
             kind: request.kind.clone(),
+            symbol_scope: SymbolScope::from_optional(request.symbol_scope.as_deref()),
             limit: request.limit.unwrap_or(100),
             offset: 0,
             min_lines: 3,
@@ -876,54 +878,70 @@ impl McpDiffServer {
     }
 
     // ========================================================================
-    // Unified Security Handler (consolidates cve_scan, update_security_patterns, get_security_pattern_stats)
+    // Lint Handler
     // ========================================================================
 
+    /// Unified lint handler - scans for issues by default.
     #[tool(
-        description = "Unified security tool - scans for CVE vulnerability patterns by default. Use stats_only=true to get pattern statistics, update=true to update patterns from remote source. Matches function signatures against pre-compiled fingerprints from NVD/GHSA data."
+        description = "Unified linter - scans for issues by default (auto-detects linters). Use detect_only=true to only detect available linters. Supports Core 4 languages: Rust (clippy, rustfmt), JS/TS (ESLint, Prettier, Biome, TSC), Python (ruff, black, mypy), Go (golangci-lint, gofmt, go vet)."
     )]
-    async fn security(
+    async fn lint(
         &self,
-        Parameters(request): Parameters<SecurityRequest>,
+        Parameters(request): Parameters<LintRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let repo_path = match &request.path {
+        let project_path = match &request.path {
             Some(p) => self.resolve_path(p).await,
             None => self.get_working_dir().await,
         };
 
-        // Change to the working directory for the operation
+        // Save original dir and change to project path
         let original_dir = std::env::current_dir().ok();
-        if let Err(e) = std::env::set_current_dir(&repo_path) {
+        if let Err(e) = std::env::set_current_dir(&project_path) {
             return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to change to directory {}: {}",
-                repo_path.display(),
+                project_path.display(),
                 e
             ))]));
         }
 
-        // Determine operation based on request parameters
-        let operation = if request.stats_only.unwrap_or(false) {
-            SecurityOperation::Stats
-        } else if request.update.unwrap_or(false) {
-            SecurityOperation::Update {
-                url: request.url.clone(),
-                file: request.file_path.clone().map(std::path::PathBuf::from),
-                force: request.force.unwrap_or(false),
+        // Determine which operation to run based on request
+        let operation = if request.detect_only.unwrap_or(false) {
+            LintOperation::Detect {
+                path: Some(project_path.clone()),
             }
         } else {
-            SecurityOperation::Scan {
-                module: request.module.clone(),
-                severity: request.severity_filter.clone(),
-                cwe: request.cwe_filter.clone(),
-                min_similarity: request.min_similarity.unwrap_or(0.75),
-                limit: request.limit.unwrap_or(100),
+            match request.mode.as_deref() {
+                Some("fix") => LintOperation::Fix {
+                    path: Some(project_path.clone()),
+                    linter: request.linter.clone(),
+                    dry_run: request.dry_run.unwrap_or(false),
+                    safe_only: request.safe_only.unwrap_or(false),
+                },
+                Some("typecheck") => LintOperation::Typecheck {
+                    path: Some(project_path.clone()),
+                    checker: request.linter.clone(),
+                    limit: request.limit.unwrap_or(50),
+                },
+                Some("recommend") => LintOperation::Recommend {
+                    path: Some(project_path.clone()),
+                },
+                Some("detect") => LintOperation::Detect {
+                    path: Some(project_path.clone()),
+                },
+                _ => LintOperation::Scan {
+                    path: Some(project_path.clone()),
+                    linter: request.linter.clone(),
+                    severity: request.severity_filter.clone(),
+                    limit: request.limit.unwrap_or(100),
+                    file: None,
+                    fixable_only: request.fixable_only.unwrap_or(false),
+                },
             }
         };
 
-        let args = SecurityArgs { operation };
-
+        let args = LintArgs { operation };
         let ctx = CommandContext::from_cli(OutputFormat::Toon, false, false);
-        let result = run_security(&args, &ctx);
+        let result = run_lint(&args, &ctx);
 
         // Restore original directory
         if let Some(ref dir) = original_dir {
@@ -933,11 +951,17 @@ impl McpDiffServer {
         match result {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "Security operation failed: {}",
+                "Lint operation failed: {}",
                 e
             ))])),
         }
     }
+
+    // ========================================================================
+    // Security Handler - HIDDEN (internal use only, not exposed via MCP)
+    // ========================================================================
+    // Security tool removed from MCP interface - kept in src/commands/security.rs
+    // for potential future use.
 
     // ========================================================================
     // Layer Management Tools (SEM-98, SEM-99, SEM-101, SEM-102, SEM-104)
@@ -1155,6 +1179,8 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
             let limit = request.limit.unwrap_or(50).min(200);
             let include_escape_refs = request.include_escape_refs.unwrap_or(false);
+            let symbol_scope = SymbolScope::from_optional(request.symbol_scope.as_deref())
+                .for_kind(request.kind.as_deref());
 
             let results = match cache.list_module_symbols(
                 module,
@@ -1173,6 +1199,7 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
 
             let results: Vec<_> = results
                 .into_iter()
+                .filter(|entry| symbol_scope.matches_kind(&entry.kind))
                 .filter(|entry| include_escape_refs || !entry.is_escape_local)
                 .collect();
             let output = format_module_symbols(module, &results, &cache);
@@ -1184,6 +1211,8 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         let include_source = request.include_source.unwrap_or(false);
         let context = request.context.unwrap_or(2);
         let include_escape_refs = request.include_escape_refs.unwrap_or(false);
+        let symbol_scope = SymbolScope::from_optional(request.symbol_scope.as_deref())
+            .for_kind(request.kind.as_deref());
 
         let ctx = CommandContext {
             format: OutputFormat::Toon,
@@ -1198,6 +1227,7 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
             request.kind.as_deref(),
             request.risk.as_deref(),
             context,
+            symbol_scope,
             include_escape_refs,
             &ctx,
         ) {

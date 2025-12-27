@@ -10,7 +10,8 @@ pub mod commit_tests;
 pub mod index_tests;
 pub mod query_tests;
 pub mod search_tests;
-pub mod security_tests;
+// Security tests disabled - command hidden from CLI (kept in src/commands/security.rs for future use)
+// pub mod security_tests;
 pub mod setup_tests;
 pub mod test_tests;
 pub mod validate_tests;

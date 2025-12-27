@@ -39,7 +39,7 @@ Use when: User asks to understand, audit, or assess overall codebase quality.
 Use when: User asks where something is, how to find X, or searching for code.
 
 1. `get_context()` → Quick orientation (~200 tokens)
-2. `search("query")` → Hybrid mode (symbol + semantic search combined)
+2. `search("query", limit: 10)` → Hybrid mode (symbol + semantic search combined)
 3. Use hash from results → `get_symbol(hash)` for details or `get_callers(hash)` for impact
 
 **Key insight**: Skip `get_overview` - search auto-refreshes the index!
@@ -59,7 +59,7 @@ Use when: User asks to review changes, PR review, diff analysis.
 |------|--------|-------------|
 | `get_context` | ~200 | **Always start here** |
 | `get_overview` | ~1-2k | Audits, or when you need module names |
-| `search` (hybrid) | ~500-1k | Finding code - **auto-refreshes index** |
+| `search` (hybrid) | ~500-1k | Finding code - **auto-refreshes index** (default 10 results) |
 | `search` (symbols only) | ~400 | Know exact function name |
 | `search` (semantic only) | ~800 | Conceptual queries |
 | `search` (raw) | ~1k | Comments, strings, TODOs |
@@ -95,6 +95,8 @@ Results from tools include symbol hashes. USE THEM:
 ### Search & Explore
 - **search**: Unified search - runs BOTH symbol AND semantic by default (hybrid mode)
   - Default: hybrid (best for most queries)
+  - Default to `limit: 10` unless you need more
+  - Variables hidden by default (`symbol_scope: "variables"` or `"both"` to include)
   - `mode: "symbols"`: exact name match only
   - `mode: "semantic"`: BM25 conceptual search only
   - `mode: "raw"`: regex for comments/strings/TODOs
@@ -117,16 +119,10 @@ Results from tools include symbol hashes. USE THEM:
   - No project-wide scan - must specify scope
 - **find_duplicates**: Duplicate detection. Default: full codebase scan. Or pass `symbol_hash` for single check.
 
-### Security
-- **security**: CVE vulnerability scanning
-  - Default: Scan for CVE patterns
-  - `stats_only: true`: Check if patterns loaded
-  - `update: true`: Update patterns from server
-  - Requires pre-compiled patterns
-
 ### Operations
 - **index**: Smart refresh (auto-triggered by other tools). Use `force: true` to regenerate.
 - **test**: Run tests with auto-detected framework. Use `detect_only: true` to just detect.
+- **lint**: Run linters with auto-detection. Supports Rust (clippy, rustfmt), JS/TS (ESLint, Prettier, Biome, TSC), Python (ruff, black, mypy), Go (golangci-lint, gofmt, go vet). Use `detect_only: true` to just detect, `mode: "fix"` to auto-fix.
 - **prep_commit**: Gather commit context for writing commit messages. Never commits.
 - **server_status**: Diagnostic info with optional `include_layers: true`.
 

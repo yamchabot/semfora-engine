@@ -475,6 +475,7 @@ impl SetupWizard {
     }
 
     /// Show installation summary
+    #[allow(clippy::too_many_arguments)]
     fn show_summary(
         &self,
         clients: &[String],

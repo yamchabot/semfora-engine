@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use semfora_engine::analyze_repo_tokens;
 use semfora_engine::cli::{Cli, Commands, ConfigOperation};
 use semfora_engine::commands::{
-    run_analyze, run_cache, run_commit, run_index, run_query, run_search, run_security, run_serve,
+    run_analyze, run_cache, run_commit, run_index, run_lint, run_query, run_search, run_serve,
     run_test, run_trace, run_validate, CommandContext,
 };
 use semfora_engine::trace;
@@ -58,11 +58,14 @@ fn run() -> semfora_engine::Result<String> {
         Commands::Cache(args) => run_cache(&args, &ctx),
 
         // ============================================
-        // Security & Testing
+        // Testing
         // ============================================
-        Commands::Security(args) => run_security(&args, &ctx),
+        // Security command hidden from CLI - kept for internal/future use
+        // Commands::Security(args) => run_security(&args, &ctx),
 
         Commands::Test(args) => run_test(&args, &ctx),
+
+        Commands::Lint(args) => run_lint(&args, &ctx),
 
         // ============================================
         // Git Integration

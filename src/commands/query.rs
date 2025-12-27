@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::cache::{CacheDir, SymbolIndexEntry};
-use crate::cli::{OutputFormat, QueryArgs, QueryType};
+use crate::cli::{OutputFormat, QueryArgs, QueryType, SymbolScope};
 use crate::commands::toon_parser::read_cached_file;
 use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
@@ -26,6 +26,7 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             kind,
             risk,
             limit,
+            symbol_scope,
             include_escape_refs,
         } => {
             if *symbols {
@@ -34,6 +35,7 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
                     kind.as_deref(),
                     risk.as_deref(),
                     *limit,
+                    *symbol_scope,
                     *include_escape_refs,
                     ctx,
                 )
@@ -91,6 +93,7 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             kind,
             risk,
             context,
+            symbol_scope,
             include_escape_refs,
         } => run_file_symbols(
             repo_path.as_ref(),
@@ -99,6 +102,7 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             kind.as_deref(),
             risk.as_deref(),
             *context,
+            *symbol_scope,
             *include_escape_refs,
             ctx,
         ),
@@ -507,6 +511,7 @@ fn run_list_module_symbols(
     kind_filter: Option<&str>,
     risk_filter: Option<&str>,
     limit: usize,
+    symbol_scope: SymbolScope,
     include_escape_refs: bool,
     ctx: &CommandContext,
 ) -> Result<String> {
@@ -527,6 +532,8 @@ fn run_list_module_symbols(
 
     let mut symbols: Vec<SymbolIndexEntry> = Vec::new();
 
+    let symbol_scope = symbol_scope.for_kind(kind_filter);
+
     if let Some(sym_array) = cached.json.get("symbols").and_then(|s| s.as_array()) {
         for sym in sym_array {
             let entry = symbol_from_json(sym, module_name);
@@ -541,6 +548,9 @@ fn run_list_module_symbols(
                 if !entry.risk.eq_ignore_ascii_case(rf) {
                     continue;
                 }
+            }
+            if !symbol_scope.matches_kind(&entry.kind) {
+                continue;
             }
             if !include_escape_refs && entry.is_escape_local {
                 continue;
@@ -1147,6 +1157,7 @@ pub fn run_get_callers(
 
 /// Get call graph (DEDUP-306: unified CLI/MCP handler)
 /// Supports: module filtering, symbol filtering, pagination, stats mode, SQLite export
+#[allow(clippy::too_many_arguments)]
 pub fn run_get_callgraph(
     path: Option<&PathBuf>,
     module: Option<&str>,
@@ -1499,6 +1510,7 @@ fn run_export_sqlite(
 
 /// Get all symbols in a file (DEDUP-306: unified CLI/MCP handler)
 /// Supports kind filtering, risk filtering, and source code inclusion
+#[allow(clippy::too_many_arguments)]
 pub fn run_file_symbols(
     repo_path: Option<&PathBuf>,
     file_path: &str,
@@ -1506,6 +1518,7 @@ pub fn run_file_symbols(
     kind_filter: Option<&str>,
     risk_filter: Option<&str>,
     context: usize,
+    symbol_scope: SymbolScope,
     include_escape_refs: bool,
     ctx: &CommandContext,
 ) -> Result<String> {
@@ -1519,6 +1532,8 @@ pub fn run_file_symbols(
 
     // Load all symbol entries and filter by file
     let target_file = file_path.trim_start_matches("./");
+    let symbol_scope = symbol_scope.for_kind(kind_filter);
+
     let symbols: Vec<SymbolIndexEntry> = cache
         .load_all_symbol_entries()
         .map_err(|e| McpDiffError::FileNotFound {
@@ -1542,6 +1557,7 @@ pub fn run_file_symbols(
                 e.risk.to_lowercase() == r.to_lowercase()
             })
         })
+        .filter(|e| symbol_scope.matches_kind(&e.kind))
         .filter(|e| include_escape_refs || !e.is_escape_local)
         .collect();
 

@@ -648,28 +648,13 @@ fn test_mcp_error_unsupported_extension() {
 }
 
 // ============================================================================
-// Security Tests (MCP: security)
+// Security Tests - DISABLED (command hidden from CLI/MCP)
 // ============================================================================
-
-#[test]
-fn test_mcp_security_stats() {
-    let repo = create_basic_ts_repo();
-
-    let output = repo.run_cli_success(&["security", "stats"]);
-
-    assert!(output.len() > 0, "Security stats should return output");
-}
-
-#[test]
-fn test_mcp_security_scan() {
-    let repo = create_basic_ts_repo();
-    repo.generate_index().expect("Index generation failed");
-
-    let output = repo.run_cli_success(&["security", "scan"]);
-
-    // May or may not find vulnerabilities, but shouldn't error
-    assert!(output.len() > 0, "Security scan should return output");
-}
+// Security tests disabled - command hidden from CLI (kept in src/commands/security.rs for future use)
+// #[test]
+// fn test_mcp_security_stats() { ... }
+// #[test]
+// fn test_mcp_security_scan() { ... }
 
 // ============================================================================
 // Test Runner Tests (MCP: test)

@@ -111,6 +111,7 @@ pub mod git;
 pub mod indexing;
 pub mod installer;
 pub mod lang;
+pub mod lint_runner;
 pub mod mcp_server;
 pub mod module_registry;
 pub mod overlay;

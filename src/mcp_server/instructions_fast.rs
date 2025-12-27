@@ -38,9 +38,10 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 
 ### Find Code
 1. `get_context()` → orientation
-2. `search("query")` → hybrid search
+2. `search("query", limit: 10)` → hybrid search (default)
 3. Use hash → `get_symbol(hash)` or `get_callers(hash)`
 **Skip get_overview** - search auto-refreshes!
+**Variables are hidden by default** - use `symbol_scope: "variables"` or `"both"` if needed.
 
 ### Code Review
 1. `analyze_diff(base_ref: "main")` → changes
@@ -84,12 +85,15 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 
 1. **get_context first** (~200 tokens, always)
 2. **Match entry point to request type** (table above)
-3. **search auto-refreshes** - skip get_overview when searching
-4. **COPY module names EXACTLY from get_overview** - names vary by project (e.g., `semfora_pm.db` not `database`)
-5. **Use hashes from results** - don't re-search
-6. **get_callers BEFORE recommending refactoring**
-7. **validate needs scope** (symbol_hash, file_path, or module)
-8. **PAGINATE large results** - use limit/offset when >20 items
+3. **Prefer hybrid search** - use default `search()` unless you only need exact name or pure semantic
+4. **Default to 10 search results** for hybrid searches unless you need more
+5. **Variables hidden by default** - use `symbol_scope: "variables"` or `"both"` when needed
+6. **search auto-refreshes** - skip get_overview when searching
+7. **COPY module names EXACTLY from get_overview** - names vary by project (e.g., `semfora_pm.db` not `database`)
+8. **Use hashes from results** - don't re-search
+9. **get_callers BEFORE recommending refactoring**
+10. **validate needs scope** (symbol_hash, file_path, or module)
+11. **PAGINATE large results** - use limit/offset when >20 items
 
 ## Error Recovery
 
@@ -106,7 +110,7 @@ pub(super) const MCP_INSTRUCTIONS: &str = r#"MCP Semantic Diff - Code Analysis f
 **Search:** search (hybrid default), get_file, get_symbol, get_source
 **Analysis:** analyze, analyze_diff, get_callers, get_callgraph
 **Quality:** validate (requires scope!), find_duplicates
-**Ops:** index, test, security, prep_commit
+**Ops:** index, test, lint, prep_commit
 
 ## AVOID
 

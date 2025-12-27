@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cache::{load_function_signatures, CacheDir};
-use crate::cli::{OutputFormat, ValidateArgs};
+use crate::cli::{OutputFormat, SymbolScope, ValidateArgs};
 use crate::commands::CommandContext;
 use crate::duplicate::DuplicateKind;
 use crate::error::{McpDiffError, Result};
@@ -126,6 +126,8 @@ fn run_validate_file(
         let normalized = normalize_kind(kind);
         entries.retain(|e| e.kind.eq_ignore_ascii_case(normalized));
     }
+    let symbol_scope = args.symbol_scope.for_kind(args.kind.as_deref());
+    entries.retain(|e| symbol_scope.matches_kind(&e.kind));
 
     if entries.is_empty() {
         return Err(McpDiffError::FileNotFound {
@@ -161,6 +163,8 @@ fn run_validate_module(
         let normalized = normalize_kind(kind);
         entries.retain(|e| e.kind.eq_ignore_ascii_case(normalized));
     }
+    let symbol_scope = args.symbol_scope.for_kind(args.kind.as_deref());
+    entries.retain(|e| symbol_scope.matches_kind(&e.kind));
 
     entries.truncate(args.limit.min(500));
 
@@ -680,6 +684,7 @@ fn run_check_duplicates(
 /// Two modes:
 /// 1. Single symbol mode (symbol_hash provided): Find duplicates of a specific symbol
 /// 2. Codebase scan mode (default): Find all duplicate clusters
+#[allow(clippy::too_many_arguments)]
 pub fn run_duplicates(
     path: Option<&std::path::PathBuf>,
     symbol_hash: Option<&str>,
@@ -729,6 +734,7 @@ pub fn run_duplicates(
         module: None,
         include_source: false,
         kind: None,
+        symbol_scope: SymbolScope::Functions,
     };
 
     run_find_duplicates(&args, &cache, ctx)

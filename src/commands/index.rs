@@ -20,6 +20,10 @@ struct ProgressState {
     last_mem_check: Instant,
     last_size_bytes: u64,
     last_mem_bytes: Option<u64>,
+    step_start: Instant,
+    current_step: String,
+    step_timings: std::collections::HashMap<String, f64>,
+    total_start: Instant,
 }
 
 struct ProgressReporter {
@@ -37,6 +41,10 @@ impl ProgressReporter {
                 last_mem_check: Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now),
                 last_size_bytes: 0,
                 last_mem_bytes: None,
+                step_start: Instant::now(),
+                current_step: String::new(),
+                step_timings: std::collections::HashMap::new(),
+                total_start: Instant::now(),
             }),
         }
     }
@@ -50,6 +58,16 @@ impl ProgressReporter {
 
         let mut state = self.state.lock().unwrap();
         let now = Instant::now();
+
+        if state.current_step != step {
+            let previous_step = state.current_step.clone();
+            if !previous_step.is_empty() {
+                let elapsed = now.duration_since(state.step_start).as_secs_f64();
+                *state.step_timings.entry(previous_step).or_insert(0.0) += elapsed;
+            }
+            state.current_step = step.to_string();
+            state.step_start = now;
+        }
 
         if now.duration_since(state.last_mem_check) >= Duration::from_millis(500) {
             state.last_mem_bytes = read_rss_bytes();
@@ -66,10 +84,36 @@ impl ProgressReporter {
             .map(format_bytes)
             .unwrap_or_else(|| "n/a".to_string());
         let size_str = format_bytes(state.last_size_bytes);
+        let step_elapsed = now.duration_since(state.step_start);
+        let total_elapsed = now.duration_since(state.total_start);
+
+        let mut rate_str = String::new();
+        if step == "BM25 index" && current > 0 {
+            let secs = step_elapsed.as_secs_f64();
+            if secs > 0.0 {
+                let rate = current as f64 / secs;
+                if rate.is_finite() && rate > 0.0 {
+                    let remaining = total.saturating_sub(current) as f64 / rate;
+                    rate_str = format!(
+                        " | Rate: {:.1}/s ETA: {}",
+                        rate,
+                        format_duration(Duration::from_secs_f64(remaining))
+                    );
+                }
+            }
+        }
 
         let line = format!(
-            "Progress: {:5.1}% | Step: {} ({}/{}) | RSS: {} | Output: {}",
-            percent, step, current, total, mem_str, size_str
+            "Progress: {:5.1}% | Step: {} ({}/{}) | Step: {} | Total: {} | RSS: {} | Output: {}{}",
+            percent,
+            step,
+            current,
+            total,
+            format_duration(step_elapsed),
+            format_duration(total_elapsed),
+            mem_str,
+            size_str,
+            rate_str
         );
 
         let pad_len = state
@@ -85,6 +129,23 @@ impl ProgressReporter {
     }
 
     fn finish(&self) {
+        let mut state = self.state.lock().unwrap();
+        let now = Instant::now();
+        let previous_step = state.current_step.clone();
+        if !previous_step.is_empty() {
+            let elapsed = now.duration_since(state.step_start).as_secs_f64();
+            *state.step_timings.entry(previous_step).or_insert(0.0) += elapsed;
+        }
+        let total_elapsed = now.duration_since(state.total_start).as_secs_f64();
+        let timings_path = self.cache_root.join("timings.json");
+        let _ = fs::write(
+            timings_path,
+            serde_json::json!({
+                "steps": state.step_timings,
+                "total_seconds": total_elapsed
+            })
+            .to_string(),
+        );
         eprintln!();
     }
 }
@@ -96,7 +157,6 @@ fn read_rss_bytes() -> Option<u64> {
         for line in content.lines() {
             if let Some(value) = line.strip_prefix("VmRSS:") {
                 let kb = value
-                    .trim()
                     .split_whitespace()
                     .next()
                     .and_then(|v| v.parse::<u64>().ok())?;
@@ -154,6 +214,18 @@ fn format_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[idx])
     } else {
         format!("{:.1} {}", size, UNITS[idx])
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let secs = duration.as_secs();
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
     }
 }
 /// Run the index command

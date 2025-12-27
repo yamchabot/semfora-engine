@@ -63,11 +63,15 @@ pub enum Commands {
     /// Manage the cache
     Cache(CacheArgs),
 
-    /// Security scanning and CVE detection
-    Security(SecurityArgs),
+    // Security command hidden - internal use only
+    // Security(SecurityArgs),
 
     /// Run or detect tests
     Test(TestArgs),
+
+    /// Run linters to check code quality
+    #[command(visible_alias = "l")]
+    Lint(LintArgs),
 
     /// Prepare information for writing a commit message
     Commit(CommitArgs),
@@ -235,6 +239,10 @@ pub struct SearchArgs {
     #[arg(long, default_value = "3")]
     pub merge_threshold: usize,
 
+    /// Symbol scope for search results (functions = non-variable symbols)
+    #[arg(long, value_enum, default_value = "functions")]
+    pub symbol_scope: SymbolScope,
+
     /// Include local variables that escape their scope
     #[arg(long)]
     pub include_escape_refs: bool,
@@ -349,6 +357,10 @@ pub enum QueryType {
         /// Limit number of results
         #[arg(long, default_value = "50")]
         limit: usize,
+
+        /// Symbol scope (functions = non-variable symbols)
+        #[arg(long, value_enum, default_value = "functions")]
+        symbol_scope: SymbolScope,
 
         /// Include local variables that escape their scope
         #[arg(long)]
@@ -489,6 +501,10 @@ pub enum QueryType {
         #[arg(long, default_value = "2")]
         context: usize,
 
+        /// Symbol scope (functions = non-variable symbols)
+        #[arg(long, value_enum, default_value = "functions")]
+        symbol_scope: SymbolScope,
+
         /// Include local variables that escape their scope
         #[arg(long)]
         include_escape_refs: bool,
@@ -549,6 +565,10 @@ pub struct ValidateArgs {
     /// Filter by symbol kind
     #[arg(long)]
     pub kind: Option<String>,
+
+    /// Symbol scope (functions = non-variable symbols)
+    #[arg(long, value_enum, default_value = "functions")]
+    pub symbol_scope: SymbolScope,
 
     /// Maximum clusters to return (default: 50)
     #[arg(long, default_value = "50")]
@@ -653,10 +673,11 @@ pub enum CacheOperation {
 }
 
 // ============================================
-// Security Subcommand
+// Security Subcommand (HIDDEN from CLI - internal use only)
 // ============================================
+// Types kept for internal use by src/commands/security.rs
 
-/// Arguments for the security command
+/// Arguments for the security command (internal use only)
 #[derive(Args, Debug)]
 pub struct SecurityArgs {
     /// Security operation to perform
@@ -664,47 +685,31 @@ pub struct SecurityArgs {
     pub operation: SecurityOperation,
 }
 
-/// Security operations
+/// Security operations (internal use only)
 #[derive(Subcommand, Debug)]
 pub enum SecurityOperation {
     /// Scan for CVE vulnerability patterns
     Scan {
-        /// Filter by module
         #[arg(long)]
         module: Option<String>,
-
-        /// Filter by severity (CRITICAL, HIGH, MEDIUM, LOW)
         #[arg(long)]
         severity: Option<Vec<String>>,
-
-        /// Filter by CWE categories
         #[arg(long)]
         cwe: Option<Vec<String>>,
-
-        /// Minimum similarity threshold
         #[arg(long, default_value = "0.75")]
         min_similarity: f32,
-
-        /// Maximum matches to return
         #[arg(long, default_value = "100")]
         limit: usize,
     },
-
     /// Update security patterns from pattern server
     Update {
-        /// URL to fetch patterns from
         #[arg(long)]
         url: Option<String>,
-
-        /// Path to local pattern file
         #[arg(long)]
         file: Option<PathBuf>,
-
-        /// Force update even if version matches
         #[arg(long)]
         force: bool,
     },
-
     /// Show security pattern statistics
     Stats,
 }
@@ -739,6 +744,95 @@ pub struct TestArgs {
     /// Path to project directory
     #[arg(long)]
     pub path: Option<PathBuf>,
+}
+
+// ============================================
+// Lint Subcommand
+// ============================================
+
+/// Arguments for the lint command
+#[derive(Args, Debug)]
+pub struct LintArgs {
+    #[command(subcommand)]
+    pub operation: LintOperation,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum LintOperation {
+    /// Scan for issues (default)
+    Scan {
+        /// Path to project directory
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Only run this specific linter
+        #[arg(long)]
+        linter: Option<String>,
+
+        /// Filter by severity (error, warning, info, hint)
+        #[arg(long)]
+        severity: Option<Vec<String>>,
+
+        /// Maximum issues to return
+        #[arg(long, default_value = "100")]
+        limit: usize,
+
+        /// Filter to specific file
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Only show fixable issues
+        #[arg(long)]
+        fixable_only: bool,
+    },
+
+    /// Apply automatic fixes
+    Fix {
+        /// Path to project directory
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Only run this specific linter
+        #[arg(long)]
+        linter: Option<String>,
+
+        /// Show what would be fixed without applying changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Only apply safe fixes
+        #[arg(long)]
+        safe_only: bool,
+    },
+
+    /// Run type checkers only
+    Typecheck {
+        /// Path to project directory
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Force a specific type checker
+        #[arg(long)]
+        checker: Option<String>,
+
+        /// Maximum issues to return
+        #[arg(long, default_value = "50")]
+        limit: usize,
+    },
+
+    /// Detect available linters
+    Detect {
+        /// Path to project directory
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+
+    /// Get recommendations for missing linters
+    Recommend {
+        /// Path to project directory
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
 }
 
 // ============================================
@@ -1011,6 +1105,7 @@ impl SearchArgs {
             file_types: None,
             case_sensitive: false,
             merge_threshold: 3,
+            symbol_scope: SymbolScope::Functions,
             include_escape_refs: false,
         }
     }
@@ -1036,6 +1131,7 @@ impl SearchArgs {
             file_types: None,
             case_sensitive: false,
             merge_threshold: 3,
+            symbol_scope: SymbolScope::Functions,
             include_escape_refs: false,
         }
     }
@@ -1061,6 +1157,7 @@ impl SearchArgs {
             file_types,
             case_sensitive,
             merge_threshold,
+            symbol_scope: SymbolScope::Functions,
             include_escape_refs: false,
         }
     }
@@ -1086,7 +1183,45 @@ impl SearchArgs {
             file_types: None,
             case_sensitive: false,
             merge_threshold: 3,
+            symbol_scope: SymbolScope::Functions,
             include_escape_refs: false,
+        }
+    }
+}
+
+/// Scope of symbols to include in heavy query outputs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SymbolScope {
+    Functions,
+    Variables,
+    Both,
+}
+
+impl SymbolScope {
+    pub fn matches_kind(self, kind: &str) -> bool {
+        let is_variable = kind.eq_ignore_ascii_case("variable");
+        match self {
+            SymbolScope::Functions => !is_variable,
+            SymbolScope::Variables => is_variable,
+            SymbolScope::Both => true,
+        }
+    }
+
+    pub fn from_optional(value: Option<&str>) -> Self {
+        match value.map(|v| v.to_ascii_lowercase()) {
+            Some(v) if v == "variables" || v == "variable" || v == "vars" || v == "var" => {
+                SymbolScope::Variables
+            }
+            Some(v) if v == "both" || v == "all" => SymbolScope::Both,
+            _ => SymbolScope::Functions,
+        }
+    }
+
+    pub fn for_kind(self, kind: Option<&str>) -> Self {
+        if kind.map(|k| k.eq_ignore_ascii_case("variable")).unwrap_or(false) {
+            SymbolScope::Variables
+        } else {
+            self
         }
     }
 }
