@@ -411,7 +411,7 @@ edition = "2021"
         output.contains("recommend")
             || output.contains("No")
             || output.contains("clippy")
-            || output.len() > 0,
+            || !output.is_empty(),
         "Should provide some output: {output}"
     );
 }

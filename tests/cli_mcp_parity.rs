@@ -303,7 +303,7 @@ mod callgraph_parity {
         repo.generate_index().unwrap();
 
         let page1 = repo.run_cli_success(&["query", "callgraph", "--limit", "5"]);
-        let page2 = repo.run_cli_success(&["query", "callgraph", "--limit", "5", "--offset", "5"]);
+        let _page2 = repo.run_cli_success(&["query", "callgraph", "--limit", "5", "--offset", "5"]);
 
         assert!(!page1.is_empty());
         // page2 may be empty if not enough data
@@ -421,7 +421,7 @@ export function complexFunction(a: number, b: number, c: number) {
         repo.generate_index().unwrap();
 
         // First get available modules
-        let overview = repo.run_cli_success(&["query", "overview", "-f", "toon"]);
+        let _overview = repo.run_cli_success(&["query", "overview", "-f", "toon"]);
 
         // Try validate on src.api or similar
         let validate_output = repo.run_cli(&["validate", "--module", "src.api"]);

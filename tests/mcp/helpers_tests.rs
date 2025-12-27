@@ -237,11 +237,11 @@ fn test_generate_index_creates_cache_files() {
         if !overview_exists {
             if let Ok(entries) = fs::read_dir(&local_cache) {
                 for entry in entries.flatten() {
-                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                        if entry.path().join("repo_overview.toon").exists() {
-                            overview_exists = true;
-                            break;
-                        }
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        && entry.path().join("repo_overview.toon").exists()
+                    {
+                        overview_exists = true;
+                        break;
                     }
                 }
             }
