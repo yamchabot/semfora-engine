@@ -19,8 +19,8 @@ use crate::mcp_server::formatting::{format_diff_output_paginated, format_diff_su
 use crate::parsing::{parse_and_extract, parse_and_extract_with_options};
 use crate::tokens::{format_analysis_compact, format_analysis_report, TokenAnalyzer};
 use crate::{
-    encode_toon, encode_toon_directory, fs_utils, generate_repo_overview, is_test_file,
-    CacheDir, Lang, SemanticSummary, ShardWriter,
+    encode_toon, encode_toon_directory, fs_utils, generate_repo_overview, is_test_file, CacheDir,
+    Lang, SemanticSummary, ShardWriter,
 };
 
 use super::CommandContext;
@@ -169,7 +169,11 @@ fn run_single_file(ctx: &CommandContext, args: &AnalyzeArgs, file_path: &Path) -
 
         if start_idx >= lines.len() {
             return Err(McpDiffError::ExtractionFailure {
-                message: format!("start_line {} exceeds file length {} lines", start, lines.len()),
+                message: format!(
+                    "start_line {} exceeds file length {} lines",
+                    start,
+                    lines.len()
+                ),
             });
         }
 
@@ -178,7 +182,8 @@ fn run_single_file(ctx: &CommandContext, args: &AnalyzeArgs, file_path: &Path) -
         source.clone()
     };
 
-    let summary = parse_and_extract_with_options(file_path, &source_to_analyze, lang, args.print_ast)?;
+    let summary =
+        parse_and_extract_with_options(file_path, &source_to_analyze, lang, args.print_ast)?;
 
     // Handle output mode
     let output = match args.output_mode.as_str() {
@@ -223,12 +228,13 @@ fn run_single_file(ctx: &CommandContext, args: &AnalyzeArgs, file_path: &Path) -
         _ => {
             // Full output (default)
             let toon_output = encode_toon(&summary);
-            let json_pretty = serde_json::to_string_pretty(&summary)
-                .map_err(|e| McpDiffError::ExtractionFailure {
+            let json_pretty = serde_json::to_string_pretty(&summary).map_err(|e| {
+                McpDiffError::ExtractionFailure {
                     message: format!("JSON serialization failed: {}", e),
-                })?;
-            let json_compact = serde_json::to_string(&summary)
-                .map_err(|e| McpDiffError::ExtractionFailure {
+                }
+            })?;
+            let json_compact =
+                serde_json::to_string(&summary).map_err(|e| McpDiffError::ExtractionFailure {
                     message: format!("JSON serialization failed: {}", e),
                 })?;
 
@@ -238,8 +244,12 @@ fn run_single_file(ctx: &CommandContext, args: &AnalyzeArgs, file_path: &Path) -
                 let analysis = analyzer.analyze(&source, &json_pretty, &json_compact, &toon_output);
 
                 let report = match mode {
-                    TokenAnalysisMode::Full => format_analysis_report(&analysis, args.compare_compact),
-                    TokenAnalysisMode::Compact => format_analysis_compact(&analysis, args.compare_compact),
+                    TokenAnalysisMode::Full => {
+                        format_analysis_report(&analysis, args.compare_compact)
+                    }
+                    TokenAnalysisMode::Compact => {
+                        format_analysis_compact(&analysis, args.compare_compact)
+                    }
                 };
                 eprintln!("{}", report);
             }
@@ -610,8 +620,8 @@ fn run_diff_branch(ctx: &CommandContext, args: &AnalyzeArgs, base_ref: &str) -> 
         (files, "WORKING (uncommitted)")
     } else {
         // Normal comparison between refs
-        let merge_base =
-            get_merge_base(base_ref, target_ref, Some(&repo_root)).unwrap_or_else(|_| base_ref.to_string());
+        let merge_base = get_merge_base(base_ref, target_ref, Some(&repo_root))
+            .unwrap_or_else(|_| base_ref.to_string());
         let files = get_changed_files(&merge_base, target_ref, Some(&repo_root))?;
         (files, target_ref)
     };

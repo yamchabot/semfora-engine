@@ -555,8 +555,10 @@ impl LintCache {
             std::fs::create_dir_all(parent)?;
         }
 
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| McpDiffError::ParseFailure { message: e.to_string() })?;
+        let content =
+            serde_json::to_string_pretty(self).map_err(|e| McpDiffError::ParseFailure {
+                message: e.to_string(),
+            })?;
         std::fs::write(&cache_path, content)?;
 
         Ok(())
@@ -772,12 +774,21 @@ fn detect_js_linters(dir: &Path) -> Vec<DetectedLinter> {
             linters.push(DetectedLinter {
                 linter: Linter::ESLint,
                 config_path: Some(dir.join(config)),
-                version: None, // TODO: detect version
+                version: get_eslint_version(),
                 available: true,
                 run_command: LintCommand {
                     program: "npx".to_string(),
-                    args: vec!["eslint".to_string(), "--format".to_string(), "json".to_string(), ".".to_string()],
-                    fix_args: Some(vec!["eslint".to_string(), "--fix".to_string(), ".".to_string()]),
+                    args: vec![
+                        "eslint".to_string(),
+                        "--format".to_string(),
+                        "json".to_string(),
+                        ".".to_string(),
+                    ],
+                    fix_args: Some(vec![
+                        "eslint".to_string(),
+                        "--fix".to_string(),
+                        ".".to_string(),
+                    ]),
                     cwd: None,
                 },
                 capabilities: LintCapabilities {
@@ -807,12 +818,20 @@ fn detect_js_linters(dir: &Path) -> Vec<DetectedLinter> {
             linters.push(DetectedLinter {
                 linter: Linter::Prettier,
                 config_path: Some(dir.join(config)),
-                version: None,
+                version: get_prettier_version(),
                 available: true,
                 run_command: LintCommand {
                     program: "npx".to_string(),
-                    args: vec!["prettier".to_string(), "--check".to_string(), ".".to_string()],
-                    fix_args: Some(vec!["prettier".to_string(), "--write".to_string(), ".".to_string()]),
+                    args: vec![
+                        "prettier".to_string(),
+                        "--check".to_string(),
+                        ".".to_string(),
+                    ],
+                    fix_args: Some(vec![
+                        "prettier".to_string(),
+                        "--write".to_string(),
+                        ".".to_string(),
+                    ]),
                     cwd: None,
                 },
                 capabilities: LintCapabilities {
@@ -834,12 +853,17 @@ fn detect_js_linters(dir: &Path) -> Vec<DetectedLinter> {
             } else {
                 Some(dir.join("biome.jsonc"))
             },
-            version: None,
+            version: get_biome_version(),
             available: true,
             run_command: LintCommand {
                 program: "npx".to_string(),
                 args: vec!["biome".to_string(), "check".to_string(), ".".to_string()],
-                fix_args: Some(vec!["biome".to_string(), "check".to_string(), "--write".to_string(), ".".to_string()]),
+                fix_args: Some(vec![
+                    "biome".to_string(),
+                    "check".to_string(),
+                    "--write".to_string(),
+                    ".".to_string(),
+                ]),
                 cwd: None,
             },
             capabilities: LintCapabilities {
@@ -855,7 +879,7 @@ fn detect_js_linters(dir: &Path) -> Vec<DetectedLinter> {
         linters.push(DetectedLinter {
             linter: Linter::Tsc,
             config_path: Some(dir.join("tsconfig.json")),
-            version: None,
+            version: get_tsc_version(),
             available: true,
             run_command: LintCommand {
                 program: "npx".to_string(),
@@ -893,12 +917,21 @@ fn detect_python_linters(dir: &Path) -> Vec<DetectedLinter> {
             } else {
                 None
             },
-            version: None,
+            version: get_ruff_version(),
             available: is_command_available("ruff"),
             run_command: LintCommand {
                 program: "ruff".to_string(),
-                args: vec!["check".to_string(), "--output-format".to_string(), "json".to_string(), ".".to_string()],
-                fix_args: Some(vec!["check".to_string(), "--fix".to_string(), ".".to_string()]),
+                args: vec![
+                    "check".to_string(),
+                    "--output-format".to_string(),
+                    "json".to_string(),
+                    ".".to_string(),
+                ],
+                fix_args: Some(vec![
+                    "check".to_string(),
+                    "--fix".to_string(),
+                    ".".to_string(),
+                ]),
                 cwd: None,
             },
             capabilities: LintCapabilities {
@@ -915,7 +948,7 @@ fn detect_python_linters(dir: &Path) -> Vec<DetectedLinter> {
         linters.push(DetectedLinter {
             linter: Linter::Black,
             config_path: None,
-            version: None,
+            version: get_black_version(),
             available: is_command_available("black"),
             run_command: LintCommand {
                 program: "black".to_string(),
@@ -946,7 +979,7 @@ fn detect_python_linters(dir: &Path) -> Vec<DetectedLinter> {
             } else {
                 None
             },
-            version: None,
+            version: get_mypy_version(),
             available: is_command_available("mypy"),
             run_command: LintCommand {
                 program: "mypy".to_string(),
@@ -985,11 +1018,15 @@ fn detect_go_linters(dir: &Path) -> Vec<DetectedLinter> {
             } else {
                 None
             },
-            version: None,
+            version: get_golangci_version(),
             available: is_command_available("golangci-lint"),
             run_command: LintCommand {
                 program: "golangci-lint".to_string(),
-                args: vec!["run".to_string(), "--out-format".to_string(), "json".to_string()],
+                args: vec![
+                    "run".to_string(),
+                    "--out-format".to_string(),
+                    "json".to_string(),
+                ],
                 fix_args: Some(vec!["run".to_string(), "--fix".to_string()]),
                 cwd: None,
             },
@@ -1006,7 +1043,7 @@ fn detect_go_linters(dir: &Path) -> Vec<DetectedLinter> {
         linters.push(DetectedLinter {
             linter: Linter::Gofmt,
             config_path: Some(dir.join("go.mod")),
-            version: None,
+            version: get_go_version(),
             available: true,
             run_command: LintCommand {
                 program: "gofmt".to_string(),
@@ -1027,7 +1064,7 @@ fn detect_go_linters(dir: &Path) -> Vec<DetectedLinter> {
         linters.push(DetectedLinter {
             linter: Linter::GoVet,
             config_path: Some(dir.join("go.mod")),
-            version: None,
+            version: get_go_version(),
             available: true,
             run_command: LintCommand {
                 program: "go".to_string(),
@@ -1087,6 +1124,168 @@ fn get_rustfmt_version() -> Option<String> {
         })
 }
 
+/// Get ESLint version
+fn get_eslint_version() -> Option<String> {
+    Command::new("npx")
+        .args(["eslint", "--version"])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
+/// Get Prettier version
+fn get_prettier_version() -> Option<String> {
+    Command::new("npx")
+        .args(["prettier", "--version"])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
+/// Get Biome version
+fn get_biome_version() -> Option<String> {
+    Command::new("npx")
+        .args(["biome", "--version"])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout).ok().map(|s| {
+                    // Biome outputs "Version: X.Y.Z", strip the prefix
+                    s.trim()
+                        .strip_prefix("Version: ")
+                        .or_else(|| s.trim().strip_prefix("Version "))
+                        .unwrap_or(s.trim())
+                        .to_string()
+                })
+            } else {
+                None
+            }
+        })
+}
+
+/// Get TypeScript version
+fn get_tsc_version() -> Option<String> {
+    Command::new("npx")
+        .args(["tsc", "--version"])
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout).ok().map(|s| {
+                    // TSC outputs "Version X.Y.Z", strip the prefix
+                    s.trim()
+                        .strip_prefix("Version ")
+                        .unwrap_or(s.trim())
+                        .to_string()
+                })
+            } else {
+                None
+            }
+        })
+}
+
+/// Get Ruff version
+fn get_ruff_version() -> Option<String> {
+    Command::new("ruff")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
+/// Get Black version
+fn get_black_version() -> Option<String> {
+    Command::new("black")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.lines().next().unwrap_or("").trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
+/// Get mypy version
+fn get_mypy_version() -> Option<String> {
+    Command::new("mypy")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
+/// Get golangci-lint version
+fn get_golangci_version() -> Option<String> {
+    Command::new("golangci-lint")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .and_then(|s| s.lines().next().map(|l| l.trim().to_string()))
+            } else {
+                None
+            }
+        })
+}
+
+/// Get Go version (for gofmt and go vet)
+fn get_go_version() -> Option<String> {
+    Command::new("go")
+        .arg("version")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+}
+
 /// Check if pyproject.toml has a specific section
 fn has_pyproject_section(dir: &Path, section: &str) -> bool {
     let pyproject = dir.join("pyproject.toml");
@@ -1114,8 +1313,9 @@ pub fn get_recommendations(dir: &Path) -> Vec<LintRecommendation> {
         if !detected_types.contains(&Linter::Clippy) {
             recommendations.push(LintRecommendation {
                 linter: Linter::Clippy,
-                reason: "Rust's official linter catches common mistakes and suggests idiomatic code"
-                    .to_string(),
+                reason:
+                    "Rust's official linter catches common mistakes and suggests idiomatic code"
+                        .to_string(),
                 install_command: "rustup component add clippy".to_string(),
                 priority: 9,
             });
@@ -1124,9 +1324,7 @@ pub fn get_recommendations(dir: &Path) -> Vec<LintRecommendation> {
 
     // JS/TS recommendations
     if dir.join("package.json").exists() {
-        if !detected_types.contains(&Linter::ESLint)
-            && !detected_types.contains(&Linter::Biome)
-        {
+        if !detected_types.contains(&Linter::ESLint) && !detected_types.contains(&Linter::Biome) {
             recommendations.push(LintRecommendation {
                 linter: Linter::ESLint,
                 reason: "Industry-standard JavaScript/TypeScript linter".to_string(),
@@ -1183,7 +1381,9 @@ pub fn get_recommendations(dir: &Path) -> Vec<LintRecommendation> {
             recommendations.push(LintRecommendation {
                 linter: Linter::GolangciLint,
                 reason: "Meta-linter that runs many Go linters in parallel".to_string(),
-                install_command: "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest".to_string(),
+                install_command:
+                    "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+                        .to_string(),
                 priority: 8,
             });
         }
@@ -1215,20 +1415,16 @@ pub fn load_cache(dir: &Path) -> Option<LintCache> {
 pub fn save_cache(dir: &Path, cache: &LintCache) -> Result<()> {
     let semfora_dir = dir.join(".semfora");
     if !semfora_dir.exists() {
-        std::fs::create_dir_all(&semfora_dir).map_err(|e| {
-            McpDiffError::IoError {
-                path: semfora_dir.clone(),
-                message: format!("Failed to create .semfora directory: {}", e),
-            }
+        std::fs::create_dir_all(&semfora_dir).map_err(|e| McpDiffError::IoError {
+            path: semfora_dir.clone(),
+            message: format!("Failed to create .semfora directory: {}", e),
         })?;
     }
 
     let cache_path = semfora_dir.join("lint.json");
-    let content = serde_json::to_string_pretty(cache).map_err(|e| {
-        McpDiffError::IoError {
-            path: cache_path.clone(),
-            message: format!("Failed to serialize lint cache: {}", e),
-        }
+    let content = serde_json::to_string_pretty(cache).map_err(|e| McpDiffError::IoError {
+        path: cache_path.clone(),
+        message: format!("Failed to serialize lint cache: {}", e),
     })?;
 
     std::fs::write(&cache_path, content).map_err(|e| McpDiffError::IoError {
@@ -1353,11 +1549,9 @@ pub fn run_lint(dir: &Path, options: &LintRunOptions) -> Result<LintResults> {
     }
 
     // Sort issues by file, then line
-    all_issues.sort_by(|a, b| {
-        match a.file.cmp(&b.file) {
-            std::cmp::Ordering::Equal => a.line.cmp(&b.line),
-            other => other,
-        }
+    all_issues.sort_by(|a, b| match a.file.cmp(&b.file) {
+        std::cmp::Ordering::Equal => a.line.cmp(&b.line),
+        other => other,
     });
 
     // Apply limit
@@ -1366,8 +1560,14 @@ pub fn run_lint(dir: &Path, options: &LintRunOptions) -> Result<LintResults> {
     }
 
     // Calculate totals
-    let error_count = all_issues.iter().filter(|i| i.severity == LintSeverity::Error).count();
-    let warning_count = all_issues.iter().filter(|i| i.severity == LintSeverity::Warning).count();
+    let error_count = all_issues
+        .iter()
+        .filter(|i| i.severity == LintSeverity::Error)
+        .count();
+    let warning_count = all_issues
+        .iter()
+        .filter(|i| i.severity == LintSeverity::Warning)
+        .count();
     let files_with_issues: std::collections::HashSet<&str> =
         all_issues.iter().map(|i| i.file.as_str()).collect();
 
@@ -1392,7 +1592,11 @@ pub fn run_single_linter(
 
     // Choose args based on fix mode
     let args = if options.fix && !options.dry_run {
-        linter.run_command.fix_args.as_ref().unwrap_or(&linter.run_command.args)
+        linter
+            .run_command
+            .fix_args
+            .as_ref()
+            .unwrap_or(&linter.run_command.args)
     } else {
         &linter.run_command.args
     };
@@ -1422,8 +1626,14 @@ pub fn run_single_linter(
     // Parse output based on linter type
     let issues = parse_linter_output(linter.linter, &stdout, &stderr, dir);
 
-    let error_count = issues.iter().filter(|i| i.severity == LintSeverity::Error).count();
-    let warning_count = issues.iter().filter(|i| i.severity == LintSeverity::Warning).count();
+    let error_count = issues
+        .iter()
+        .filter(|i| i.severity == LintSeverity::Error)
+        .count();
+    let warning_count = issues
+        .iter()
+        .filter(|i| i.severity == LintSeverity::Warning)
+        .count();
 
     Ok(SingleLinterResult {
         linter: linter.linter,
@@ -1478,9 +1688,16 @@ fn parse_clippy_output(stdout: &str, _stderr: &str, dir: &Path) -> Vec<LintIssue
             }
 
             if let Some(message) = msg.get("message") {
-                let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("warning");
-                let text = message.get("message").and_then(|m| m.as_str()).unwrap_or("");
-                let code = message.get("code")
+                let level = message
+                    .get("level")
+                    .and_then(|l| l.as_str())
+                    .unwrap_or("warning");
+                let text = message
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("");
+                let code = message
+                    .get("code")
                     .and_then(|c| c.get("code"))
                     .and_then(|c| c.as_str())
                     .unwrap_or("unknown");
@@ -1498,15 +1715,27 @@ fn parse_clippy_output(stdout: &str, _stderr: &str, dir: &Path) -> Vec<LintIssue
                         }
 
                         let file = span.get("file_name").and_then(|f| f.as_str()).unwrap_or("");
-                        let line = span.get("line_start").and_then(|l| l.as_u64()).unwrap_or(1) as usize;
-                        let column = span.get("column_start").and_then(|c| c.as_u64()).map(|c| c as usize);
-                        let end_line = span.get("line_end").and_then(|l| l.as_u64()).map(|l| l as usize);
-                        let end_column = span.get("column_end").and_then(|c| c.as_u64()).map(|c| c as usize);
-                        let suggested_replacement = span.get("suggested_replacement").and_then(|s| s.as_str());
+                        let line =
+                            span.get("line_start").and_then(|l| l.as_u64()).unwrap_or(1) as usize;
+                        let column = span
+                            .get("column_start")
+                            .and_then(|c| c.as_u64())
+                            .map(|c| c as usize);
+                        let end_line = span
+                            .get("line_end")
+                            .and_then(|l| l.as_u64())
+                            .map(|l| l as usize);
+                        let end_column = span
+                            .get("column_end")
+                            .and_then(|c| c.as_u64())
+                            .map(|c| c as usize);
+                        let suggested_replacement =
+                            span.get("suggested_replacement").and_then(|s| s.as_str());
 
                         // Make path relative to dir
                         let file_path = PathBuf::from(file);
-                        let relative_file = file_path.strip_prefix(dir)
+                        let relative_file = file_path
+                            .strip_prefix(dir)
                             .map(|p| p.to_string_lossy().to_string())
                             .unwrap_or_else(|_| file.to_string());
 
@@ -1548,7 +1777,8 @@ fn parse_rustfmt_output(_stdout: &str, stderr: &str, dir: &Path) -> Vec<LintIssu
         if line.starts_with("Diff in ") {
             let file = line.trim_start_matches("Diff in ").trim();
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 
@@ -1576,20 +1806,36 @@ fn parse_eslint_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
 
     if let Ok(results) = serde_json::from_str::<Vec<serde_json::Value>>(stdout) {
         for result in results {
-            let file = result.get("filePath").and_then(|f| f.as_str()).unwrap_or("");
+            let file = result
+                .get("filePath")
+                .and_then(|f| f.as_str())
+                .unwrap_or("");
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 
             if let Some(messages) = result.get("messages").and_then(|m| m.as_array()) {
                 for msg in messages {
                     let line = msg.get("line").and_then(|l| l.as_u64()).unwrap_or(1) as usize;
-                    let column = msg.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
-                    let end_line = msg.get("endLine").and_then(|l| l.as_u64()).map(|l| l as usize);
-                    let end_column = msg.get("endColumn").and_then(|c| c.as_u64()).map(|c| c as usize);
+                    let column = msg
+                        .get("column")
+                        .and_then(|c| c.as_u64())
+                        .map(|c| c as usize);
+                    let end_line = msg
+                        .get("endLine")
+                        .and_then(|l| l.as_u64())
+                        .map(|l| l as usize);
+                    let end_column = msg
+                        .get("endColumn")
+                        .and_then(|c| c.as_u64())
+                        .map(|c| c as usize);
                     let severity_num = msg.get("severity").and_then(|s| s.as_u64()).unwrap_or(1);
-                    let rule = msg.get("ruleId").and_then(|r| r.as_str()).unwrap_or("unknown");
+                    let rule = msg
+                        .get("ruleId")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("unknown");
                     let message = msg.get("message").and_then(|m| m.as_str()).unwrap_or("");
                     let fix = msg.get("fix").map(|_| "Auto-fixable".to_string());
 
@@ -1631,7 +1877,8 @@ fn parse_prettier_output(stdout: &str, _stderr: &str, dir: &Path) -> Vec<LintIss
         }
 
         let file_path = PathBuf::from(line);
-        let relative_file = file_path.strip_prefix(dir)
+        let relative_file = file_path
+            .strip_prefix(dir)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| line.to_string());
 
@@ -1676,7 +1923,8 @@ fn parse_biome_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
                 if let Some((line_str, _col_str)) = loc.split_once(':') {
                     if let Ok(line_num) = line_str.trim().parse::<usize>() {
                         let file_path = PathBuf::from(&current_file);
-                        let relative_file = file_path.strip_prefix(dir)
+                        let relative_file = file_path
+                            .strip_prefix(dir)
                             .map(|p| p.to_string_lossy().to_string())
                             .unwrap_or_else(|_| current_file.clone());
 
@@ -1708,24 +1956,28 @@ fn parse_biome_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
 }
 
 /// Parse TypeScript compiler output
-fn parse_tsc_output(_stdout: &str, stderr: &str, dir: &Path) -> Vec<LintIssue> {
+fn parse_tsc_output(stdout: &str, _stderr: &str, dir: &Path) -> Vec<LintIssue> {
     let mut issues = Vec::new();
 
-    // TSC outputs: file(line,col): error TS1234: message
+    // TSC outputs errors to stdout: file(line,col): error TS1234: message
     let re = regex::Regex::new(r"^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)$").ok();
 
-    for line in stderr.lines() {
+    for line in stdout.lines() {
         if let Some(ref re) = re {
             if let Some(caps) = re.captures(line) {
                 let file = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                let line_num = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+                let line_num = caps
+                    .get(2)
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(1);
                 let col = caps.get(3).and_then(|m| m.as_str().parse().ok());
                 let level = caps.get(4).map(|m| m.as_str()).unwrap_or("error");
                 let code = caps.get(5).map(|m| m.as_str()).unwrap_or("");
                 let message = caps.get(6).map(|m| m.as_str()).unwrap_or("");
 
                 let file_path = PathBuf::from(file);
-                let relative_file = file_path.strip_prefix(dir)
+                let relative_file = file_path
+                    .strip_prefix(dir)
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| file.to_string());
 
@@ -1760,17 +2012,23 @@ fn parse_ruff_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
 
     if let Ok(results) = serde_json::from_str::<Vec<serde_json::Value>>(stdout) {
         for result in results {
-            let file = result.get("filename").and_then(|f| f.as_str()).unwrap_or("");
+            let file = result
+                .get("filename")
+                .and_then(|f| f.as_str())
+                .unwrap_or("");
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 
-            let line = result.get("location")
+            let line = result
+                .get("location")
                 .and_then(|l| l.get("row"))
                 .and_then(|r| r.as_u64())
                 .unwrap_or(1) as usize;
-            let column = result.get("location")
+            let column = result
+                .get("location")
                 .and_then(|l| l.get("column"))
                 .and_then(|c| c.as_u64())
                 .map(|c| c as usize);
@@ -1806,7 +2064,8 @@ fn parse_black_output(stdout: &str, _stderr: &str, dir: &Path) -> Vec<LintIssue>
         if line.starts_with("would reformat ") {
             let file = line.trim_start_matches("would reformat ").trim();
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 
@@ -1837,13 +2096,20 @@ fn parse_mypy_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
         for result in results {
             let file = result.get("file").and_then(|f| f.as_str()).unwrap_or("");
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 
             let line = result.get("line").and_then(|l| l.as_u64()).unwrap_or(1) as usize;
-            let column = result.get("column").and_then(|c| c.as_u64()).map(|c| c as usize);
-            let severity_str = result.get("severity").and_then(|s| s.as_str()).unwrap_or("error");
+            let column = result
+                .get("column")
+                .and_then(|c| c.as_u64())
+                .map(|c| c as usize);
+            let severity_str = result
+                .get("severity")
+                .and_then(|s| s.as_str())
+                .unwrap_or("error");
             let message = result.get("message").and_then(|m| m.as_str()).unwrap_or("");
 
             let severity = match severity_str {
@@ -1875,7 +2141,8 @@ fn parse_mypy_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
         if parts.len() >= 4 {
             let file = parts[0].trim();
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 
@@ -1883,9 +2150,15 @@ fn parse_mypy_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
             let rest = parts[3].trim();
 
             let (severity, message) = if rest.starts_with("error:") {
-                (LintSeverity::Error, rest.trim_start_matches("error:").trim())
+                (
+                    LintSeverity::Error,
+                    rest.trim_start_matches("error:").trim(),
+                )
             } else if rest.starts_with("warning:") {
-                (LintSeverity::Warning, rest.trim_start_matches("warning:").trim())
+                (
+                    LintSeverity::Warning,
+                    rest.trim_start_matches("warning:").trim(),
+                )
             } else if rest.starts_with("note:") {
                 (LintSeverity::Info, rest.trim_start_matches("note:").trim())
             } else {
@@ -1917,25 +2190,32 @@ fn parse_golangci_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
     if let Ok(result) = serde_json::from_str::<serde_json::Value>(stdout) {
         if let Some(lint_issues) = result.get("Issues").and_then(|i| i.as_array()) {
             for issue in lint_issues {
-                let file = issue.get("Pos")
+                let file = issue
+                    .get("Pos")
                     .and_then(|p| p.get("Filename"))
                     .and_then(|f| f.as_str())
                     .unwrap_or("");
                 let file_path = PathBuf::from(file);
-                let relative_file = file_path.strip_prefix(dir)
+                let relative_file = file_path
+                    .strip_prefix(dir)
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| file.to_string());
 
-                let line = issue.get("Pos")
+                let line = issue
+                    .get("Pos")
                     .and_then(|p| p.get("Line"))
                     .and_then(|l| l.as_u64())
                     .unwrap_or(1) as usize;
-                let column = issue.get("Pos")
+                let column = issue
+                    .get("Pos")
                     .and_then(|p| p.get("Column"))
                     .and_then(|c| c.as_u64())
                     .map(|c| c as usize);
 
-                let rule = issue.get("FromLinter").and_then(|r| r.as_str()).unwrap_or("");
+                let rule = issue
+                    .get("FromLinter")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("");
                 let message = issue.get("Text").and_then(|m| m.as_str()).unwrap_or("");
                 let severity_str = issue.get("Severity").and_then(|s| s.as_str()).unwrap_or("");
 
@@ -1976,7 +2256,8 @@ fn parse_gofmt_output(stdout: &str, dir: &Path) -> Vec<LintIssue> {
         }
 
         let file_path = PathBuf::from(file);
-        let relative_file = file_path.strip_prefix(dir)
+        let relative_file = file_path
+            .strip_prefix(dir)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| file.to_string());
 
@@ -2011,7 +2292,8 @@ fn parse_govet_output(stderr: &str, dir: &Path) -> Vec<LintIssue> {
         if parts.len() >= 3 {
             let file = parts[0].trim();
             let file_path = PathBuf::from(file);
-            let relative_file = file_path.strip_prefix(dir)
+            let relative_file = file_path
+                .strip_prefix(dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| file.to_string());
 

@@ -304,7 +304,10 @@ public class QuestMachine
         // Should detect constructor calls
         let call_names: Vec<&str> = method.calls.iter().map(|c| c.name.as_str()).collect();
 
-        println!("Detected calls in RegisterActionTemplates: {:?}", call_names);
+        println!(
+            "Detected calls in RegisterActionTemplates: {:?}",
+            call_names
+        );
 
         assert!(
             call_names.contains(&"CreateNpc"),

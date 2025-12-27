@@ -548,7 +548,9 @@ pub struct LintRequest {
     pub fixable_only: Option<bool>,
 
     /// Dry run for fix mode - show what would be fixed without changing files
-    #[schemars(description = "Dry run - show what would be fixed without changing files (default: false)")]
+    #[schemars(
+        description = "Dry run - show what would be fixed without changing files (default: false)"
+    )]
     pub dry_run: Option<bool>,
 
     /// Only apply safe fixes in fix mode (default: false)

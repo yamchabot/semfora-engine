@@ -37,8 +37,12 @@ impl ProgressReporter {
             cache_root,
             state: Mutex::new(ProgressState {
                 last_line_len: 0,
-                last_size_check: Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now),
-                last_mem_check: Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now),
+                last_size_check: Instant::now()
+                    .checked_sub(Duration::from_secs(5))
+                    .unwrap_or_else(Instant::now),
+                last_mem_check: Instant::now()
+                    .checked_sub(Duration::from_secs(5))
+                    .unwrap_or_else(Instant::now),
                 last_size_bytes: 0,
                 last_mem_bytes: None,
                 step_start: Instant::now(),
@@ -116,9 +120,7 @@ impl ProgressReporter {
             rate_str
         );
 
-        let pad_len = state
-            .last_line_len
-            .saturating_sub(line.len());
+        let pad_len = state.last_line_len.saturating_sub(line.len());
         if pad_len > 0 {
             eprint!("\r{}{}", line, " ".repeat(pad_len));
         } else {

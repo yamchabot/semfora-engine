@@ -27,10 +27,14 @@ use tokio::sync::Mutex;
 use crate::{
     // CLI types for MCP->CLI handler consolidation
     cli::{
-        AnalyzeArgs, CommitArgs, IndexArgs, IndexOperation, LintArgs, LintOperation,
-        OutputFormat, SearchArgs, SymbolScope, TestArgs, ValidateArgs,
+        AnalyzeArgs, CommitArgs, IndexArgs, IndexOperation, LintArgs, LintOperation, OutputFormat,
+        SearchArgs, SymbolScope, TestArgs, ValidateArgs,
     },
-    commands::{run_analyze, run_commit, run_duplicates, run_file_symbols, run_get_callgraph, run_get_callers, run_get_source, run_get_symbol, run_index, run_lint, run_overview, run_search, run_test, run_validate, CommandContext},
+    commands::{
+        run_analyze, run_commit, run_duplicates, run_file_symbols, run_get_callers,
+        run_get_callgraph, run_get_source, run_get_symbol, run_index, run_lint, run_overview,
+        run_search, run_test, run_validate, CommandContext,
+    },
     server::ServerState,
     test_runner::{self},
     utils::truncate_to_char_boundary,
@@ -40,11 +44,8 @@ use crate::{
 // Re-export types for external use
 use formatting::{format_module_symbols, get_supported_languages, toon_header};
 use helpers::{
-    check_cache_staleness_detailed,
-    ensure_fresh_index,
-    format_freshness_note,
-    generate_index_internal,
-    FreshnessResult,
+    check_cache_staleness_detailed, ensure_fresh_index, format_freshness_note,
+    generate_index_internal, FreshnessResult,
 };
 pub use types::*;
 // Match this to the active module above:
@@ -312,7 +313,10 @@ impl McpDiffServer {
             summary_only: request.summary_only.unwrap_or(false),
             start_line: request.start_line,
             end_line: request.end_line,
-            output_mode: request.output_mode.clone().unwrap_or_else(|| "full".to_string()),
+            output_mode: request
+                .output_mode
+                .clone()
+                .unwrap_or_else(|| "full".to_string()),
             target_ref: None,
             limit: None,
             offset: None,
@@ -460,7 +464,14 @@ impl McpDiffServer {
             progress: false,
         };
 
-        match run_overview(Some(&repo_path), include_modules, max_modules, exclude_test_dirs, include_git_context, &ctx) {
+        match run_overview(
+            Some(&repo_path),
+            include_modules,
+            max_modules,
+            exclude_test_dirs,
+            include_git_context,
+            &ctx,
+        ) {
             Ok(overview_output) => {
                 output.push_str(&overview_output);
                 Ok(CallToolResult::success(vec![Content::text(output)]))
@@ -489,7 +500,14 @@ impl McpDiffServer {
         // Convert batch hashes array to comma-separated string (CLI format)
         let hash_str: Option<String> = if let Some(ref hashes) = request.hashes {
             if !hashes.is_empty() {
-                Some(hashes.iter().take(20).cloned().collect::<Vec<_>>().join(","))
+                Some(
+                    hashes
+                        .iter()
+                        .take(20)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )
             } else {
                 request.symbol_hash.clone()
             }
@@ -597,7 +615,14 @@ impl McpDiffServer {
         // Convert batch hashes array to comma-separated string (CLI format)
         let hash_str: Option<String> = if let Some(ref hashes) = request.hashes {
             if !hashes.is_empty() {
-                Some(hashes.iter().take(20).cloned().collect::<Vec<_>>().join(","))
+                Some(
+                    hashes
+                        .iter()
+                        .take(20)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )
             } else {
                 request.symbol_hash.clone()
             }
@@ -1265,7 +1290,14 @@ Output is token-optimized: duplicates are grouped by module with counts and simi
         };
 
         // Delegate to CLI handler
-        match run_get_callers(Some(&repo_path), &request.symbol_hash, depth, include_source, limit, &ctx) {
+        match run_get_callers(
+            Some(&repo_path),
+            &request.symbol_hash,
+            depth,
+            include_source,
+            limit,
+            &ctx,
+        ) {
             Ok(output) => Ok(CallToolResult::success(vec![Content::text(output)])),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Failed to get callers: {}",

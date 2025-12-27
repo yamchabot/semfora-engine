@@ -916,13 +916,7 @@ fn extract_variable_references(
 ) {
     let lang = grammar_name_to_lang(grammar.name);
     let include_escape_locals = matches!(lang, Some(Lang::CSharp));
-    variable_refs::extract_variable_references(
-        summary,
-        root,
-        source,
-        lang,
-        include_escape_locals,
-    );
+    variable_refs::extract_variable_references(summary, root, source, lang, include_escape_locals);
 }
 
 // =============================================================================
@@ -1519,7 +1513,7 @@ def buildApp() {
 #[cfg(test)]
 mod debug_const_tests {
     use tree_sitter::Parser;
-    
+
     fn print_node(node: tree_sitter::Node, source: &str, indent: usize) {
         let indent_str = "  ".repeat(indent);
         let text = if node.child_count() == 0 && node.byte_range().len() < 50 {
@@ -1527,9 +1521,9 @@ mod debug_const_tests {
         } else {
             String::new()
         };
-        
+
         println!("{}{}{}", indent_str, node.kind(), text);
-        
+
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i) {
                 if let Some(field_name) = node.field_name_for_child(i as u32) {
@@ -1549,9 +1543,11 @@ fn main() {}
 "#;
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
-        
+
         println!("\n=== TREE-SITTER OUTPUT FOR RUST CONSTS ===\n");
         print_node(tree.root_node(), source, 0);
         println!("\n===========================================\n");
@@ -1569,7 +1565,9 @@ fn main() {}
 "#;
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         println!("\n=== CONST EXTRACTION DEBUG ===\n");
@@ -1581,8 +1579,14 @@ fn main() {}
         for child in root.children(&mut cursor) {
             let kind = child.kind();
             println!("Node kind: {}", kind);
-            println!("  - Is in module_var_nodes? {}", grammar.module_var_nodes.contains(&kind));
-            println!("  - Is in function_nodes? {}", grammar.function_nodes.contains(&kind));
+            println!(
+                "  - Is in module_var_nodes? {}",
+                grammar.module_var_nodes.contains(&kind)
+            );
+            println!(
+                "  - Is in function_nodes? {}",
+                grammar.function_nodes.contains(&kind)
+            );
 
             if grammar.module_var_nodes.contains(&kind) {
                 println!("  - Checking is_in_local_scope...");
@@ -1594,9 +1598,11 @@ fn main() {}
 
                     // Try the configured name field first
                     if let Some(name_node) = child.child_by_field_name(grammar.name_field) {
-                        println!("  - Found name field node: kind={}, text={:?}",
+                        println!(
+                            "  - Found name field node: kind={}, text={:?}",
                             name_node.kind(),
-                            &source[name_node.byte_range()]);
+                            &source[name_node.byte_range()]
+                        );
                     } else {
                         println!("  - name_field '{}' NOT FOUND", grammar.name_field);
                     }
@@ -1629,7 +1635,9 @@ pub struct Foo {}
 "#;
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let mut summary = SemanticSummary {
@@ -1645,7 +1653,10 @@ pub struct Foo {}
 
         println!("Symbols extracted: {}", summary.symbols.len());
         for sym in &summary.symbols {
-            println!("  - {} ({:?}) lines {}-{}", sym.name, sym.kind, sym.start_line, sym.end_line);
+            println!(
+                "  - {} ({:?}) lines {}-{}",
+                sym.name, sym.kind, sym.start_line, sym.end_line
+            );
         }
 
         println!("\nPrimary symbol: {:?}", summary.symbol);
@@ -1654,11 +1665,26 @@ pub struct Foo {}
         println!("\n=================================\n");
 
         // Assert we got the expected symbols
-        assert!(summary.symbols.iter().any(|s| s.name == "SCHEMA_VERSION"), "SCHEMA_VERSION not found!");
-        assert!(summary.symbols.iter().any(|s| s.name == "FNV_OFFSET"), "FNV_OFFSET not found!");
-        assert!(summary.symbols.iter().any(|s| s.name == "GLOBAL_COUNTER"), "GLOBAL_COUNTER not found!");
-        assert!(summary.symbols.iter().any(|s| s.name == "main"), "main not found!");
-        assert!(summary.symbols.iter().any(|s| s.name == "Foo"), "Foo not found!");
+        assert!(
+            summary.symbols.iter().any(|s| s.name == "SCHEMA_VERSION"),
+            "SCHEMA_VERSION not found!"
+        );
+        assert!(
+            summary.symbols.iter().any(|s| s.name == "FNV_OFFSET"),
+            "FNV_OFFSET not found!"
+        );
+        assert!(
+            summary.symbols.iter().any(|s| s.name == "GLOBAL_COUNTER"),
+            "GLOBAL_COUNTER not found!"
+        );
+        assert!(
+            summary.symbols.iter().any(|s| s.name == "main"),
+            "main not found!"
+        );
+        assert!(
+            summary.symbols.iter().any(|s| s.name == "Foo"),
+            "Foo not found!"
+        );
     }
 
     #[test]
@@ -1669,11 +1695,14 @@ pub struct Foo {}
         use std::fs;
 
         // Read the actual schema.rs file
-        let source = fs::read_to_string("/home/kadajett/Dev/Semfora_org/semfora-engine/src/schema.rs")
-            .expect("Could not read schema.rs");
+        let source =
+            fs::read_to_string("/home/kadajett/Dev/Semfora_org/semfora-engine/src/schema.rs")
+                .expect("Could not read schema.rs");
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(&source, None).unwrap();
 
         let mut summary = SemanticSummary {
@@ -1685,10 +1714,14 @@ pub struct Foo {}
         extract_with_grammar(&mut summary, &source, &tree, &RUST_GRAMMAR).unwrap();
 
         println!("\n=== SCHEMA.RS EXTRACTION ===\n");
-        println!("Total symbols in summary.symbols: {}", summary.symbols.len());
+        println!(
+            "Total symbols in summary.symbols: {}",
+            summary.symbols.len()
+        );
 
         // Count by kind
-        let mut kind_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut kind_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for sym in &summary.symbols {
             *kind_counts.entry(format!("{:?}", sym.kind)).or_insert(0) += 1;
         }
@@ -1699,15 +1732,31 @@ pub struct Foo {}
 
         // Print first 5 of each kind
         println!("\nSample Variable symbols:");
-        for sym in summary.symbols.iter().filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable)).take(5) {
-            println!("  - {} (lines {}-{})", sym.name, sym.start_line, sym.end_line);
+        for sym in summary
+            .symbols
+            .iter()
+            .filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable))
+            .take(5)
+        {
+            println!(
+                "  - {} (lines {}-{})",
+                sym.name, sym.start_line, sym.end_line
+            );
         }
 
         println!("\n=================================\n");
 
         // Assert there are Variables
-        let var_count = summary.symbols.iter().filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable)).count();
-        assert!(var_count > 0, "Expected Variable symbols but found {}", var_count);
+        let var_count = summary
+            .symbols
+            .iter()
+            .filter(|s| matches!(s.kind, crate::schema::SymbolKind::Variable))
+            .count();
+        assert!(
+            var_count > 0,
+            "Expected Variable symbols but found {}",
+            var_count
+        );
     }
 
     /// Test that variable references are extracted and attributed to symbols
@@ -1736,7 +1785,9 @@ fn another_function() {
 "#;
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let mut summary = SemanticSummary {
@@ -1753,7 +1804,11 @@ fn another_function() {
         let process_data = process_data.unwrap();
 
         // Should have variable references with ref_kind set
-        let var_refs: Vec<_> = process_data.calls.iter().filter(|c| c.ref_kind.is_variable_ref()).collect();
+        let var_refs: Vec<_> = process_data
+            .calls
+            .iter()
+            .filter(|c| c.ref_kind.is_variable_ref())
+            .collect();
         assert!(
             !var_refs.is_empty(),
             "process_data should have variable references, but found none. Calls: {:?}",
@@ -1768,12 +1823,19 @@ fn another_function() {
         );
 
         // Find another_function
-        let another_fn = summary.symbols.iter().find(|s| s.name == "another_function");
+        let another_fn = summary
+            .symbols
+            .iter()
+            .find(|s| s.name == "another_function");
         assert!(another_fn.is_some(), "Should find another_function");
         let another_fn = another_fn.unwrap();
 
         // Should also reference MAX_SIZE
-        let another_var_refs: Vec<_> = another_fn.calls.iter().filter(|c| c.ref_kind.is_variable_ref()).collect();
+        let another_var_refs: Vec<_> = another_fn
+            .calls
+            .iter()
+            .filter(|c| c.ref_kind.is_variable_ref())
+            .collect();
         assert!(
             !another_var_refs.is_empty(),
             "another_function should have variable references"
@@ -1796,7 +1858,9 @@ fn process() {
 "#;
 
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let mut summary = SemanticSummary {
@@ -1813,7 +1877,11 @@ fn process() {
         let process_fn = process_fn.unwrap();
 
         // Should NOT have variable references (local_var is local, not module-level)
-        let var_refs: Vec<_> = process_fn.calls.iter().filter(|c| c.ref_kind.is_variable_ref()).collect();
+        let var_refs: Vec<_> = process_fn
+            .calls
+            .iter()
+            .filter(|c| c.ref_kind.is_variable_ref())
+            .collect();
         let local_var_refs: Vec<_> = var_refs.iter().filter(|c| c.name == "local_var").collect();
         assert!(
             local_var_refs.is_empty(),

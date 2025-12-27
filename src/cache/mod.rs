@@ -880,9 +880,9 @@ impl CacheDir {
         let Ok(conn) = rusqlite::Connection::open(path) else {
             return false;
         };
-        let mut stmt = match conn.prepare(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bm25_meta'",
-        ) {
+        let mut stmt = match conn
+            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bm25_meta'")
+        {
             Ok(stmt) => stmt,
             Err(_) => return false,
         };
@@ -2057,188 +2057,200 @@ impl CacheDir {
         // Process summaries in parallel and reduce without collecting all entries in memory.
         let graph: HashMap<String, Vec<String>> = summaries
             .par_iter()
-            .fold(HashMap::new, |mut local_graph: HashMap<String, Vec<String>>, summary| {
-                let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
-                if total > 100 && (current % 500 == 0 || current == total) {
-                    eprintln!(
-                        "  Call graph progress: {}/{} ({:.1}%)",
-                        current,
-                        total,
-                        (current as f64 / total as f64) * 100.0
-                    );
-                }
-
-                // Compute file hash once for this file (used to prefer same-file call resolution)
-                let caller_file_hash = crate::overlay::extract_file_hash(
-                    summary.symbol_id.as_ref().map(|s| s.hash.as_str()).unwrap_or(""),
-                )
-                .to_string();
-                // Fallback: compute from file path if no symbol_id
-                let caller_file_hash = if caller_file_hash.is_empty() {
-                    format!("{:08x}", crate::schema::fnv1a_hash(&summary.file) as u32)
-                } else {
-                    caller_file_hash
-                };
-                let same_file_prefix = if caller_file_hash.is_empty() {
-                    String::new()
-                } else {
-                    format!("{}:", caller_file_hash)
-                };
-
-                // Process each symbol in the file
-                for symbol in &summary.symbols {
-                    total_symbols_from_vec.fetch_add(1, Ordering::Relaxed);
-                    let hash = compute_symbol_hash(symbol, &summary.file);
-                    let mut calls: Vec<String> = Vec::new();
-                    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-                    // Extract from the symbol's own calls array
-                    for c in &symbol.calls {
-                        let resolved = if let Some(ref obj) = c.object {
-                            let call_name = format!("{}.{}", obj, c.name);
-                            Self::resolve_call_to_hash(
-                                &call_name,
-                                &symbol_lookup,
-                                &same_file_prefix,
-                                &summary.import_sources,
-                            )
-                        } else {
-                            Self::resolve_call_to_hash(
-                                &c.name,
-                                &symbol_lookup,
-                                &same_file_prefix,
-                                &summary.import_sources,
-                            )
-                        };
-                        if seen.insert(resolved.clone()) {
-                            calls.push(resolved);
-                        }
+            .fold(
+                HashMap::new,
+                |mut local_graph: HashMap<String, Vec<String>>, summary| {
+                    let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
+                    if total > 100 && (current % 500 == 0 || current == total) {
+                        eprintln!(
+                            "  Call graph progress: {}/{} ({:.1}%)",
+                            current,
+                            total,
+                            (current as f64 / total as f64) * 100.0
+                        );
                     }
 
-                    // Extract function calls from state_changes initializers
-                    for state in &symbol.state_changes {
-                        if !state.initializer.is_empty() {
-                            if let Some(call_name) =
-                                Self::extract_call_from_initializer(&state.initializer)
-                            {
-                                let resolved = Self::resolve_call_to_hash(
+                    // Compute file hash once for this file (used to prefer same-file call resolution)
+                    let caller_file_hash = crate::overlay::extract_file_hash(
+                        summary
+                            .symbol_id
+                            .as_ref()
+                            .map(|s| s.hash.as_str())
+                            .unwrap_or(""),
+                    )
+                    .to_string();
+                    // Fallback: compute from file path if no symbol_id
+                    let caller_file_hash = if caller_file_hash.is_empty() {
+                        format!("{:08x}", crate::schema::fnv1a_hash(&summary.file) as u32)
+                    } else {
+                        caller_file_hash
+                    };
+                    let same_file_prefix = if caller_file_hash.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{}:", caller_file_hash)
+                    };
+
+                    // Process each symbol in the file
+                    for symbol in &summary.symbols {
+                        total_symbols_from_vec.fetch_add(1, Ordering::Relaxed);
+                        let hash = compute_symbol_hash(symbol, &summary.file);
+                        let mut calls: Vec<String> = Vec::new();
+                        let mut seen: std::collections::HashSet<String> =
+                            std::collections::HashSet::new();
+
+                        // Extract from the symbol's own calls array
+                        for c in &symbol.calls {
+                            let resolved = if let Some(ref obj) = c.object {
+                                let call_name = format!("{}.{}", obj, c.name);
+                                Self::resolve_call_to_hash(
                                     &call_name,
                                     &symbol_lookup,
                                     &same_file_prefix,
                                     &summary.import_sources,
-                                );
-                                if seen.insert(resolved.clone()) {
-                                    calls.push(resolved);
+                                )
+                            } else {
+                                Self::resolve_call_to_hash(
+                                    &c.name,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                )
+                            };
+                            if seen.insert(resolved.clone()) {
+                                calls.push(resolved);
+                            }
+                        }
+
+                        // Extract function calls from state_changes initializers
+                        for state in &symbol.state_changes {
+                            if !state.initializer.is_empty() {
+                                if let Some(call_name) =
+                                    Self::extract_call_from_initializer(&state.initializer)
+                                {
+                                    let resolved = Self::resolve_call_to_hash(
+                                        &call_name,
+                                        &symbol_lookup,
+                                        &same_file_prefix,
+                                        &summary.import_sources,
+                                    );
+                                    if seen.insert(resolved.clone()) {
+                                        calls.push(resolved);
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if !calls.is_empty() {
-                        total_calls_from_symbols.fetch_add(calls.len(), Ordering::Relaxed);
-                        local_graph.entry(hash).or_default().extend(calls);
-                    }
-                }
-
-                // Also process file-level calls
-                if let Some(ref symbol_id) = summary.symbol_id {
-                    let mut calls: Vec<String> = Vec::new();
-                    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-                    for c in &summary.calls {
-                        let resolved = if let Some(ref obj) = c.object {
-                            let call_name = format!("{}.{}", obj, c.name);
-                            Self::resolve_call_to_hash(
-                                &call_name,
-                                &symbol_lookup,
-                                &same_file_prefix,
-                                &summary.import_sources,
-                            )
-                        } else {
-                            Self::resolve_call_to_hash(
-                                &c.name,
-                                &symbol_lookup,
-                                &same_file_prefix,
-                                &summary.import_sources,
-                            )
-                        };
-                        if seen.insert(resolved.clone()) {
-                            calls.push(resolved);
+                        if !calls.is_empty() {
+                            total_calls_from_symbols.fetch_add(calls.len(), Ordering::Relaxed);
+                            local_graph.entry(hash).or_default().extend(calls);
                         }
                     }
 
-                    for state in &summary.state_changes {
-                        if !state.initializer.is_empty() {
-                            if let Some(call_name) =
-                                Self::extract_call_from_initializer(&state.initializer)
-                            {
-                                let resolved = Self::resolve_call_to_hash(
+                    // Also process file-level calls
+                    if let Some(ref symbol_id) = summary.symbol_id {
+                        let mut calls: Vec<String> = Vec::new();
+                        let mut seen: std::collections::HashSet<String> =
+                            std::collections::HashSet::new();
+
+                        for c in &summary.calls {
+                            let resolved = if let Some(ref obj) = c.object {
+                                let call_name = format!("{}.{}", obj, c.name);
+                                Self::resolve_call_to_hash(
                                     &call_name,
                                     &symbol_lookup,
                                     &same_file_prefix,
                                     &summary.import_sources,
-                                );
-                                if seen.insert(resolved.clone()) {
-                                    calls.push(resolved);
+                                )
+                            } else {
+                                Self::resolve_call_to_hash(
+                                    &c.name,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                )
+                            };
+                            if seen.insert(resolved.clone()) {
+                                calls.push(resolved);
+                            }
+                        }
+
+                        for state in &summary.state_changes {
+                            if !state.initializer.is_empty() {
+                                if let Some(call_name) =
+                                    Self::extract_call_from_initializer(&state.initializer)
+                                {
+                                    let resolved = Self::resolve_call_to_hash(
+                                        &call_name,
+                                        &symbol_lookup,
+                                        &same_file_prefix,
+                                        &summary.import_sources,
+                                    );
+                                    if seen.insert(resolved.clone()) {
+                                        calls.push(resolved);
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    for dep in &summary.added_dependencies {
-                        if !dep
-                            .chars()
-                            .next()
-                            .map(|c| c.is_uppercase())
-                            .unwrap_or(false)
-                            && !dep.contains("::")
-                        {
-                            if dep
+                        for dep in &summary.added_dependencies {
+                            if !dep
                                 .chars()
                                 .next()
-                                .map(|c| c.is_lowercase())
+                                .map(|c| c.is_uppercase())
                                 .unwrap_or(false)
+                                && !dep.contains("::")
                             {
-                                let resolved = Self::resolve_call_to_hash(
-                                    dep,
-                                    &symbol_lookup,
-                                    &same_file_prefix,
-                                    &summary.import_sources,
-                                );
-                                if seen.insert(resolved.clone()) {
-                                    calls.push(resolved);
+                                if dep
+                                    .chars()
+                                    .next()
+                                    .map(|c| c.is_lowercase())
+                                    .unwrap_or(false)
+                                {
+                                    let resolved = Self::resolve_call_to_hash(
+                                        dep,
+                                        &symbol_lookup,
+                                        &same_file_prefix,
+                                        &summary.import_sources,
+                                    );
+                                    if seen.insert(resolved.clone()) {
+                                        calls.push(resolved);
+                                    }
                                 }
                             }
                         }
+
+                        if !calls.is_empty() {
+                            let matching_symbol = if let Some(ref primary_name) = summary.symbol {
+                                summary.symbols.iter().find(|s| &s.name == primary_name)
+                            } else {
+                                None
+                            };
+
+                            let hash = if let Some(symbol) = matching_symbol {
+                                compute_symbol_hash(symbol, &summary.file)
+                            } else if let Some(first_symbol) = summary.symbols.first() {
+                                compute_symbol_hash(first_symbol, &summary.file)
+                            } else {
+                                symbol_id.hash.clone()
+                            };
+
+                            local_graph.entry(hash).or_default().extend(calls);
+                        }
                     }
 
-                    if !calls.is_empty() {
-                        let matching_symbol = if let Some(ref primary_name) = summary.symbol {
-                            summary.symbols.iter().find(|s| &s.name == primary_name)
-                        } else {
-                            None
-                        };
-
-                        let hash = if let Some(symbol) = matching_symbol {
-                            compute_symbol_hash(symbol, &summary.file)
-                        } else if let Some(first_symbol) = summary.symbols.first() {
-                            compute_symbol_hash(first_symbol, &summary.file)
-                        } else {
-                            symbol_id.hash.clone()
-                        };
-
-                        local_graph.entry(hash).or_default().extend(calls);
+                    local_graph
+                },
+            )
+            .reduce(
+                HashMap::new,
+                |mut left: HashMap<String, Vec<String>>, right| {
+                    for (hash, calls) in right {
+                        left.entry(hash).or_default().extend(calls);
                     }
-                }
-
-                local_graph
-            })
-            .reduce(HashMap::new, |mut left: HashMap<String, Vec<String>>, right| {
-                for (hash, calls) in right {
-                    left.entry(hash).or_default().extend(calls);
-                }
-                left
-            });
+                    left
+                },
+            );
 
         let symbols_count = total_symbols_from_vec.load(Ordering::Relaxed);
         let calls_count = total_calls_from_symbols.load(Ordering::Relaxed);
@@ -2582,7 +2594,11 @@ pub struct SymbolIndexEntry {
     pub is_escape_local: bool,
 
     /// Framework entry point type (for filtering dead code false positives)
-    #[serde(rename = "fep", default, skip_serializing_if = "FrameworkEntryPoint::is_none")]
+    #[serde(
+        rename = "fep",
+        default,
+        skip_serializing_if = "FrameworkEntryPoint::is_none"
+    )]
     pub framework_entry_point: FrameworkEntryPoint,
 }
 

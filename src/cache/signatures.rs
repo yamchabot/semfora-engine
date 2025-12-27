@@ -43,8 +43,8 @@ pub fn load_function_signatures(cache: &CacheDir) -> Result<Vec<FunctionSignatur
         return Ok(Vec::new());
     }
 
-    let file = File::open(&sig_path)
-        .map_err(|e| format!("Failed to open signature index: {}", e))?;
+    let file =
+        File::open(&sig_path).map_err(|e| format!("Failed to open signature index: {}", e))?;
     let reader = BufReader::new(file);
 
     let mut signatures = Vec::new();

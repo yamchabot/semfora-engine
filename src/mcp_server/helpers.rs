@@ -10,15 +10,15 @@ use std::time::SystemTime;
 use std::collections::{HashMap, HashSet};
 
 use super::formatting::toon_header;
+use crate::cache::{
+    load_function_signatures as cache_load_function_signatures, split_respecting_quotes,
+};
 use crate::duplicate::DuplicateDetector;
 use crate::indexing::{
     analyze_files_with_stats as indexing_analyze_files_with_stats,
     collect_files as indexing_collect_files, should_skip_path as indexing_should_skip_path,
 };
-use crate::cache::{load_function_signatures as cache_load_function_signatures, split_respecting_quotes};
-use crate::{
-    extract_module_name, CacheDir, Lang, SemanticSummary, ShardWriter, SymbolIndexEntry,
-};
+use crate::{extract_module_name, CacheDir, Lang, SemanticSummary, ShardWriter, SymbolIndexEntry};
 
 // ============================================================================
 // Staleness Info Struct

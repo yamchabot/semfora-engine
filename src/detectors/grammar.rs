@@ -280,7 +280,7 @@ pub static RUST_GRAMMAR: LangGrammar = LangGrammar {
     var_declaration_nodes: &["let_declaration"],
     assignment_nodes: &["assignment_expression"],
     module_var_nodes: &["const_item", "static_item"],
-    field_nodes: &[],  // Rust struct fields are part of struct_item, not separate
+    field_nodes: &[], // Rust struct fields are part of struct_item, not separate
     local_scope_nodes: &[
         "function_item",
         "block",
@@ -366,7 +366,7 @@ pub static JAVA_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement", "try_with_resources_statement"],
     var_declaration_nodes: &["local_variable_declaration", "field_declaration"],
     assignment_nodes: &["assignment_expression"],
-    module_var_nodes: &[],  // Java uses static fields in classes
+    module_var_nodes: &[], // Java uses static fields in classes
     field_nodes: &["field_declaration"],
     local_scope_nodes: &[
         "method_declaration",
@@ -424,7 +424,7 @@ pub static CSHARP_GRAMMAR: LangGrammar = LangGrammar {
         "property_declaration",
     ],
     assignment_nodes: &["assignment_expression"],
-    module_var_nodes: &[],  // C# uses static fields in classes
+    module_var_nodes: &[], // C# uses static fields in classes
     field_nodes: &["field_declaration", "property_declaration"],
     local_scope_nodes: &[
         "method_declaration",
@@ -469,8 +469,8 @@ pub static PYTHON_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["assignment"],
     assignment_nodes: &["assignment", "augmented_assignment"],
-    module_var_nodes: &[],  // Python assignments are ambiguous - handled via class body detection
-    field_nodes: &[],  // Python class attrs are assignments in class body
+    module_var_nodes: &[], // Python assignments are ambiguous - handled via class body detection
+    field_nodes: &[],      // Python class attrs are assignments in class body
     local_scope_nodes: &[
         "function_definition",
         "for_statement",
@@ -572,7 +572,11 @@ pub static TYPESCRIPT_GRAMMAR: LangGrammar = LangGrammar {
     var_declaration_nodes: &["variable_declaration", "lexical_declaration"],
     assignment_nodes: &["assignment_expression"],
     module_var_nodes: &["variable_declaration", "lexical_declaration"],
-    field_nodes: &["public_field_definition", "field_definition", "property_signature"],
+    field_nodes: &[
+        "public_field_definition",
+        "field_definition",
+        "property_signature",
+    ],
     local_scope_nodes: &[
         "function_declaration",
         "function_expression",
@@ -618,7 +622,7 @@ pub static C_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[], // C doesn't have try/catch
     var_declaration_nodes: &["declaration"],
     assignment_nodes: &["assignment_expression"],
-    module_var_nodes: &["declaration"],  // File-scope declarations
+    module_var_nodes: &["declaration"], // File-scope declarations
     field_nodes: &["field_declaration"],
     local_scope_nodes: &[
         "function_definition",
@@ -660,7 +664,7 @@ pub static CPP_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["declaration"],
     assignment_nodes: &["assignment_expression"],
-    module_var_nodes: &["declaration"],  // Namespace/file scope
+    module_var_nodes: &["declaration"], // Namespace/file scope
     field_nodes: &["field_declaration"],
     local_scope_nodes: &[
         "function_definition",
@@ -715,8 +719,8 @@ pub static KOTLIN_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_expression"],
     var_declaration_nodes: &["property_declaration", "variable_declaration"],
     assignment_nodes: &["assignment"],
-    module_var_nodes: &["property_declaration"],  // Top-level properties
-    field_nodes: &["property_declaration"],  // Class properties
+    module_var_nodes: &["property_declaration"], // Top-level properties
+    field_nodes: &["property_declaration"],      // Class properties
     local_scope_nodes: &[
         "function_declaration",
         "block",
@@ -762,8 +766,8 @@ pub static BASH_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[], // Bash uses trap, not try/catch
     var_declaration_nodes: &["variable_assignment"],
     assignment_nodes: &["variable_assignment"],
-    module_var_nodes: &["variable_assignment"],  // Script-level variables
-    field_nodes: &[],  // Bash doesn't have classes
+    module_var_nodes: &["variable_assignment"], // Script-level variables
+    field_nodes: &[],                           // Bash doesn't have classes
     local_scope_nodes: &[
         "function_definition",
         "compound_statement",
@@ -809,7 +813,7 @@ pub static GRADLE_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &["try_statement"],
     var_declaration_nodes: &["variable_definition", "assignment"],
     assignment_nodes: &["assignment"],
-    module_var_nodes: &["variable_definition"],  // Script-level variables
+    module_var_nodes: &["variable_definition"], // Script-level variables
     field_nodes: &["field_declaration"],
     local_scope_nodes: &[
         "function_definition",
@@ -862,9 +866,9 @@ pub static HCL_GRAMMAR: LangGrammar = LangGrammar {
     try_nodes: &[],
     var_declaration_nodes: &["attribute"],
     assignment_nodes: &["attribute"],
-    module_var_nodes: &["attribute"],  // HCL attributes at block level
-    field_nodes: &[],  // HCL doesn't have classes
-    local_scope_nodes: &["block"],  // Nested blocks are local scope
+    module_var_nodes: &["attribute"], // HCL attributes at block level
+    field_nodes: &[],                 // HCL doesn't have classes
+    local_scope_nodes: &["block"],    // Nested blocks are local scope
     // HCL function calls and references
     call_nodes: &["function_call"],
     await_nodes: &[],

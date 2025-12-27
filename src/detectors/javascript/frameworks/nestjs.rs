@@ -39,7 +39,9 @@ fn detect_decorators(summary: &mut SemanticSummary, source: &str) {
 
         // Mark decorated classes as services
         for symbol in &mut summary.symbols {
-            if symbol.kind == SymbolKind::Class && symbol.decorators.iter().any(|d| d.contains("Injectable")) {
+            if symbol.kind == SymbolKind::Class
+                && symbol.decorators.iter().any(|d| d.contains("Injectable"))
+            {
                 symbol.framework_entry_point = FrameworkEntryPoint::NestService;
             }
         }
@@ -56,7 +58,9 @@ fn detect_decorators(summary: &mut SemanticSummary, source: &str) {
 
         // Mark decorated classes as controllers
         for symbol in &mut summary.symbols {
-            if symbol.kind == SymbolKind::Class && symbol.decorators.iter().any(|d| d.contains("Controller")) {
+            if symbol.kind == SymbolKind::Class
+                && symbol.decorators.iter().any(|d| d.contains("Controller"))
+            {
                 symbol.framework_entry_point = FrameworkEntryPoint::NestController;
             }
         }
@@ -76,18 +80,28 @@ fn detect_decorators(summary: &mut SemanticSummary, source: &str) {
 
         // Mark decorated classes as modules
         for symbol in &mut summary.symbols {
-            if symbol.kind == SymbolKind::Class && symbol.decorators.iter().any(|d| d.contains("Module")) {
+            if symbol.kind == SymbolKind::Class
+                && symbol.decorators.iter().any(|d| d.contains("Module"))
+            {
                 symbol.framework_entry_point = FrameworkEntryPoint::NestModule;
             }
         }
     }
 
     // Guard, Interceptor, Pipe, Filter - all are injectable
-    for decorator in ["@UseGuards(", "@UseInterceptors(", "@UsePipes(", "@UseFilters("] {
+    for decorator in [
+        "@UseGuards(",
+        "@UseInterceptors(",
+        "@UsePipes(",
+        "@UseFilters(",
+    ] {
         if source.contains(decorator) {
             push_unique_insertion(
                 &mut summary.insertions,
-                format!("NestJS {} middleware", decorator.trim_start_matches('@').trim_end_matches('(')),
+                format!(
+                    "NestJS {} middleware",
+                    decorator.trim_start_matches('@').trim_end_matches('(')
+                ),
                 "NestJS middleware",
             );
         }
@@ -96,13 +110,26 @@ fn detect_decorators(summary: &mut SemanticSummary, source: &str) {
 
 /// Mark HTTP method handlers as framework entry points
 fn mark_http_handlers(summary: &mut SemanticSummary, source: &str) {
-    let http_decorators = ["@Get(", "@Post(", "@Put(", "@Delete(", "@Patch(", "@Head(", "@Options(", "@All("];
+    let http_decorators = [
+        "@Get(",
+        "@Post(",
+        "@Put(",
+        "@Delete(",
+        "@Patch(",
+        "@Head(",
+        "@Options(",
+        "@All(",
+    ];
 
     for symbol in &mut summary.symbols {
         if symbol.kind == SymbolKind::Method || symbol.kind == SymbolKind::Function {
             // Check if method has HTTP decorator
             for decorator in &http_decorators {
-                if symbol.decorators.iter().any(|d| d.contains(&decorator[1..decorator.len()-1])) {
+                if symbol
+                    .decorators
+                    .iter()
+                    .any(|d| d.contains(&decorator[1..decorator.len() - 1]))
+                {
                     symbol.framework_entry_point = FrameworkEntryPoint::NestController;
                     break;
                 }
@@ -209,9 +236,18 @@ mod tests {
 
         enhance(&mut summary, source);
 
-        assert_eq!(summary.framework_entry_point, FrameworkEntryPoint::NestController);
-        assert!(summary.insertions.iter().any(|i| i.contains("NestJS controller")));
-        assert!(summary.insertions.iter().any(|i| i.contains("HTTP handlers")));
+        assert_eq!(
+            summary.framework_entry_point,
+            FrameworkEntryPoint::NestController
+        );
+        assert!(summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("NestJS controller")));
+        assert!(summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("HTTP handlers")));
     }
 
     #[test]
@@ -226,8 +262,14 @@ mod tests {
 
         enhance(&mut summary, source);
 
-        assert_eq!(summary.framework_entry_point, FrameworkEntryPoint::NestService);
-        assert!(summary.insertions.iter().any(|i| i.contains("injectable service")));
+        assert_eq!(
+            summary.framework_entry_point,
+            FrameworkEntryPoint::NestService
+        );
+        assert!(summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("injectable service")));
     }
 
     #[test]
@@ -244,7 +286,10 @@ mod tests {
 
         enhance(&mut summary, source);
 
-        assert_eq!(summary.framework_entry_point, FrameworkEntryPoint::NestBootstrap);
+        assert_eq!(
+            summary.framework_entry_point,
+            FrameworkEntryPoint::NestBootstrap
+        );
         assert!(summary.insertions.iter().any(|i| i.contains("bootstrap")));
     }
 
@@ -262,7 +307,13 @@ mod tests {
 
         enhance(&mut summary, source);
 
-        assert_eq!(summary.framework_entry_point, FrameworkEntryPoint::NestModule);
-        assert!(summary.insertions.iter().any(|i| i.contains("NestJS module")));
+        assert_eq!(
+            summary.framework_entry_point,
+            FrameworkEntryPoint::NestModule
+        );
+        assert!(summary
+            .insertions
+            .iter()
+            .any(|i| i.contains("NestJS module")));
     }
 }

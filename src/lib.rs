@@ -119,7 +119,6 @@ pub mod parsing;
 pub mod paths;
 pub mod ripgrep;
 pub mod risk;
-pub mod trace;
 pub mod schema;
 pub mod search;
 pub mod security;
@@ -130,6 +129,7 @@ pub mod sqlite_export;
 pub mod test_runner;
 pub mod tokens;
 pub mod toon;
+pub mod trace;
 pub mod utils;
 
 // Re-export commonly used types
@@ -233,7 +233,9 @@ pub use security::{
 pub use fs_utils::{atomic_rename, normalize_path};
 
 // Re-export path resolution utilities (CLI/MCP unification)
-pub use paths::{canonicalize_path, ensure_directory, resolve_path, resolve_path_or_cwd, resolve_pathbuf};
+pub use paths::{
+    canonicalize_path, ensure_directory, resolve_path, resolve_path_or_cwd, resolve_pathbuf,
+};
 
 // Re-export indexing utilities (CLI/MCP unification - DEDUP-102)
 pub use indexing::{

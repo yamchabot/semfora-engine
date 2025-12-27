@@ -76,7 +76,11 @@ pub fn parse_and_extract_with_options(
     parser
         .set_language(&lang.tree_sitter_language())
         .map_err(|e| McpDiffError::ParseFailure {
-            message: format!("Failed to set language for {}: {:?}", file_path.display(), e),
+            message: format!(
+                "Failed to set language for {}: {:?}",
+                file_path.display(),
+                e
+            ),
         })?;
 
     let tree = parser

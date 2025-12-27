@@ -74,7 +74,8 @@ impl LocalsQuery {
 
         // Find capture indices for standard locals captures
         let reference_idx = query.capture_index_for_name("local.reference");
-        let definition_idx = query.capture_index_for_name("local.definition")
+        let definition_idx = query
+            .capture_index_for_name("local.definition")
             .or_else(|| query.capture_index_for_name("local.definition.var"));
         let scope_idx = query.capture_index_for_name("local.scope");
 
@@ -243,8 +244,14 @@ pub fn get_locals_query(lang: Lang) -> Option<LocalsQuery> {
         Lang::Vue => include_str!("../../queries/javascript/locals.scm"), // Vue script uses JS
 
         // Config/Markup - no variable references to track
-        Lang::Html | Lang::Css | Lang::Scss | Lang::Markdown |
-        Lang::Json | Lang::Yaml | Lang::Toml | Lang::Xml => return None,
+        Lang::Html
+        | Lang::Css
+        | Lang::Scss
+        | Lang::Markdown
+        | Lang::Json
+        | Lang::Yaml
+        | Lang::Toml
+        | Lang::Xml => return None,
     };
 
     LocalsQuery::new(&lang.tree_sitter_language(), query_src)
@@ -282,7 +289,8 @@ fn determine_ref_kind(node: &Node) -> RefKind {
             // Compound assignment patterns (check first - more specific)
             // Python: augmented_assignment, Rust: compound_assignment_expr
             // JS/TS: augmented_assignment_expression
-            "augmented_assignment" | "augmented_assignment_expression"
+            "augmented_assignment"
+            | "augmented_assignment_expression"
             | "compound_assignment_expr" => {
                 if is_on_lhs(&current, &parent) {
                     return RefKind::ReadWrite;
@@ -394,8 +402,7 @@ fn is_on_lhs(node: &Node, parent: &Node) -> bool {
 
 /// Check if ancestor contains descendant
 fn node_contains(ancestor: &Node, descendant: &Node) -> bool {
-    ancestor.start_byte() <= descendant.start_byte()
-        && ancestor.end_byte() >= descendant.end_byte()
+    ancestor.start_byte() <= descendant.start_byte() && ancestor.end_byte() >= descendant.end_byte()
 }
 
 /// Check if a name is a language keyword (should be skipped)
@@ -403,18 +410,92 @@ fn is_keyword(name: &str) -> bool {
     matches!(
         name,
         // Common keywords across languages
-        "if" | "else" | "for" | "while" | "do" | "switch" | "case" | "default"
-            | "break" | "continue" | "return" | "throw" | "try" | "catch" | "finally"
-            | "new" | "delete" | "typeof" | "instanceof" | "void" | "null" | "undefined"
-            | "true" | "false" | "this" | "self" | "super" | "class" | "struct" | "enum"
-            | "interface" | "trait" | "impl" | "fn" | "func" | "function" | "def" | "let"
-            | "const" | "var" | "mut" | "static" | "final" | "public" | "private"
-            | "protected" | "internal" | "export" | "import" | "from" | "as" | "async"
-            | "await" | "yield" | "in" | "of" | "is" | "and" | "or" | "not" | "None"
-            | "True" | "False" | "nil" | "package" | "module" | "use" | "require"
-            | "include" | "extends" | "implements" | "with" | "where" | "when"
-            | "match" | "guard" | "loop" | "foreach" | "select" | "join"
-            | "type" | "alias" | "typedef" | "namespace" | "using" | "goto" | "label"
+        "if" | "else"
+            | "for"
+            | "while"
+            | "do"
+            | "switch"
+            | "case"
+            | "default"
+            | "break"
+            | "continue"
+            | "return"
+            | "throw"
+            | "try"
+            | "catch"
+            | "finally"
+            | "new"
+            | "delete"
+            | "typeof"
+            | "instanceof"
+            | "void"
+            | "null"
+            | "undefined"
+            | "true"
+            | "false"
+            | "this"
+            | "self"
+            | "super"
+            | "class"
+            | "struct"
+            | "enum"
+            | "interface"
+            | "trait"
+            | "impl"
+            | "fn"
+            | "func"
+            | "function"
+            | "def"
+            | "let"
+            | "const"
+            | "var"
+            | "mut"
+            | "static"
+            | "final"
+            | "public"
+            | "private"
+            | "protected"
+            | "internal"
+            | "export"
+            | "import"
+            | "from"
+            | "as"
+            | "async"
+            | "await"
+            | "yield"
+            | "in"
+            | "of"
+            | "is"
+            | "and"
+            | "or"
+            | "not"
+            | "None"
+            | "True"
+            | "False"
+            | "nil"
+            | "package"
+            | "module"
+            | "use"
+            | "require"
+            | "include"
+            | "extends"
+            | "implements"
+            | "with"
+            | "where"
+            | "when"
+            | "match"
+            | "guard"
+            | "loop"
+            | "foreach"
+            | "select"
+            | "join"
+            | "type"
+            | "alias"
+            | "typedef"
+            | "namespace"
+            | "using"
+            | "goto"
+            | "label"
     )
 }
 
@@ -431,13 +512,19 @@ mod tests {
     #[test]
     fn test_python_locals_query_loads() {
         let query = get_locals_query(Lang::Python);
-        assert!(query.is_some(), "Python locals.scm should load successfully");
+        assert!(
+            query.is_some(),
+            "Python locals.scm should load successfully"
+        );
     }
 
     #[test]
     fn test_javascript_locals_query_loads() {
         let query = get_locals_query(Lang::JavaScript);
-        assert!(query.is_some(), "JavaScript locals.scm should load successfully");
+        assert!(
+            query.is_some(),
+            "JavaScript locals.scm should load successfully"
+        );
     }
 
     #[test]
@@ -461,7 +548,9 @@ fn process() {
 }
 "#;
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Lang::Rust.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Lang::Rust.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let refs = query.extract_references(&tree.root_node(), source);
@@ -487,7 +576,9 @@ echo "${RED}Error${NC}"
 echo "${GREEN}Success${NC}"
 "#;
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&Lang::Bash.tree_sitter_language()).unwrap();
+        parser
+            .set_language(&Lang::Bash.tree_sitter_language())
+            .unwrap();
         let tree = parser.parse(source, None).unwrap();
 
         let refs = query.extract_references(&tree.root_node(), source);

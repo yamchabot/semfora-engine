@@ -124,9 +124,7 @@ fn detect_action_types(ctx: &mut ReduxContext, root: &Node, source: &str) {
                 if is_action_type_name(&name) {
                     if let Some(value_node) = node.child_by_field_name("value") {
                         // Check if it's a string literal (action type constant)
-                        if value_node.kind() == "string"
-                            || value_node.kind() == "template_string"
-                        {
+                        if value_node.kind() == "string" || value_node.kind() == "template_string" {
                             ctx.action_types.insert(
                                 name.clone(),
                                 ActionType {
@@ -146,7 +144,10 @@ fn detect_action_types(ctx: &mut ReduxContext, root: &Node, source: &str) {
 /// Check if a name looks like an action type constant
 fn is_action_type_name(name: &str) -> bool {
     // Must be SCREAMING_SNAKE_CASE and contain action-like words
-    if name.chars().all(|c| c.is_uppercase() || c == '_' || c.is_numeric()) {
+    if name
+        .chars()
+        .all(|c| c.is_uppercase() || c == '_' || c.is_numeric())
+    {
         let lower = name.to_lowercase();
         lower.contains("set")
             || lower.contains("get")
@@ -229,8 +230,7 @@ fn is_reducer_function(node: &Node, source: &str) -> bool {
     // Check parameters: (state, action) or (state = initialState, action)
     if let Some(params) = node.child_by_field_name("parameters") {
         let params_text = get_node_text(&params, source);
-        let has_state_param =
-            params_text.contains("state") || params_text.contains("State");
+        let has_state_param = params_text.contains("state") || params_text.contains("State");
         let has_action_param = params_text.contains("action");
 
         if has_state_param && has_action_param {
@@ -544,7 +544,11 @@ fn extract_extra_reducer_actions(node: &Node, source: &str) -> Vec<String> {
         // Look for addCase calls
         if child.kind() == "call_expression" {
             let text = get_node_text(child, source);
-            if text.contains("addCase") || text.contains(".fulfilled") || text.contains(".pending") || text.contains(".rejected") {
+            if text.contains("addCase")
+                || text.contains(".fulfilled")
+                || text.contains(".pending")
+                || text.contains(".rejected")
+            {
                 // Extract the action reference
                 if let Some(args) = child.child_by_field_name("arguments") {
                     let mut cursor = args.walk();
@@ -672,7 +676,8 @@ fn detect_selectors(
                 let func_name = get_node_text(&func, source);
                 if func_name == "createSelector" {
                     if let Some(name) = get_selector_name(node, source) {
-                        ctx.selectors.insert(name.clone(), vec!["composed".to_string()]);
+                        ctx.selectors
+                            .insert(name.clone(), vec!["composed".to_string()]);
 
                         for symbol in &mut summary.symbols {
                             if symbol.name == name {
@@ -1328,7 +1333,10 @@ mod tests {
         let slice = ctx.slices.get("authSlice").unwrap();
         assert_eq!(slice.name, "auth");
         assert!(
-            slice.initial_state_props.iter().any(|p| p.name == "accessToken"),
+            slice
+                .initial_state_props
+                .iter()
+                .any(|p| p.name == "accessToken"),
             "Expected accessToken in initial_state_props"
         );
         assert!(slice.reducer_names.contains(&"setAccessToken".to_string()));
@@ -1354,7 +1362,10 @@ mod tests {
         assert!(ctx.thunks.contains("fetchUser"));
         // Should add lifecycle calls
         assert!(summary.calls.iter().any(|c| c.name == "fetchUser.pending"));
-        assert!(summary.calls.iter().any(|c| c.name == "fetchUser.fulfilled"));
+        assert!(summary
+            .calls
+            .iter()
+            .any(|c| c.name == "fetchUser.fulfilled"));
         assert!(summary.calls.iter().any(|c| c.name == "fetchUser.rejected"));
     }
 
@@ -1464,7 +1475,10 @@ export const globalReducer = (state = globalReducerDefaultState, action: GlobalA
 
         // Verify reducer cases were detected
         assert!(
-            summary.insertions.iter().any(|i| i.contains("reducer cases")),
+            summary
+                .insertions
+                .iter()
+                .any(|i| i.contains("reducer cases")),
             "Expected 'reducer cases' insertion but got: {:?}",
             summary.insertions
         );
@@ -1481,7 +1495,9 @@ export const globalReducer = (state = globalReducerDefaultState, action: GlobalA
             state_prop_symbols
         );
         assert!(
-            state_prop_symbols.iter().any(|s| s.name == "unreadMessageInfo"),
+            state_prop_symbols
+                .iter()
+                .any(|s| s.name == "unreadMessageInfo"),
             "Expected symbol for unreadMessageInfo from old-style reducer but got: {:?}",
             state_prop_symbols
         );
@@ -1494,7 +1510,10 @@ export const globalReducer = (state = globalReducerDefaultState, action: GlobalA
             .find(|s| s.name == "SET_ACCESS_TOKEN")
             .expect("Expected SET_ACCESS_TOKEN symbol");
         assert!(
-            action_type_symbol.calls.iter().any(|c| c.name == "accessToken"),
+            action_type_symbol
+                .calls
+                .iter()
+                .any(|c| c.name == "accessToken"),
             "Expected SET_ACCESS_TOKEN to have call to accessToken but got: {:?}",
             action_type_symbol.calls
         );
@@ -1558,7 +1577,9 @@ export const globalReducer = (state = globalReducerDefaultState, action: GlobalA
             .collect();
 
         assert!(
-            reducer_symbols.iter().any(|s| s.name.contains("setAccessToken")),
+            reducer_symbols
+                .iter()
+                .any(|s| s.name.contains("setAccessToken")),
             "Expected symbol containing setAccessToken reducer but got: {:?}",
             reducer_symbols
         );

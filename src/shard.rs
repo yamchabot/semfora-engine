@@ -10,15 +10,14 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::analysis::{calculate_cognitive_complexity, max_nesting_depth};
 use crate::bm25::{extract_terms_from_file_path, Bm25Document};
-use rusqlite::Connection;
 use crate::cache::{CacheDir, IndexingStatus, SourceFileInfo};
 use crate::duplicate::FunctionSignature;
 use crate::error::Result;
@@ -28,6 +27,7 @@ use crate::schema::{
     SymbolKind, SCHEMA_VERSION,
 };
 use crate::toon::{encode_toon, generate_repo_overview_with_modules, is_meaningful_call};
+use rusqlite::Connection;
 
 /// Package version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -38,7 +38,12 @@ fn toon_header(type_name: &str) -> String {
     format!("_type: {}\nversion: {}", type_name, VERSION)
 }
 
-fn emit_progress(progress: &Option<ShardProgressCallback>, step: &str, current: usize, total: usize) {
+fn emit_progress(
+    progress: &Option<ShardProgressCallback>,
+    step: &str,
+    current: usize,
+    total: usize,
+) {
     if let Some(cb) = progress {
         cb(step, current, total);
     }
@@ -543,7 +548,11 @@ impl ShardWriter {
         emit_progress(&progress, "Persist registry", 1, 1);
 
         // Generate overview first (fast, gives agents something to work with)
-        if !self.stage_completed("repo_overview", &[self.cache.repo_overview_path()], &progress_state) {
+        if !self.stage_completed(
+            "repo_overview",
+            &[self.cache.repo_overview_path()],
+            &progress_state,
+        ) {
             emit_progress(&progress, "Repo overview", 0, 1);
             self.write_repo_overview(dir_path, &mut stats)?;
             emit_progress(&progress, "Repo overview", 1, 1);
@@ -581,7 +590,11 @@ impl ShardWriter {
         }
 
         // Write symbol index (query-driven API v1)
-        if !self.stage_completed("symbol_index", &[self.cache.symbol_index_path()], &progress_state) {
+        if !self.stage_completed(
+            "symbol_index",
+            &[self.cache.symbol_index_path()],
+            &progress_state,
+        ) {
             emit_progress(&progress, "Symbol index", 0, 1);
             self.write_symbol_index(&mut stats)?;
             emit_progress(&progress, "Symbol index", 1, 1);
@@ -589,8 +602,11 @@ impl ShardWriter {
         }
 
         // Write function signature index (duplicate detection)
-        if !self.stage_completed("signature_index", &[self.cache.signature_index_path()], &progress_state)
-        {
+        if !self.stage_completed(
+            "signature_index",
+            &[self.cache.signature_index_path()],
+            &progress_state,
+        ) {
             emit_progress(&progress, "Signature index", 0, 1);
             self.write_signature_index(&mut stats)?;
             emit_progress(&progress, "Signature index", 1, 1);
@@ -598,7 +614,11 @@ impl ShardWriter {
         }
 
         // Write BM25 semantic search index (Phase 3)
-        if !self.stage_completed("bm25_index", &[self.cache.bm25_index_path()], &progress_state) {
+        if !self.stage_completed(
+            "bm25_index",
+            &[self.cache.bm25_index_path()],
+            &progress_state,
+        ) {
             emit_progress(&progress, "BM25 index", 0, 1);
             self.write_bm25_index(&mut stats, &progress)?;
             emit_progress(&progress, "BM25 index", 1, 1);
@@ -787,7 +807,12 @@ impl ShardWriter {
         let call_graph = build_call_graph(&self.all_summaries, progress);
         let graph_bytes = write_call_graph(&self.cache.call_graph_path(), &call_graph)?;
         stats.graph_bytes += graph_bytes;
-        emit_progress(progress, "Call graph", self.all_summaries.len(), self.all_summaries.len());
+        emit_progress(
+            progress,
+            "Call graph",
+            self.all_summaries.len(),
+            self.all_summaries.len(),
+        );
 
         // Build and write import graph
         emit_progress(progress, "Import graph", 0, 1);
@@ -1063,27 +1088,57 @@ impl ShardWriter {
             .all_summaries
             .par_iter()
             .map(|summary| {
-            let namespace = SymbolId::namespace_from_path(&summary.file);
-            // Get the optimal module name from registry, fallback to extraction
-            let module_name = file_to_module
-                .get(&summary.file)
-                .cloned()
-                .unwrap_or_else(|| extract_module_name(&summary.file));
+                let namespace = SymbolId::namespace_from_path(&summary.file);
+                // Get the optimal module name from registry, fallback to extraction
+                let module_name = file_to_module
+                    .get(&summary.file)
+                    .cloned()
+                    .unwrap_or_else(|| extract_module_name(&summary.file));
 
-            let file_terms = extract_terms_from_file_path(&summary.file);
-            let module_terms = crate::bm25::tokenize(&module_name);
+                let file_terms = extract_terms_from_file_path(&summary.file);
+                let module_terms = crate::bm25::tokenize(&module_name);
 
-            let mut docs: Vec<(Bm25Document, Vec<String>)> = Vec::new();
+                let mut docs: Vec<(Bm25Document, Vec<String>)> = Vec::new();
 
-            // If we have symbols in the new multi-symbol format, use those
-            if !summary.symbols.is_empty() {
-                for symbol_info in &summary.symbols {
-                    let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
-                    let kind_str = format!("{:?}", symbol_info.kind).to_lowercase();
+                // If we have symbols in the new multi-symbol format, use those
+                if !summary.symbols.is_empty() {
+                    for symbol_info in &summary.symbols {
+                        let symbol_id = symbol_info.to_symbol_id(&namespace, &summary.file);
+                        let kind_str = format!("{:?}", symbol_info.kind).to_lowercase();
 
-                    // Extract searchable terms from this symbol
+                        // Extract searchable terms from this symbol
+                        let mut terms = Vec::new();
+                        terms.extend(crate::bm25::tokenize(&symbol_info.name));
+                        terms.extend(file_terms.iter().cloned());
+                        terms.push(kind_str.clone());
+                        terms.extend(module_terms.iter().cloned());
+                        let mut seen = std::collections::HashSet::new();
+                        terms.retain(|t| seen.insert(t.clone()));
+
+                        let doc = Bm25Document {
+                            hash: symbol_id.hash,
+                            symbol: symbol_info.name.clone(),
+                            file: summary.file.clone(),
+                            lines: format!("{}-{}", symbol_info.start_line, symbol_info.end_line),
+                            kind: kind_str,
+                            module: module_name.clone(),
+                            risk: format!("{:?}", symbol_info.behavioral_risk).to_lowercase(),
+                            doc_length: 0, // Will be set by add_document
+                        };
+
+                        docs.push((doc, terms));
+                    }
+                } else if let Some(ref symbol_id) = summary.symbol_id {
+                    // Fallback to old single-symbol format
+                    let kind_str = summary
+                        .symbol_kind
+                        .map(|k| format!("{:?}", k).to_lowercase())
+                        .unwrap_or_else(|| "unknown".to_string());
+
                     let mut terms = Vec::new();
-                    terms.extend(crate::bm25::tokenize(&symbol_info.name));
+                    terms.extend(crate::bm25::tokenize(
+                        summary.symbol.as_deref().unwrap_or(""),
+                    ));
                     terms.extend(file_terms.iter().cloned());
                     terms.push(kind_str.clone());
                     terms.extend(module_terms.iter().cloned());
@@ -1091,64 +1146,34 @@ impl ShardWriter {
                     terms.retain(|t| seen.insert(t.clone()));
 
                     let doc = Bm25Document {
-                        hash: symbol_id.hash,
-                        symbol: symbol_info.name.clone(),
+                        hash: symbol_id.hash.clone(),
+                        symbol: summary.symbol.clone().unwrap_or_default(),
                         file: summary.file.clone(),
-                        lines: format!("{}-{}", symbol_info.start_line, symbol_info.end_line),
+                        lines: match (summary.start_line, summary.end_line) {
+                            (Some(s), Some(e)) => format!("{}-{}", s, e),
+                            (Some(s), None) => format!("{}", s),
+                            _ => String::new(),
+                        },
                         kind: kind_str,
-                        module: module_name.clone(),
-                        risk: format!("{:?}", symbol_info.behavioral_risk).to_lowercase(),
-                        doc_length: 0, // Will be set by add_document
+                        module: module_name,
+                        risk: format!("{:?}", summary.behavioral_risk).to_lowercase(),
+                        doc_length: 0,
                     };
 
                     docs.push((doc, terms));
                 }
-            } else if let Some(ref symbol_id) = summary.symbol_id {
-                // Fallback to old single-symbol format
-                let kind_str = summary
-                    .symbol_kind
-                    .map(|k| format!("{:?}", k).to_lowercase())
-                    .unwrap_or_else(|| "unknown".to_string());
 
-                let mut terms = Vec::new();
-                terms.extend(crate::bm25::tokenize(
-                    summary.symbol.as_deref().unwrap_or(""),
-                ));
-                terms.extend(file_terms.iter().cloned());
-                terms.push(kind_str.clone());
-                terms.extend(module_terms.iter().cloned());
-                let mut seen = std::collections::HashSet::new();
-                terms.retain(|t| seen.insert(t.clone()));
-
-                let doc = Bm25Document {
-                    hash: symbol_id.hash.clone(),
-                    symbol: summary.symbol.clone().unwrap_or_default(),
-                    file: summary.file.clone(),
-                    lines: match (summary.start_line, summary.end_line) {
-                        (Some(s), Some(e)) => format!("{}-{}", s, e),
-                        (Some(s), None) => format!("{}", s),
-                        _ => String::new(),
-                    },
-                    kind: kind_str,
-                    module: module_name,
-                    risk: format!("{:?}", summary.behavioral_risk).to_lowercase(),
-                    doc_length: 0,
-                };
-
-                docs.push((doc, terms));
-            }
-
-            docs
-        })
-        .collect();
-        let docs: Vec<(Bm25Document, Vec<String>)> = docs_by_summary.into_iter().flatten().collect();
+                docs
+            })
+            .collect();
+        let docs: Vec<(Bm25Document, Vec<String>)> =
+            docs_by_summary.into_iter().flatten().collect();
 
         let db_path = self.cache.bm25_index_path();
-        let mut conn = Connection::open(&db_path).map_err(|e| {
-            crate::McpDiffError::ExtractionFailure {
+        let mut conn =
+            Connection::open(&db_path).map_err(|e| crate::McpDiffError::ExtractionFailure {
                 message: format!("Failed to open BM25 sqlite: {}", e),
-            }
-        })?;
+            })?;
         crate::bm25::init_bm25_sqlite(&conn).map_err(|e| {
             crate::McpDiffError::ExtractionFailure {
                 message: format!("Failed to init BM25 sqlite: {}", e),
@@ -1159,11 +1184,11 @@ impl ShardWriter {
                 message: format!("Failed to clear BM25 sqlite: {}", e),
             }
         })?;
-        let tx = conn.transaction().map_err(|e| {
-            crate::McpDiffError::ExtractionFailure {
+        let tx = conn
+            .transaction()
+            .map_err(|e| crate::McpDiffError::ExtractionFailure {
                 message: format!("Failed to start BM25 sqlite transaction: {}", e),
-            }
-        })?;
+            })?;
         {
             let mut insert_doc = tx.prepare(
                 "INSERT OR IGNORE INTO bm25_documents (doc_id, symbol, file, lines, kind, module, risk, doc_length) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1172,40 +1197,38 @@ impl ShardWriter {
                     message: format!("Failed to prepare BM25 doc insert: {}", e),
                 }
             })?;
-            let mut insert_term = tx.prepare(
-                "INSERT OR IGNORE INTO bm25_terms (term, doc_id, tf) VALUES (?, ?, ?)",
-            ).map_err(|e| {
-                crate::McpDiffError::ExtractionFailure {
+            let mut insert_term = tx
+                .prepare("INSERT OR IGNORE INTO bm25_terms (term, doc_id, tf) VALUES (?, ?, ?)")
+                .map_err(|e| crate::McpDiffError::ExtractionFailure {
                     message: format!("Failed to prepare BM25 term insert: {}", e),
-                }
-            })?;
+                })?;
 
             for (doc, terms) in docs {
                 let doc_length = terms.len() as u32;
                 let doc_id = doc.hash.clone();
-            let inserted = insert_doc.execute(rusqlite::params![
-                doc_id,
-                doc.symbol,
-                doc.file,
-                doc.lines,
-                doc.kind,
-                doc.module,
-                doc.risk,
-                doc_length as i64
-            ]).map_err(|e| {
-                crate::McpDiffError::ExtractionFailure {
-                    message: format!("Failed to insert BM25 doc: {}", e),
+                let inserted = insert_doc
+                    .execute(rusqlite::params![
+                        doc_id,
+                        doc.symbol,
+                        doc.file,
+                        doc.lines,
+                        doc.kind,
+                        doc.module,
+                        doc.risk,
+                        doc_length as i64
+                    ])
+                    .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                        message: format!("Failed to insert BM25 doc: {}", e),
+                    })?;
+                if inserted > 0 {
+                    for term in terms {
+                        insert_term
+                            .execute(rusqlite::params![term, doc_id, 1i64])
+                            .map_err(|e| crate::McpDiffError::ExtractionFailure {
+                                message: format!("Failed to insert BM25 term: {}", e),
+                            })?;
+                    }
                 }
-            })?;
-            if inserted > 0 {
-                for term in terms {
-                    insert_term
-                        .execute(rusqlite::params![term, doc_id, 1i64])
-                        .map_err(|e| crate::McpDiffError::ExtractionFailure {
-                            message: format!("Failed to insert BM25 term: {}", e),
-                        })?;
-                }
-            }
                 total_length.fetch_add(doc_length as usize, Ordering::Relaxed);
                 let current = entries.fetch_add(1, Ordering::Relaxed) + 1;
                 if current % 1000 == 0 || current == total_docs {
@@ -1224,11 +1247,10 @@ impl ShardWriter {
             0.0
         };
 
-        tx.commit().map_err(|e| {
-            crate::McpDiffError::ExtractionFailure {
+        tx.commit()
+            .map_err(|e| crate::McpDiffError::ExtractionFailure {
                 message: format!("Failed to commit BM25 sqlite: {}", e),
-            }
-        })?;
+            })?;
         crate::bm25::write_bm25_meta(&conn, total_docs_u32, avg_doc_length).map_err(|e| {
             crate::McpDiffError::ExtractionFailure {
                 message: format!("Failed to write BM25 meta: {}", e),
@@ -1787,161 +1809,170 @@ fn build_call_graph(
         .fold(
             ahash::AHashMap::new,
             |mut local_graph: ahash::AHashMap<String, Vec<CallGraphEdge>>, summary| {
-            let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
-            if total > 100 && (current % 500 == 0 || current == total) {
-                emit_progress(progress, "Call graph", current, total);
-            }
-
-            // Compute file hash once for this file (used to prefer same-file call resolution)
-            let caller_file_hash = crate::overlay::extract_file_hash(
-                summary.symbol_id.as_ref().map(|s| s.hash.as_str()).unwrap_or(""),
-            )
-            .to_string();
-            // Fallback: compute from file path if no symbol_id
-            let caller_file_hash = if caller_file_hash.is_empty() {
-                format!("{:08x}", crate::schema::fnv1a_hash(&summary.file) as u32)
-            } else {
-                caller_file_hash
-            };
-            let same_file_prefix = if caller_file_hash.is_empty() {
-                String::new()
-            } else {
-                format!("{}:", caller_file_hash)
-            };
-
-            // Process each symbol in the file
-            for symbol in &summary.symbols {
-                let hash = compute_symbol_hash(symbol, &summary.file);
-                let mut edges: Vec<CallGraphEdge> = Vec::new();
-                let mut seen: ahash::AHashSet<(String, RefKind)> = ahash::AHashSet::new();
-
-                // Extract from the symbol's own calls array
-                for c in &symbol.calls {
-                    let resolved = if let Some(ref obj) = c.object {
-                        let mut call_name = String::with_capacity(obj.len() + 1 + c.name.len());
-                        call_name.push_str(obj);
-                        call_name.push('.');
-                        call_name.push_str(&c.name);
-                        resolve_call_to_hash(
-                            &call_name,
-                            &symbol_lookup,
-                            &same_file_prefix,
-                            &summary.import_sources,
-                        )
-                    } else {
-                        resolve_call_to_hash(
-                            &c.name,
-                            &symbol_lookup,
-                            &same_file_prefix,
-                            &summary.import_sources,
-                        )
-                    };
-                    let edge = CallGraphEdge::new(resolved, c.ref_kind);
-
-                    // Deduplicate by callee+edge_kind
-                    if seen.insert((edge.callee.clone(), edge.edge_kind)) {
-                        edges.push(edge);
-                    }
+                let current = processed.fetch_add(1, Ordering::Relaxed) + 1;
+                if total > 100 && (current % 500 == 0 || current == total) {
+                    emit_progress(progress, "Call graph", current, total);
                 }
 
-                // Extract function calls from symbol's state_changes initializers (always call kind)
-                for state in &symbol.state_changes {
-                    if !state.initializer.is_empty() {
-                        if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                            let resolved = resolve_call_to_hash(
+                // Compute file hash once for this file (used to prefer same-file call resolution)
+                let caller_file_hash = crate::overlay::extract_file_hash(
+                    summary
+                        .symbol_id
+                        .as_ref()
+                        .map(|s| s.hash.as_str())
+                        .unwrap_or(""),
+                )
+                .to_string();
+                // Fallback: compute from file path if no symbol_id
+                let caller_file_hash = if caller_file_hash.is_empty() {
+                    format!("{:08x}", crate::schema::fnv1a_hash(&summary.file) as u32)
+                } else {
+                    caller_file_hash
+                };
+                let same_file_prefix = if caller_file_hash.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}:", caller_file_hash)
+                };
+
+                // Process each symbol in the file
+                for symbol in &summary.symbols {
+                    let hash = compute_symbol_hash(symbol, &summary.file);
+                    let mut edges: Vec<CallGraphEdge> = Vec::new();
+                    let mut seen: ahash::AHashSet<(String, RefKind)> = ahash::AHashSet::new();
+
+                    // Extract from the symbol's own calls array
+                    for c in &symbol.calls {
+                        let resolved = if let Some(ref obj) = c.object {
+                            let mut call_name = String::with_capacity(obj.len() + 1 + c.name.len());
+                            call_name.push_str(obj);
+                            call_name.push('.');
+                            call_name.push_str(&c.name);
+                            resolve_call_to_hash(
                                 &call_name,
                                 &symbol_lookup,
                                 &same_file_prefix,
                                 &summary.import_sources,
-                            );
-                            let edge = CallGraphEdge::call(resolved);
-                            if seen.insert((edge.callee.clone(), edge.edge_kind)) {
-                                edges.push(edge);
-                            }
-                        }
-                    }
-                }
-
-                if !edges.is_empty() {
-                    local_graph.entry(hash).or_default().extend(edges);
-                }
-            }
-
-            // Also process file-level calls
-            if let Some(ref symbol_id) = summary.symbol_id {
-                let mut edges: Vec<CallGraphEdge> = Vec::new();
-                let mut seen: ahash::AHashSet<(String, RefKind)> = ahash::AHashSet::new();
-
-                for c in &summary.calls {
-                    let resolved = if let Some(ref obj) = c.object {
-                        let mut call_name = String::with_capacity(obj.len() + 1 + c.name.len());
-                        call_name.push_str(obj);
-                        call_name.push('.');
-                        call_name.push_str(&c.name);
-                        resolve_call_to_hash(
-                            &call_name,
-                            &symbol_lookup,
-                            &same_file_prefix,
-                            &summary.import_sources,
-                        )
-                    } else {
-                        resolve_call_to_hash(
-                            &c.name,
-                            &symbol_lookup,
-                            &same_file_prefix,
-                            &summary.import_sources,
-                        )
-                    };
-                    let edge = CallGraphEdge::new(resolved, c.ref_kind);
-                    if seen.insert((edge.callee.clone(), edge.edge_kind)) {
-                        edges.push(edge);
-                    }
-                }
-
-                for state in &summary.state_changes {
-                    if !state.initializer.is_empty() {
-                        if let Some(call_name) = extract_call_from_initializer(&state.initializer) {
-                            let resolved = resolve_call_to_hash(
-                                &call_name,
+                            )
+                        } else {
+                            resolve_call_to_hash(
+                                &c.name,
                                 &symbol_lookup,
                                 &same_file_prefix,
                                 &summary.import_sources,
-                            );
-                            let edge = CallGraphEdge::call(resolved);
-                            if seen.insert((edge.callee.clone(), edge.edge_kind)) {
-                                edges.push(edge);
-                            }
-                        }
-                    }
-                }
+                            )
+                        };
+                        let edge = CallGraphEdge::new(resolved, c.ref_kind);
 
-                // Include both functions (lowercase) and components (PascalCase) from dependencies
-                // Only exclude Rust-style namespace paths (::) - these are always call kind
-                for dep in &summary.added_dependencies {
-                    if !dep.contains("::") {
-                        let resolved = resolve_call_to_hash(
-                            dep,
-                            &symbol_lookup,
-                            &same_file_prefix,
-                            &summary.import_sources,
-                        );
-                        let edge = CallGraphEdge::call(resolved);
+                        // Deduplicate by callee+edge_kind
                         if seen.insert((edge.callee.clone(), edge.edge_kind)) {
                             edges.push(edge);
                         }
                     }
+
+                    // Extract function calls from symbol's state_changes initializers (always call kind)
+                    for state in &symbol.state_changes {
+                        if !state.initializer.is_empty() {
+                            if let Some(call_name) =
+                                extract_call_from_initializer(&state.initializer)
+                            {
+                                let resolved = resolve_call_to_hash(
+                                    &call_name,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                );
+                                let edge = CallGraphEdge::call(resolved);
+                                if seen.insert((edge.callee.clone(), edge.edge_kind)) {
+                                    edges.push(edge);
+                                }
+                            }
+                        }
+                    }
+
+                    if !edges.is_empty() {
+                        local_graph.entry(hash).or_default().extend(edges);
+                    }
                 }
 
-                if !edges.is_empty() {
-                    local_graph
-                        .entry(symbol_id.hash.clone())
-                        .or_default()
-                        .extend(edges);
-                }
-            }
+                // Also process file-level calls
+                if let Some(ref symbol_id) = summary.symbol_id {
+                    let mut edges: Vec<CallGraphEdge> = Vec::new();
+                    let mut seen: ahash::AHashSet<(String, RefKind)> = ahash::AHashSet::new();
 
-            local_graph
-        })
+                    for c in &summary.calls {
+                        let resolved = if let Some(ref obj) = c.object {
+                            let mut call_name = String::with_capacity(obj.len() + 1 + c.name.len());
+                            call_name.push_str(obj);
+                            call_name.push('.');
+                            call_name.push_str(&c.name);
+                            resolve_call_to_hash(
+                                &call_name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            )
+                        } else {
+                            resolve_call_to_hash(
+                                &c.name,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            )
+                        };
+                        let edge = CallGraphEdge::new(resolved, c.ref_kind);
+                        if seen.insert((edge.callee.clone(), edge.edge_kind)) {
+                            edges.push(edge);
+                        }
+                    }
+
+                    for state in &summary.state_changes {
+                        if !state.initializer.is_empty() {
+                            if let Some(call_name) =
+                                extract_call_from_initializer(&state.initializer)
+                            {
+                                let resolved = resolve_call_to_hash(
+                                    &call_name,
+                                    &symbol_lookup,
+                                    &same_file_prefix,
+                                    &summary.import_sources,
+                                );
+                                let edge = CallGraphEdge::call(resolved);
+                                if seen.insert((edge.callee.clone(), edge.edge_kind)) {
+                                    edges.push(edge);
+                                }
+                            }
+                        }
+                    }
+
+                    // Include both functions (lowercase) and components (PascalCase) from dependencies
+                    // Only exclude Rust-style namespace paths (::) - these are always call kind
+                    for dep in &summary.added_dependencies {
+                        if !dep.contains("::") {
+                            let resolved = resolve_call_to_hash(
+                                dep,
+                                &symbol_lookup,
+                                &same_file_prefix,
+                                &summary.import_sources,
+                            );
+                            let edge = CallGraphEdge::call(resolved);
+                            if seen.insert((edge.callee.clone(), edge.edge_kind)) {
+                                edges.push(edge);
+                            }
+                        }
+                    }
+
+                    if !edges.is_empty() {
+                        local_graph
+                            .entry(symbol_id.hash.clone())
+                            .or_default()
+                            .extend(edges);
+                    }
+                }
+
+                local_graph
+            },
+        )
         .reduce(ahash::AHashMap::new, |mut left, right| {
             for (hash, edges) in right {
                 left.entry(hash).or_default().extend(edges);

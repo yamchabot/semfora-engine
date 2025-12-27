@@ -75,9 +75,8 @@ fn run_validate_symbol_by_hash(
     hash: &str,
     _ctx: &CommandContext,
 ) -> Result<String> {
-    let symbol_entry = find_symbol_by_hash(cache, hash).map_err(|e| McpDiffError::GitError {
-        message: e,
-    })?;
+    let symbol_entry =
+        find_symbol_by_hash(cache, hash).map_err(|e| McpDiffError::GitError { message: e })?;
 
     let result = validate_single_symbol(cache, &symbol_entry, args.threshold);
     let output = format_validation_result(&result);
@@ -93,10 +92,8 @@ fn run_validate_symbol_by_location(
     line: usize,
     _ctx: &CommandContext,
 ) -> Result<String> {
-    let symbol_entry =
-        find_symbol_by_location(cache, file_path, line).map_err(|e| McpDiffError::GitError {
-            message: e,
-        })?;
+    let symbol_entry = find_symbol_by_location(cache, file_path, line)
+        .map_err(|e| McpDiffError::GitError { message: e })?;
 
     let result = validate_single_symbol(cache, &symbol_entry, args.threshold);
     let output = format_validation_result(&result);
@@ -264,7 +261,8 @@ fn run_find_duplicates(
                 "_type": "duplicate_analysis",
                 "clusters": 0,
                 "message": "No function signatures found in index."
-            }).to_string()),
+            })
+            .to_string()),
             OutputFormat::Toon | OutputFormat::Text => {
                 Ok("No function signatures found in index.".to_string())
             }

@@ -7,9 +7,12 @@ mod branch;
 mod commit;
 mod diff;
 
-pub use branch::{detect_base_branch, get_current_branch, get_merge_base, get_remote_url, is_git_repo};
+pub use branch::{
+    detect_base_branch, get_current_branch, get_merge_base, get_remote_url, is_git_repo,
+};
 pub use commit::{
-    get_commits_since, get_file_at_ref, get_last_commit, get_parent_commit, get_repo_root, CommitInfo,
+    get_commits_since, get_file_at_ref, get_last_commit, get_parent_commit, get_repo_root,
+    CommitInfo,
 };
 pub use diff::{
     get_changed_files, get_commit_changed_files, get_staged_changes, get_uncommitted_changes,

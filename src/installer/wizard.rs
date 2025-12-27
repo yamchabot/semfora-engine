@@ -234,8 +234,7 @@ impl SetupWizard {
         let (log_level, cache_dir) = self.configure_options()?;
 
         // Ask about workflow agents for clients that support them
-        let (agents_for_clients, agents_scope) =
-            self.configure_agents(&selected_clients)?;
+        let (agents_for_clients, agents_scope) = self.configure_agents(&selected_clients)?;
 
         // Show summary
         self.show_summary(

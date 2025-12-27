@@ -1,10 +1,10 @@
 //! Trace command handler - traverse usage across call graph.
 
 use crate::cache::CacheDir;
+use crate::cli::OutputFormat;
 use crate::commands::CommandContext;
 use crate::error::{McpDiffError, Result};
 use crate::trace::{self, TraceOptions};
-use crate::cli::OutputFormat;
 
 pub fn run_trace(options: TraceOptions, ctx: &CommandContext) -> Result<String> {
     let repo_dir = match options.path.clone() {
@@ -56,10 +56,7 @@ pub fn run_trace(options: TraceOptions, ctx: &CommandContext) -> Result<String> 
                 options.limit
             ));
             for edge in &result.edges {
-                output.push_str(&format!(
-                    "  {} -{}-> {}\n",
-                    edge.from, edge.kind, edge.to
-                ));
+                output.push_str(&format!("  {} -{}-> {}\n", edge.from, edge.kind, edge.to));
             }
             output.push_str(&format!(
                 "\nstats: nodes={}, edges={}, depth={}, roots_truncated={}\n",

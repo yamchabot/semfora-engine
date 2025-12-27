@@ -145,7 +145,13 @@ pub fn extract_vue_sfc(summary: &mut SemanticSummary, source: &str) -> Result<()
     // Run standard extraction on the script content
     let root = tree.root_node();
     core::extract_core(summary, &root, &sfc_script.content, sfc_script.lang)?;
-    variable_refs::extract_variable_references(summary, &root, &sfc_script.content, Some(sfc_script.lang), true);
+    variable_refs::extract_variable_references(
+        summary,
+        &root,
+        &sfc_script.content,
+        Some(sfc_script.lang),
+        true,
+    );
 
     // Detect frameworks in the script
     let frameworks = detect_frameworks(summary, &sfc_script.content);

@@ -110,8 +110,15 @@ pub fn trace(cache: &CacheDir, options: TraceOptions) -> crate::error::Result<Tr
     let roots_truncated = roots.truncated;
 
     let mut reverse_graph = HashMap::new();
-    if matches!(options.direction, TraceDirection::Incoming | TraceDirection::Both) {
-        reverse_graph = build_reverse_graph(&call_graph, options.include_escape_refs, options.include_external);
+    if matches!(
+        options.direction,
+        TraceDirection::Incoming | TraceDirection::Both
+    ) {
+        reverse_graph = build_reverse_graph(
+            &call_graph,
+            options.include_escape_refs,
+            options.include_external,
+        );
     }
 
     let mut edges: Vec<TraceEdge> = Vec::new();
@@ -136,7 +143,10 @@ pub fn trace(cache: &CacheDir, options: TraceOptions) -> crate::error::Result<Tr
             continue;
         }
 
-        if matches!(options.direction, TraceDirection::Outgoing | TraceDirection::Both) {
+        if matches!(
+            options.direction,
+            TraceDirection::Outgoing | TraceDirection::Both
+        ) {
             if let Some(callees) = call_graph.get(&current) {
                 for callee in callees {
                     let edge = CallGraphEdge::decode(callee);
@@ -158,7 +168,10 @@ pub fn trace(cache: &CacheDir, options: TraceOptions) -> crate::error::Result<Tr
             }
         }
 
-        if matches!(options.direction, TraceDirection::Incoming | TraceDirection::Both) {
+        if matches!(
+            options.direction,
+            TraceDirection::Incoming | TraceDirection::Both
+        ) {
             if let Some(callers) = reverse_graph.get(&current) {
                 for (caller, edge_kind) in callers {
                     edges.push(TraceEdge {
@@ -231,12 +244,12 @@ struct RootResult {
     truncated: bool,
 }
 
-fn resolve_trace_roots(cache: &CacheDir, options: &TraceOptions) -> crate::error::Result<RootResult> {
+fn resolve_trace_roots(
+    cache: &CacheDir,
+    options: &TraceOptions,
+) -> crate::error::Result<RootResult> {
     let target = options.target.trim();
-    let target_kind = options
-        .target_kind
-        .as_ref()
-        .map(|k| k.to_lowercase());
+    let target_kind = options.target_kind.as_ref().map(|k| k.to_lowercase());
 
     if looks_like_hash(target) {
         return Ok(RootResult {
@@ -270,9 +283,7 @@ fn resolve_trace_roots(cache: &CacheDir, options: &TraceOptions) -> crate::error
         let file = fs::File::open(index_path)?;
         let reader = BufReader::new(file);
         let target_lower = target.to_lowercase();
-        let kind_filter = target_kind
-            .as_deref()
-            .filter(|k| *k != "symbol");
+        let kind_filter = target_kind.as_deref().filter(|k| *k != "symbol");
 
         for line in reader.lines() {
             let line = match line {
@@ -368,10 +379,7 @@ fn list_symbols_in_file(
             Err(_) => continue,
         };
         let entry_file = entry.file.trim_start_matches("./");
-        if entry_file == target
-            || entry_file.ends_with(target)
-            || target.ends_with(entry_file)
-        {
+        if entry_file == target || entry_file.ends_with(target) || target.ends_with(entry_file) {
             results.push(entry);
             if results.len() >= limit {
                 break;
@@ -389,7 +397,11 @@ fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> Option<Symbol
         .or_else(|| sym.get("name"))
         .and_then(|s| s.as_str())?
         .to_string();
-    let hash = sym.get("hash").or_else(|| sym.get("h"))?.as_str()?.to_string();
+    let hash = sym
+        .get("hash")
+        .or_else(|| sym.get("h"))?
+        .as_str()?
+        .to_string();
     let kind = sym
         .get("kind")
         .or_else(|| sym.get("k"))

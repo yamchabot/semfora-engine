@@ -65,7 +65,6 @@ pub enum Commands {
 
     // Security command hidden - internal use only
     // Security(SecurityArgs),
-
     /// Run or detect tests
     Test(TestArgs),
 
@@ -1218,7 +1217,10 @@ impl SymbolScope {
     }
 
     pub fn for_kind(self, kind: Option<&str>) -> Self {
-        if kind.map(|k| k.eq_ignore_ascii_case("variable")).unwrap_or(false) {
+        if kind
+            .map(|k| k.eq_ignore_ascii_case("variable"))
+            .unwrap_or(false)
+        {
             SymbolScope::Variables
         } else {
             self

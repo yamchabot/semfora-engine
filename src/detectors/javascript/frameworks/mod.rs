@@ -308,7 +308,10 @@ fn has_action_type_constants(source: &str) -> bool {
 /// Check if a constant name looks like a Redux action type
 fn is_action_type_constant(name: &str) -> bool {
     // Must be SCREAMING_SNAKE_CASE (all caps, underscores, maybe numbers)
-    if !name.chars().all(|c| c.is_uppercase() || c == '_' || c.is_numeric()) {
+    if !name
+        .chars()
+        .all(|c| c.is_uppercase() || c == '_' || c.is_numeric())
+    {
         return false;
     }
 
@@ -404,7 +407,10 @@ mod tests {
         "#;
 
         let ctx = detect_frameworks(&summary, source);
-        assert!(ctx.is_redux, "Redux should be detected from switch (action.type)");
+        assert!(
+            ctx.is_redux,
+            "Redux should be detected from switch (action.type)"
+        );
     }
 
     #[test]
@@ -414,7 +420,10 @@ mod tests {
         summary.added_dependencies.push("useDispatch".to_string());
 
         let ctx = detect_frameworks(&summary, "");
-        assert!(ctx.is_redux, "Redux should be detected from useSelector/useDispatch imports");
+        assert!(
+            ctx.is_redux,
+            "Redux should be detected from useSelector/useDispatch imports"
+        );
     }
 
     #[test]
@@ -424,7 +433,10 @@ mod tests {
 
         let ctx = detect_frameworks(&summary, source);
         assert!(ctx.is_redux, "Redux should be detected from createSlice");
-        assert!(ctx.is_redux_toolkit, "Redux Toolkit should be detected from createSlice");
+        assert!(
+            ctx.is_redux_toolkit,
+            "Redux Toolkit should be detected from createSlice"
+        );
     }
 
     #[test]
@@ -436,7 +448,10 @@ mod tests {
         "#;
 
         let ctx = detect_frameworks(&summary, source);
-        assert!(ctx.is_redux, "Redux should be detected from action type constants");
+        assert!(
+            ctx.is_redux,
+            "Redux should be detected from action type constants"
+        );
     }
 
     #[test]

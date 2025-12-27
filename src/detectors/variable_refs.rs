@@ -10,7 +10,8 @@ use crate::detectors::common::{find_containing_symbol_by_line, get_node_text};
 use crate::detectors::locals;
 use crate::lang::Lang;
 use crate::schema::{
-    Call, FrameworkEntryPoint, Location, RefKind, RiskLevel, SemanticSummary, SymbolInfo, SymbolKind,
+    Call, FrameworkEntryPoint, Location, RefKind, RiskLevel, SemanticSummary, SymbolInfo,
+    SymbolKind,
 };
 
 /// Extract variable references and attach them to symbols.
@@ -113,7 +114,8 @@ pub fn extract_variable_references(
 
         if let Some(symbol_idx) = find_containing_symbol_by_line(reference.line, &summary.symbols) {
             let defining_symbol = &summary.symbols[symbol_idx];
-            if defining_symbol.kind == SymbolKind::Variable && defining_symbol.name == reference.name
+            if defining_symbol.kind == SymbolKind::Variable
+                && defining_symbol.name == reference.name
             {
                 continue;
             }
@@ -178,10 +180,7 @@ fn collect_escape_variable_names(root: &Node, source: &str, lang: Lang) -> HashS
     }
 }
 
-fn add_escape_local_symbols(
-    summary: &mut SemanticSummary,
-    defs: &[locals::LocalDefinition],
-) {
+fn add_escape_local_symbols(summary: &mut SemanticSummary, defs: &[locals::LocalDefinition]) {
     if defs.is_empty() {
         return;
     }
@@ -276,7 +275,8 @@ fn is_js_capture_child(parent: &Node, child: &Node) -> bool {
             let left = parent.child_by_field_name("left");
             let right = parent.child_by_field_name("right");
             if let (Some(left), Some(right)) = (left, right) {
-                right == *child && matches!(left.kind(), "member_expression" | "subscript_expression")
+                right == *child
+                    && matches!(left.kind(), "member_expression" | "subscript_expression")
             } else {
                 false
             }

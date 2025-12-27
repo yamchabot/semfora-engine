@@ -74,7 +74,10 @@ pub fn run_commit(args: &CommitArgs, ctx: &CommandContext) -> Result<String> {
 
     // If no changes at all, return early
     if staged_changes.is_empty() && unstaged_changes.is_empty() {
-        return Ok(format!("{}note: No changes to commit.\n\nstaged_changes: (none)\nunstaged_changes: (none)\n", super::toon_header("prep_commit")));
+        return Ok(format!(
+            "{}note: No changes to commit.\n\nstaged_changes: (none)\nunstaged_changes: (none)\n",
+            super::toon_header("prep_commit")
+        ));
     }
 
     // Analyze files

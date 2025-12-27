@@ -43,7 +43,10 @@ fn detect_entry_points(summary: &mut SemanticSummary, source: &str) {
 
         // Mark listen-related symbols
         for symbol in &mut summary.symbols {
-            if symbol.name == "app" || symbol.name.contains("server") || symbol.name.contains("listen") {
+            if symbol.name == "app"
+                || symbol.name.contains("server")
+                || symbol.name.contains("listen")
+            {
                 symbol.framework_entry_point = FrameworkEntryPoint::ExpressRoute;
             }
         }

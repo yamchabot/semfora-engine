@@ -53,7 +53,10 @@ impl std::str::FromStr for AgentScope {
             "global" => Ok(AgentScope::Global),
             "project" => Ok(AgentScope::Project),
             "both" => Ok(AgentScope::Both),
-            _ => Err(format!("Invalid scope: {}. Must be global, project, or both", s)),
+            _ => Err(format!(
+                "Invalid scope: {}. Must be global, project, or both",
+                s
+            )),
         }
     }
 }
@@ -399,7 +402,10 @@ mod tests {
     #[test]
     fn test_agent_scope_parse() {
         assert_eq!("global".parse::<AgentScope>().unwrap(), AgentScope::Global);
-        assert_eq!("project".parse::<AgentScope>().unwrap(), AgentScope::Project);
+        assert_eq!(
+            "project".parse::<AgentScope>().unwrap(),
+            AgentScope::Project
+        );
         assert_eq!("both".parse::<AgentScope>().unwrap(), AgentScope::Both);
         assert!("invalid".parse::<AgentScope>().is_err());
     }

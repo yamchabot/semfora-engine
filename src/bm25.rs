@@ -17,10 +17,10 @@
 //! - k1 = 1.2 (term frequency saturation)
 //! - b = 0.75 (document length normalization)
 
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use rusqlite::{params, Connection};
 
 /// BM25 parameters
 const K1: f64 = 1.2;
@@ -353,7 +353,8 @@ pub fn search_sqlite(
     query: &str,
     limit: usize,
 ) -> std::io::Result<Vec<Bm25SearchResult>> {
-    let conn = Connection::open(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let conn =
+        Connection::open(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     let (total_docs, avg_doc_length): (f64, f64) = conn
         .query_row(
             "SELECT total_docs, avg_doc_length FROM bm25_meta LIMIT 1",
@@ -417,9 +418,7 @@ pub fn search_sqlite(
             let denominator = tf + K1 * (1.0 - B + B * doc_len / avg_doc_length);
             let term_score = idf * numerator / denominator;
 
-            let entry = scores
-                .entry(doc_id)
-                .or_insert((0.0, Vec::new(), doc));
+            let entry = scores.entry(doc_id).or_insert((0.0, Vec::new(), doc));
             entry.0 += term_score;
             if !entry.1.contains(term) {
                 entry.1.push(term.clone());

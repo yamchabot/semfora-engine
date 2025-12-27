@@ -128,14 +128,8 @@ mod symbol_parity {
 
         if hashes.len() >= 2 {
             // Query multiple hashes
-            let batch_output = repo.run_cli_success(&[
-                "query",
-                "symbol",
-                &hashes[0],
-                &hashes[1],
-                "-f",
-                "toon",
-            ]);
+            let batch_output =
+                repo.run_cli_success(&["query", "symbol", &hashes[0], &hashes[1], "-f", "toon"]);
             assert!(!batch_output.is_empty());
         }
     }
@@ -171,7 +165,10 @@ mod source_parity {
     #[test]
     fn source_returns_file_content() {
         let repo = TestRepo::new();
-        repo.add_file("src/example.ts", "const x = 1;\nconst y = 2;\nconst z = 3;\n");
+        repo.add_file(
+            "src/example.ts",
+            "const x = 1;\nconst y = 2;\nconst z = 3;\n",
+        );
 
         repo.generate_index().unwrap();
 
@@ -189,7 +186,15 @@ mod source_parity {
 
         repo.generate_index().unwrap();
 
-        let partial = repo.run_cli_success(&["query", "source", "src/example.ts", "--start", "3", "--end", "5"]);
+        let partial = repo.run_cli_success(&[
+            "query",
+            "source",
+            "src/example.ts",
+            "--start",
+            "3",
+            "--end",
+            "5",
+        ]);
 
         // Should contain lines 3-5
         assert!(!partial.is_empty());
@@ -364,7 +369,8 @@ export function myFunc() { }
 
         repo.generate_index().unwrap();
 
-        let funcs_only = repo.run_cli_success(&["query", "file", "src/mixed.ts", "--kind", "function"]);
+        let funcs_only =
+            repo.run_cli_success(&["query", "file", "src/mixed.ts", "--kind", "function"]);
 
         assert!(!funcs_only.is_empty());
     }
@@ -552,7 +558,11 @@ mod analyze_diff_parity {
 
         // Modify all
         for i in 0..20 {
-            repo.add_ts_function(&format!("src/file{}.ts", i), &format!("modified{}", i), "return 1;");
+            repo.add_ts_function(
+                &format!("src/file{}.ts", i),
+                &format!("modified{}", i),
+                "return 1;",
+            );
         }
 
         let page1 = repo.run_cli(&["analyze", "--diff", "HEAD", "--limit", "5"]);

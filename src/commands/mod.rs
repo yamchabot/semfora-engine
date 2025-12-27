@@ -39,7 +39,10 @@ pub use cache::run_cache;
 pub use commit::run_commit;
 pub use index::run_index;
 pub use lint::run_lint;
-pub use query::{run_file_symbols, run_get_callgraph, run_get_callers, run_get_source, run_get_symbol, run_overview, run_query};
+pub use query::{
+    run_file_symbols, run_get_callers, run_get_callgraph, run_get_source, run_get_symbol,
+    run_overview, run_query,
+};
 pub use search::run_search;
 // Security not re-exported - internal use only
 // pub use security::run_security;

@@ -19,7 +19,14 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             max_modules,
             exclude_test_dirs,
             include_git_context,
-        } => run_overview(path.as_ref(), *modules, *max_modules, *exclude_test_dirs, *include_git_context, ctx),
+        } => run_overview(
+            path.as_ref(),
+            *modules,
+            *max_modules,
+            *exclude_test_dirs,
+            *include_git_context,
+            ctx,
+        ),
         QueryType::Module {
             name,
             symbols,
@@ -50,7 +57,15 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             line,
             source,
             context,
-        } => run_get_symbol(path.as_ref(), hash.as_deref(), file.as_deref(), *line, *source, *context, ctx),
+        } => run_get_symbol(
+            path.as_ref(),
+            hash.as_deref(),
+            file.as_deref(),
+            *line,
+            *source,
+            *context,
+            ctx,
+        ),
         QueryType::Source {
             file,
             path,
@@ -58,7 +73,15 @@ pub fn run_query(args: &QueryArgs, ctx: &CommandContext) -> Result<String> {
             end,
             hash,
             context,
-        } => run_get_source(path.as_ref(), file.as_deref(), *start, *end, hash.as_deref(), *context, ctx),
+        } => run_get_source(
+            path.as_ref(),
+            file.as_deref(),
+            *start,
+            *end,
+            hash.as_deref(),
+            *context,
+            ctx,
+        ),
         QueryType::Callers {
             hash,
             path,
@@ -153,12 +176,8 @@ pub fn run_overview(
     };
 
     // Filter modules based on flags
-    let filtered_content = filter_overview_content(
-        &content,
-        include_modules,
-        max_modules,
-        exclude_test_dirs,
-    );
+    let filtered_content =
+        filter_overview_content(&content, include_modules, max_modules, exclude_test_dirs);
 
     match ctx.format {
         OutputFormat::Json => {
@@ -237,11 +256,25 @@ fn build_git_context(repo_dir: &std::path::Path) -> Option<serde_json::Value> {
 pub fn is_test_module(name: &str) -> bool {
     let name_lower = name.to_lowercase();
     let test_patterns = [
-        "test", "tests", "__test__", "__tests__",
-        "spec", "specs", "__spec__", "__specs__",
-        "mock", "mocks", "__mock__", "__mocks__",
-        "fixture", "fixtures", "__fixture__", "__fixtures__",
-        "e2e", "integration", "unit",
+        "test",
+        "tests",
+        "__test__",
+        "__tests__",
+        "spec",
+        "specs",
+        "__spec__",
+        "__specs__",
+        "mock",
+        "mocks",
+        "__mock__",
+        "__mocks__",
+        "fixture",
+        "fixtures",
+        "__fixture__",
+        "__fixtures__",
+        "e2e",
+        "integration",
+        "unit",
     ];
 
     // Check if name contains test patterns
@@ -328,7 +361,11 @@ fn filter_overview_content(
                 let truncated = modules_collected.len() > max_modules;
                 let header = if truncated || excluded_count > 0 {
                     let notes = if excluded_count > 0 && truncated {
-                        format!("excl:{} trunc:{}", excluded_count, modules_collected.len() - shown)
+                        format!(
+                            "excl:{} trunc:{}",
+                            excluded_count,
+                            modules_collected.len() - shown
+                        )
                     } else if excluded_count > 0 {
                         format!("excl:{}", excluded_count)
                     } else {
@@ -366,7 +403,11 @@ fn filter_overview_content(
         let truncated = modules_collected.len() > max_modules;
         let header = if truncated || excluded_count > 0 {
             let notes = if excluded_count > 0 && truncated {
-                format!("excl:{} trunc:{}", excluded_count, modules_collected.len() - shown)
+                format!(
+                    "excl:{} trunc:{}",
+                    excluded_count,
+                    modules_collected.len() - shown
+                )
             } else if excluded_count > 0 {
                 format!("excl:{}", excluded_count)
             } else {
@@ -762,8 +803,18 @@ pub fn run_get_source(
         if let Some(symbol) = load_symbol_from_cache(&cache, hash_str)? {
             let parts: Vec<&str> = symbol.lines.split('-').collect();
             let actual_start: usize = parts.first().and_then(|p| p.parse().ok()).unwrap_or(1);
-            let actual_end: usize = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(actual_start);
-            return format_file_source(&repo_dir, &symbol.file, actual_start, actual_end, context, ctx);
+            let actual_end: usize = parts
+                .get(1)
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(actual_start);
+            return format_file_source(
+                &repo_dir,
+                &symbol.file,
+                actual_start,
+                actual_end,
+                context,
+                ctx,
+            );
         } else {
             return Err(McpDiffError::FileNotFound {
                 path: format!("Symbol not found: {}", hash_str),
@@ -799,7 +850,8 @@ fn run_batch_source(
             let start: usize = parts.first().and_then(|p| p.parse().ok()).unwrap_or(1);
             let end: usize = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(start);
 
-            if let Some(source) = get_source_for_symbol(cache, &symbol.file, &symbol.lines, context) {
+            if let Some(source) = get_source_for_symbol(cache, &symbol.file, &symbol.lines, context)
+            {
                 found.push(serde_json::json!({
                     "hash": hash,
                     "symbol": symbol.symbol,
@@ -833,7 +885,11 @@ fn run_batch_source(
             output = super::encode_toon(&json_value);
         }
         OutputFormat::Text => {
-            output.push_str(&format!("Batch source: {} requested, {} found\n", hashes.len(), found.len()));
+            output.push_str(&format!(
+                "Batch source: {} requested, {} found\n",
+                hashes.len(),
+                found.len()
+            ));
             output.push_str("═══════════════════════════════════════════\n\n");
 
             for item in &found {
@@ -1081,7 +1137,8 @@ pub fn run_get_callers(
                         format!("{:?}", target_fep).to_lowercase()
                     ));
                 } else {
-                    output.push_str("callers: (none - may be unused or an undetected entry point)\n");
+                    output
+                        .push_str("callers: (none - may be unused or an undetected entry point)\n");
                 }
             } else {
                 output.push_str(&format!(
@@ -1101,7 +1158,8 @@ pub fn run_get_callers(
                         if let Some(source) =
                             get_source_for_symbol(&cache, &symbol.file, &symbol.lines, 1)
                         {
-                            output.push_str(&format!("--- {} ({}) ---\n", caller_name, caller_hash));
+                            output
+                                .push_str(&format!("--- {} ({}) ---\n", caller_name, caller_hash));
                             output.push_str(&format!("# {}:{}\n", symbol.file, symbol.lines));
                             for line in source.lines().take(5) {
                                 output.push_str(&format!("{}\n", line));
@@ -1552,11 +1610,7 @@ pub fn run_file_symbols(
                     || e.kind.to_lowercase().contains(&k.to_lowercase())
             })
         })
-        .filter(|e| {
-            risk_filter.map_or(true, |r| {
-                e.risk.to_lowercase() == r.to_lowercase()
-            })
-        })
+        .filter(|e| risk_filter.map_or(true, |r| e.risk.to_lowercase() == r.to_lowercase()))
         .filter(|e| symbol_scope.matches_kind(&e.kind))
         .filter(|e| include_escape_refs || !e.is_escape_local)
         .collect();
@@ -1630,7 +1684,9 @@ pub fn run_file_symbols(
             if include_source && !symbols.is_empty() {
                 output.push_str("\n__sources__:\n");
                 for sym in &symbols {
-                    if let Some(source) = get_source_for_symbol(&cache, &sym.file, &sym.lines, context) {
+                    if let Some(source) =
+                        get_source_for_symbol(&cache, &sym.file, &sym.lines, context)
+                    {
                         output.push_str(&format!("\n--- {} ({}) ---\n", sym.symbol, sym.lines));
                         output.push_str(&source);
                     }
@@ -1651,7 +1707,9 @@ pub fn run_file_symbols(
                 output.push_str(&format!("    hash: {}\n", sym.hash));
 
                 if include_source {
-                    if let Some(source) = get_source_for_symbol(&cache, &sym.file, &sym.lines, context) {
+                    if let Some(source) =
+                        get_source_for_symbol(&cache, &sym.file, &sym.lines, context)
+                    {
                         output.push_str("    source:\n");
                         for line in source.lines().take(5 + context) {
                             output.push_str(&format!("      {}\n", line));

@@ -48,7 +48,7 @@ fn run_lint_scan(
     fixable_only: bool,
     ctx: &CommandContext,
 ) -> Result<String> {
-    use crate::lint_runner::{run_lint, Linter, LintRunOptions, LintSeverity};
+    use crate::lint_runner::{run_lint, LintRunOptions, LintSeverity, Linter};
 
     let project_dir = path
         .clone()
@@ -56,9 +56,9 @@ fn run_lint_scan(
 
     // Parse options
     let target_linter = linter.as_ref().and_then(|l| l.parse::<Linter>().ok());
-    let severity_filter = severity.as_ref().and_then(|sev| {
-        sev.first().and_then(|s| s.parse::<LintSeverity>().ok())
-    });
+    let severity_filter = severity
+        .as_ref()
+        .and_then(|sev| sev.first().and_then(|s| s.parse::<LintSeverity>().ok()));
 
     let options = LintRunOptions {
         linter: target_linter,
@@ -118,8 +118,11 @@ fn run_lint_scan(
             output.push_str(&format!("path: {}\n", project_dir.display()));
             output.push_str(&format!(
                 "status: {} | errors: {} | warnings: {} | files: {} | duration: {}ms\n",
-                status, results.error_count, results.warning_count,
-                results.files_with_issues, results.duration_ms
+                status,
+                results.error_count,
+                results.warning_count,
+                results.files_with_issues,
+                results.duration_ms
             ));
 
             // Show linter summary
@@ -129,8 +132,11 @@ fn run_lint_scan(
                     let status_icon = if l.success { "✓" } else { "✗" };
                     output.push_str(&format!(
                         "  {} {} (E:{} W:{}, {}ms)\n",
-                        status_icon, l.linter.display_name(),
-                        l.error_count, l.warning_count, l.duration_ms
+                        status_icon,
+                        l.linter.display_name(),
+                        l.error_count,
+                        l.warning_count,
+                        l.duration_ms
                     ));
                 }
             }
@@ -152,8 +158,7 @@ fn run_lint_scan(
                     let col = issue.column.map(|c| format!(":{}", c)).unwrap_or_default();
                     output.push_str(&format!(
                         "  {}:{}{} {} [{}] {}\n",
-                        issue.line, col, "",
-                        severity_code, issue.rule, issue.message
+                        issue.line, col, "", severity_code, issue.rule, issue.message
                     ));
                 }
             }
@@ -171,7 +176,7 @@ fn run_lint_fix(
     safe_only: bool,
     ctx: &CommandContext,
 ) -> Result<String> {
-    use crate::lint_runner::{run_lint, Linter, LintRunOptions};
+    use crate::lint_runner::{run_lint, LintRunOptions, Linter};
 
     let project_dir = path
         .clone()
@@ -323,16 +328,15 @@ fn run_detect_linters(path: &Option<PathBuf>, ctx: &CommandContext) -> Result<St
 
             if detected.is_empty() {
                 output.push_str("No linters detected.\n");
-                output.push_str("\nUse 'lint recommend' to get suggestions for setting up linters.\n");
+                output.push_str(
+                    "\nUse 'lint recommend' to get suggestions for setting up linters.\n",
+                );
             } else {
                 // Group by language
                 let mut by_language: std::collections::HashMap<&str, Vec<&DetectedLinter>> =
                     std::collections::HashMap::new();
                 for d in &detected {
-                    by_language
-                        .entry(d.linter.language())
-                        .or_default()
-                        .push(d);
+                    by_language.entry(d.linter.language()).or_default().push(d);
                 }
 
                 for (lang, linters) in by_language.iter() {
@@ -424,7 +428,11 @@ fn run_lint_recommend(path: &Option<PathBuf>, ctx: &CommandContext) -> Result<St
             } else {
                 for r in &recommendations {
                     output.push_str(&format!("───────────────────────────────────────────\n"));
-                    output.push_str(&format!("{} (priority: {})\n", r.linter.display_name(), r.priority));
+                    output.push_str(&format!(
+                        "{} (priority: {})\n",
+                        r.linter.display_name(),
+                        r.priority
+                    ));
                     output.push_str(&format!("  {}\n", r.reason));
                     output.push_str(&format!("  install: {}\n", r.install_command));
                 }

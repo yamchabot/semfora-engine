@@ -571,10 +571,11 @@ impl SqliteExporter {
                 })?;
 
             for (hash, (name, module)) in external_nodes {
-                stmt.execute(params![hash, name, module])
-                    .map_err(|e| McpDiffError::ExportError {
+                stmt.execute(params![hash, name, module]).map_err(|e| {
+                    McpDiffError::ExportError {
                         message: format!("Insert external node failed: {}", e),
-                    })?;
+                    }
+                })?;
             }
         }
 

@@ -11,10 +11,10 @@ use semfora_engine::commands::{
     run_analyze, run_cache, run_commit, run_index, run_lint, run_query, run_search, run_serve,
     run_test, run_trace, run_validate, CommandContext,
 };
-use semfora_engine::trace;
 use semfora_engine::installer::{
     self, agents::AgentScope, print_available_clients, ConfigArgs, SetupArgs, UninstallArgs,
 };
+use semfora_engine::trace;
 
 fn main() -> ExitCode {
     match run() {
@@ -62,7 +62,6 @@ fn run() -> semfora_engine::Result<String> {
         // ============================================
         // Security command hidden from CLI - kept for internal/future use
         // Commands::Security(args) => run_security(&args, &ctx),
-
         Commands::Test(args) => run_test(&args, &ctx),
 
         Commands::Lint(args) => run_lint(&args, &ctx),
@@ -166,8 +165,12 @@ fn run() -> semfora_engine::Result<String> {
                 include_escape_refs: args.include_escape_refs,
                 include_external: args.include_external,
                 direction: match args.direction {
-                    semfora_engine::cli::TraceDirection::Incoming => trace::TraceDirection::Incoming,
-                    semfora_engine::cli::TraceDirection::Outgoing => trace::TraceDirection::Outgoing,
+                    semfora_engine::cli::TraceDirection::Incoming => {
+                        trace::TraceDirection::Incoming
+                    }
+                    semfora_engine::cli::TraceDirection::Outgoing => {
+                        trace::TraceDirection::Outgoing
+                    }
                     semfora_engine::cli::TraceDirection::Both => trace::TraceDirection::Both,
                 },
                 path: args.path,

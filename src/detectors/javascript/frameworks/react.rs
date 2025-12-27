@@ -264,9 +264,9 @@ fn extract_context_variable(summary: &mut SemanticSummary, node: &Node, source: 
                         let is_exported = parent.parent().map_or(false, |gp| {
                             gp.kind() == "export_statement"
                                 || (gp.kind() == "lexical_declaration"
-                                    && gp.parent().map_or(false, |ggp| {
-                                        ggp.kind() == "export_statement"
-                                    }))
+                                    && gp
+                                        .parent()
+                                        .map_or(false, |ggp| ggp.kind() == "export_statement"))
                         });
 
                         summary.symbols.push(SymbolInfo {
