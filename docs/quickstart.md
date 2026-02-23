@@ -41,7 +41,7 @@ Navigate to any git repository and create a semantic index:
 ```bash
 cd /path/to/your/project
 
-# Generate index (writes to ~/.cache/semfora-engine/)
+# Generate index (writes to ~/.cache/semfora/)
 semfora-engine index generate .
 
 # With progress output
