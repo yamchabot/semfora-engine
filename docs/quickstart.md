@@ -187,7 +187,7 @@ Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/cla
 {
   "mcpServers": {
     "semfora-engine": {
-      "command": "/path/to/semfora-engine",
+      "command": "/path/to/semfora-engine/target/release/semfora-engine",
       "args": ["serve", "--repo", "/path/to/your/project"]
     }
   }
