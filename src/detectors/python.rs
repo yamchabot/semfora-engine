@@ -141,8 +141,12 @@ fn calculate_basic_score(name: &str, filename_stem: &str) -> i32 {
 ///   - Any `.py` file inside a `tests/` or `test/` directory
 fn is_test_file_path(path: &str) -> bool {
     let path_lower = path.replace('\\', "/").to_lowercase();
-    // Directory component: .../tests/... or .../test/...
-    if path_lower.contains("/tests/") || path_lower.contains("/test/") {
+    // Directory component: .../tests/... or .../test/... (or starts with tests/ or test/)
+    if path_lower.contains("/tests/")
+        || path_lower.contains("/test/")
+        || path_lower.starts_with("tests/")
+        || path_lower.starts_with("test/")
+    {
         return true;
     }
     // Filename pattern: extract the last segment

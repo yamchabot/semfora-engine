@@ -7,8 +7,12 @@ mod python_test_detection {
     /// Replicate the is_test_file_path logic from python.rs for testing
     fn is_test_file_path(path: &str) -> bool {
         let path_lower = path.replace('\\', "/").to_lowercase();
-        // Directory component: .../tests/... or .../test/...
-        if path_lower.contains("/tests/") || path_lower.contains("/test/") {
+        // Directory component: .../tests/... or .../test/... (or starts with tests/ or test/)
+        if path_lower.contains("/tests/")
+            || path_lower.contains("/test/")
+            || path_lower.starts_with("tests/")
+            || path_lower.starts_with("test/")
+        {
             return true;
         }
         // Filename pattern: extract the last segment
@@ -143,7 +147,7 @@ mod python_test_detection {
     #[test]
     fn test_mixed_test_detection_scenarios() {
         // Scenario 1: Function named test_* in regular file
-        let scenario1 = (
+        let scenario1: (&str, &str, Vec<&str>) = (
             "test_calculation.py",
             "test_addition",
             vec![],
@@ -152,7 +156,7 @@ mod python_test_detection {
         assert!(scenario1.1.starts_with("test_"));
 
         // Scenario 2: Regular function in tests/ directory
-        let scenario2 = (
+        let scenario2: (&str, &str, Vec<&str>) = (
             "src/tests/fixtures.py",
             "create_fixture",
             vec![],
@@ -161,7 +165,7 @@ mod python_test_detection {
         // Function name is not test_*, but file is in tests/ so still test context
 
         // Scenario 3: Function with pytest decorator in normal file
-        let scenario3 = (
+        let scenario3: (&str, &str, Vec<&str>) = (
             "utils.py",
             "helper",
             vec!["@pytest.fixture"],
@@ -171,7 +175,7 @@ mod python_test_detection {
         assert!(has_pytest);
 
         // Scenario 4: Test class in test file
-        let scenario4 = (
+        let scenario4: (&str, &str, Vec<&str>) = (
             "test_integration.py",
             "TestIntegration",
             vec![],
