@@ -1,11 +1,7 @@
-[target.x86_64-apple-darwin]
-rustflags = [
-    "-C", "link-arg=-F/opt/MacOSX11.3.sdk/System/Library/Frameworks",
-    "-C", "link-arg=-L/opt/MacOSX11.3.sdk/usr/lib",
-]
+[target.aarch64-unknown-linux-gnu]
+linker = "/workspace/bin/cc"
+ar = "/workspace/bin/ar"
 
-[target.aarch64-apple-darwin]
-rustflags = [
-    "-C", "link-arg=-F/opt/MacOSX11.3.sdk/System/Library/Frameworks",
-    "-C", "link-arg=-L/opt/MacOSX11.3.sdk/usr/lib",
-]
+[env]
+CC = "/workspace/bin/cc"
+AR = "/workspace/bin/ar"

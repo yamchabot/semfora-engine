@@ -9,7 +9,7 @@ use crate::detectors::common::get_node_text;
 use crate::detectors::generic::extract_with_grammar;
 use crate::detectors::grammar::PYTHON_GRAMMAR;
 use crate::error::Result;
-use crate::schema::{RiskLevel, SemanticSummary};
+use crate::schema::{FrameworkEntryPoint, RiskLevel, SemanticSummary};
 
 /// Extract semantic information from a Python source file
 pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Result<()> {
@@ -48,8 +48,22 @@ fn enhance_python_symbols(summary: &mut SemanticSummary, root: &Node, source: &s
         }
     }
 
-    // Update existing symbols with decorator info and recalculate scores
+    // Determine if this is a test file based on its path
+    let is_test_file = is_test_file_path(&summary.file);
+
+    // Update existing symbols with decorator info, test detection, and recalculate scores
     for sym in &mut summary.symbols {
+        // Mark test functions as framework entry points so they are never flagged as dead code
+        let name_is_test = sym.name.starts_with("test_") || sym.name.starts_with("Test");
+        let has_pytest_decorator = sym.decorators.iter().any(|d| {
+            let dl = d.to_lowercase();
+            dl.contains("pytest") || dl.contains("unittest")
+        });
+
+        if (is_test_file && name_is_test) || has_pytest_decorator {
+            sym.framework_entry_point = FrameworkEntryPoint::TestFunction;
+        }
+
         if let Some((_, has_decorator)) = decorated_symbols.iter().find(|(n, _)| n == &sym.name) {
             if *has_decorator {
                 // Boost score for decorated symbols (they're often important)
@@ -118,6 +132,27 @@ fn calculate_basic_score(name: &str, filename_stem: &str) -> i32 {
     }
 
     score
+}
+
+/// Return true if the file path looks like a Python test file.
+///
+/// Matches:
+///   - `test_*.py` / `*_test.py` filename patterns
+///   - Any `.py` file inside a `tests/` or `test/` directory
+fn is_test_file_path(path: &str) -> bool {
+    let path_lower = path.replace('\\', "/").to_lowercase();
+    // Directory component: .../tests/... or .../test/...
+    if path_lower.contains("/tests/") || path_lower.contains("/test/") {
+        return true;
+    }
+    // Filename pattern: extract the last segment
+    if let Some(filename) = path_lower.split('/').next_back() {
+        let stem = filename.strip_suffix(".py").unwrap_or(filename);
+        if stem.starts_with("test_") || stem.ends_with("_test") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Check if a decorated definition has important decorators

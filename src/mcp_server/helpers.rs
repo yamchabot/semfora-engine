@@ -1150,6 +1150,9 @@ mod tests {
             max_nesting: nesting,
             is_escape_local: false,
             framework_entry_point: crate::schema::FrameworkEntryPoint::None,
+            is_exported: false,
+            decorators: String::new(),
+            arity: 0,
         }
     }
 

@@ -205,7 +205,12 @@ impl SqliteExporter {
                 risk TEXT DEFAULT 'low',
                 complexity INTEGER DEFAULT 0,
                 caller_count INTEGER DEFAULT 0,
-                callee_count INTEGER DEFAULT 0
+                callee_count INTEGER DEFAULT 0,
+                is_exported INTEGER DEFAULT 0,
+                decorators TEXT DEFAULT '',
+                framework_entry_point TEXT DEFAULT '',
+                arity INTEGER DEFAULT 0,
+                is_self_recursive INTEGER DEFAULT 0
             );
 
             -- Edges table: function call relationships
@@ -328,8 +333,9 @@ impl SqliteExporter {
             let mut stmt = tx
                 .prepare_cached(
                     "INSERT OR REPLACE INTO nodes
-                     (hash, name, kind, module, file_path, line_start, line_end, risk, complexity)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     (hash, name, kind, module, file_path, line_start, line_end, risk, complexity,
+                      is_exported, decorators, framework_entry_point, arity)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 )
                 .map_err(|e| McpDiffError::ExportError {
                     message: format!("Prepare failed: {}", e),
@@ -337,6 +343,11 @@ impl SqliteExporter {
 
             for entry in batch {
                 let (start, end) = parse_line_range(&entry.lines);
+                let fep_str = if entry.framework_entry_point.is_none() {
+                    String::new()
+                } else {
+                    entry.framework_entry_point.description().to_string()
+                };
                 stmt.execute(params![
                     entry.hash,
                     entry.symbol,
@@ -347,6 +358,10 @@ impl SqliteExporter {
                     end,
                     entry.risk,
                     entry.cognitive_complexity as i64,
+                    entry.is_exported as i64,
+                    entry.decorators,
+                    fep_str,
+                    entry.arity as i64,
                 ])
                 .map_err(|e| McpDiffError::ExportError {
                     message: format!("Insert failed: {}", e),
@@ -657,6 +672,18 @@ impl SqliteExporter {
         )
         .map_err(|e| McpDiffError::ExportError {
             message: format!("Update caller_count failed: {}", e),
+        })?;
+
+        // Mark self-recursive nodes (symbols that call themselves)
+        conn.execute(
+            "UPDATE nodes SET is_self_recursive = 1
+             WHERE hash IN (
+                 SELECT caller_hash FROM edges WHERE caller_hash = callee_hash
+             )",
+            [],
+        )
+        .map_err(|e| McpDiffError::ExportError {
+            message: format!("Update is_self_recursive failed: {}", e),
         })?;
 
         Ok(())

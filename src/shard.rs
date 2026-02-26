@@ -900,6 +900,9 @@ impl ShardWriter {
                         max_nesting: nest,
                         is_escape_local: symbol_info.is_escape_local,
                         framework_entry_point: symbol_info.framework_entry_point,
+                        is_exported: symbol_info.is_exported,
+                        decorators: symbol_info.decorators.join(","),
+                        arity: symbol_info.arguments.len() + symbol_info.props.len(),
                     };
 
                     // Write as JSONL (one JSON object per line)
@@ -937,6 +940,9 @@ impl ShardWriter {
                     max_nesting: nest,
                     is_escape_local: false,
                     framework_entry_point: summary.framework_entry_point,
+                    is_exported: false,
+                    decorators: String::new(),
+                    arity: summary.arguments.len() + summary.props.len(),
                 };
 
                 // Write as JSONL (one JSON object per line)

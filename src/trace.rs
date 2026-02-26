@@ -439,6 +439,23 @@ fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> Option<Symbol
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
+    let is_exported = sym
+        .get("is_exported")
+        .or_else(|| sym.get("exp"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let decorators = sym
+        .get("decorators")
+        .or_else(|| sym.get("dec"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let arity = sym
+        .get("arity")
+        .or_else(|| sym.get("ar"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+
     Some(SymbolIndexEntry {
         symbol,
         hash,
@@ -452,6 +469,9 @@ fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> Option<Symbol
         max_nesting,
         is_escape_local,
         framework_entry_point,
+        is_exported,
+        decorators,
+        arity,
     })
 }
 

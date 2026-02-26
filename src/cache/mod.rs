@@ -2600,6 +2600,19 @@ pub struct SymbolIndexEntry {
         skip_serializing_if = "FrameworkEntryPoint::is_none"
     )]
     pub framework_entry_point: FrameworkEntryPoint,
+
+    /// Whether this symbol is exported / public API
+    #[serde(rename = "exp", default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_exported: bool,
+
+    /// Decorators applied to this symbol (comma-separated)
+    /// e.g. "@pytest.fixture,@app.route" for Python, "@Component" for Java
+    #[serde(rename = "dec", default, skip_serializing_if = "String::is_empty")]
+    pub decorators: String,
+
+    /// Parameter count (function arity = arguments + props)
+    #[serde(rename = "ar", default, skip_serializing_if = "is_zero_usize")]
+    pub arity: usize,
 }
 
 fn is_zero_usize(v: &usize) -> bool {
@@ -4950,6 +4963,9 @@ export { formatName, processData };
                 max_nesting: 0,
                 is_escape_local: symbol.is_escape_local,
                 framework_entry_point: symbol.framework_entry_point,
+                is_exported: symbol.is_exported,
+                decorators: symbol.decorators.join(","),
+                arity: symbol.arguments.len() + symbol.props.len(),
             });
         }
 

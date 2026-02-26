@@ -1849,6 +1849,22 @@ fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> SymbolIndexEn
             .or_else(|| sym.get("fep"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
+        is_exported: sym
+            .get("is_exported")
+            .or_else(|| sym.get("exp"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        decorators: sym
+            .get("decorators")
+            .or_else(|| sym.get("dec"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        arity: sym
+            .get("arity")
+            .or_else(|| sym.get("ar"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize,
     }
 }
 
