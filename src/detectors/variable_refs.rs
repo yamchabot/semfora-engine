@@ -215,6 +215,8 @@ fn add_escape_local_symbols(summary: &mut SemanticSummary, defs: &[locals::Local
             decorators: Vec::new(),
             behavioral_risk: RiskLevel::Low,
             framework_entry_point: FrameworkEntryPoint::None,
+            is_async: false,
+            base_classes: Vec::new(),
         });
     }
 }

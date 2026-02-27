@@ -9,7 +9,59 @@ use crate::detectors::common::get_node_text;
 use crate::detectors::generic::extract_with_grammar;
 use crate::detectors::grammar::PYTHON_GRAMMAR;
 use crate::error::Result;
-use crate::schema::{RiskLevel, SemanticSummary};
+use crate::schema::{FrameworkEntryPoint, RiskLevel, SemanticSummary};
+
+/// Walk the tree and collect base class names for every class definition.
+/// Returns a map of `class_name -> Vec<base_class_name>`.
+fn collect_base_classes(root: &Node, source: &str) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut cursor = root.walk();
+
+    // Iterative DFS
+    let mut did_visit_children = false;
+    loop {
+        if !did_visit_children {
+            let node = cursor.node();
+            if node.kind() == "class_definition" {
+                // Extract class name
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let class_name = get_node_text(&name_node, source).to_string();
+                    // Extract superclasses from the `superclasses` field (argument_list)
+                    let mut bases: Vec<String> = Vec::new();
+                    if let Some(super_node) = node.child_by_field_name("superclasses") {
+                        let mut inner = super_node.walk();
+                        for child in super_node.children(&mut inner) {
+                            let kind = child.kind();
+                            // Base class can be identifier, dotted_name, subscript, etc.
+                            if kind == "identifier" || kind == "dotted_name" {
+                                let base = get_node_text(&child, source).to_string();
+                                if !base.is_empty() {
+                                    bases.push(base);
+                                }
+                            }
+                        }
+                    }
+                    if !bases.is_empty() {
+                        map.insert(class_name, bases);
+                    }
+                }
+            }
+            if cursor.goto_first_child() {
+                did_visit_children = false;
+                continue;
+            }
+        }
+        if cursor.goto_next_sibling() {
+            did_visit_children = false;
+            continue;
+        }
+        if !cursor.goto_parent() {
+            break;
+        }
+        did_visit_children = true;
+    }
+    map
+}
 
 /// Extract semantic information from a Python source file
 pub fn extract(summary: &mut SemanticSummary, source: &str, tree: &Tree) -> Result<()> {
@@ -48,8 +100,32 @@ fn enhance_python_symbols(summary: &mut SemanticSummary, root: &Node, source: &s
         }
     }
 
-    // Update existing symbols with decorator info and recalculate scores
+    // Collect base class information for all class definitions
+    let base_class_map = collect_base_classes(root, source);
+
+    // Determine if this is a test file based on its path
+    let is_test_file = is_test_file_path(&summary.file);
+
+    // Update existing symbols with decorator info, test detection, and recalculate scores
     for sym in &mut summary.symbols {
+        // Populate base classes for class symbols
+        if sym.base_classes.is_empty() {
+            if let Some(bases) = base_class_map.get(&sym.name) {
+                sym.base_classes = bases.clone();
+            }
+        }
+
+        // Mark test functions as framework entry points so they are never flagged as dead code
+        let name_is_test = sym.name.starts_with("test_") || sym.name.starts_with("Test");
+        let has_pytest_decorator = sym.decorators.iter().any(|d| {
+            let dl = d.to_lowercase();
+            dl.contains("pytest") || dl.contains("unittest")
+        });
+
+        if (is_test_file && name_is_test) || has_pytest_decorator {
+            sym.framework_entry_point = FrameworkEntryPoint::TestFunction;
+        }
+
         if let Some((_, has_decorator)) = decorated_symbols.iter().find(|(n, _)| n == &sym.name) {
             if *has_decorator {
                 // Boost score for decorated symbols (they're often important)
@@ -118,6 +194,27 @@ fn calculate_basic_score(name: &str, filename_stem: &str) -> i32 {
     }
 
     score
+}
+
+/// Return true if the file path looks like a Python test file.
+///
+/// Matches:
+///   - `test_*.py` / `*_test.py` filename patterns
+///   - Any `.py` file inside a `tests/` or `test/` directory
+fn is_test_file_path(path: &str) -> bool {
+    let path_lower = path.replace('\\', "/").to_lowercase();
+    // Directory component: .../tests/... or .../test/...
+    if path_lower.contains("/tests/") || path_lower.contains("/test/") {
+        return true;
+    }
+    // Filename pattern: extract the last segment
+    if let Some(filename) = path_lower.split('/').next_back() {
+        let stem = filename.strip_suffix(".py").unwrap_or(filename);
+        if stem.starts_with("test_") || stem.ends_with("_test") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Check if a decorated definition has important decorators

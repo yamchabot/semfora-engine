@@ -1,6 +1,6 @@
 # Semfora CLI Reference
 
-The `semfora-engine` CLI is a semantic code analyzer that produces compressed TOON output for AI-assisted code review.
+The `semfora-engine` CLI is a semantic code analyzer that produces TOON output for AI-assisted code review.
 
 ## Quick Start
 
@@ -9,13 +9,16 @@ The `semfora-engine` CLI is a semantic code analyzer that produces compressed TO
 cargo build --release
 
 # Index a project
-semfora-engine --dir /path/to/project --shard
+semfora-engine index generate /path/to/project
 
 # Search for symbols
-semfora-engine --search-symbols "authenticate"
+semfora-engine search "authenticate"
 
 # Analyze uncommitted changes
-semfora-engine --uncommitted
+semfora-engine analyze --uncommitted
+
+# Start MCP server
+semfora-engine serve --repo .
 ```
 
 ## Installation
@@ -25,191 +28,549 @@ cargo build --release
 # Binary: target/release/semfora-engine
 ```
 
-## Basic Usage
+## Top-Level Usage
 
-```bash
-# Analyze a single file
-semfora-engine path/to/file.rs
+```
+semfora-engine [OPTIONS] <COMMAND>
 
-# Analyze a directory (recursive)
-semfora-engine --dir path/to/project
+Commands:
+  analyze    Analyze files, directories, or git changes  [alias: a]
+  search     Search for code (hybrid symbol + semantic)  [alias: s]
+  query      Query the semantic index                    [alias: q]
+  trace      Trace symbol usage across the call graph
+  validate   Run quality audits (complexity, duplicates) [alias: v]
+  index      Manage the semantic index
+  cache      Manage the cache
+  test       Run or detect tests
+  lint       Run linters                                 [alias: l]
+  commit     Prepare information for a commit message
+  setup      Setup semfora-engine and MCP client configuration
+  uninstall  Uninstall semfora-engine or MCP configurations
+  config     Manage semfora-engine configuration
+  benchmark  Run token efficiency benchmark
+  serve      Start the MCP server (for AI coding assistants)
+  help       Print help
 
-# Analyze uncommitted changes
-semfora-engine --uncommitted
-
-# Diff against main branch
-semfora-engine --diff
+Global Options:
+  -f, --format <FORMAT>   Output format: text (default), toon, json
+  -v, --verbose           Show verbose output
+      --progress          Show progress percentage
+  -h, --help              Print help
+  -V, --version           Print version
 ```
 
-## Operation Modes
+---
 
-### Single File Analysis
+## `analyze` — Analyze Code
 
-```bash
-semfora-engine path/to/file.rs
-semfora-engine path/to/file.ts --format json
+Analyze files, directories, or git changes.
+
+```
+semfora-engine analyze [OPTIONS] [PATH]
 ```
 
-### Directory Analysis
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[PATH]` | Path to file or directory to analyze |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--diff [<REF>]` | Analyze git diff (auto-detects main/master if no ref given) |
+| `--uncommitted` | Analyze uncommitted changes (working dir vs HEAD) |
+| `--commit <SHA>` | Analyze a specific commit |
+| `--all-commits` | Analyze all commits on current branch since base |
+| `--base <BRANCH>` | Base branch for diff comparison |
+| `--target-ref <REF>` | Target ref (defaults to HEAD; use `WORKING` for uncommitted) |
+| `--limit <N>` | Max files to show in diff output (pagination) |
+| `--offset <N>` | Offset for diff pagination |
+| `--max-depth <N>` | Max directory depth (default: 10) |
+| `--ext <EXT>` | Filter by extension (repeatable: `--ext rs --ext ts`) |
+| `--allow-tests` | Include test files (excluded by default) |
+| `--summary-only` | Show summary statistics only |
+| `--start-line <LINE>` | Start line for focused analysis (file mode only) |
+| `--end-line <LINE>` | End line for focused analysis (file mode only) |
+| `--output-mode <MODE>` | `full` (default), `symbols_only`, or `summary` |
+| `--print-ast` | Print parsed AST (debugging) |
+| `--analyze-tokens <MODE>` | Token analysis: `full` or `compact` |
+| `--compare-compact` | Include compact JSON in token analysis |
+| `--shard` | Generate sharded index (legacy flag, prefer `index generate`) |
+| `--incremental` | Incremental indexing (legacy flag, prefer `index generate --incremental`) |
+
+### Examples
 
 ```bash
-# Analyze all files in a directory
-semfora-engine --dir ./src
+# Single file
+semfora-engine analyze path/to/file.rs
 
-# Limit recursion depth (default: 10)
-semfora-engine --dir ./src --max-depth 5
+# Directory
+semfora-engine analyze ./src
 
-# Filter by file extension
-semfora-engine --dir ./src --ext rs --ext ts
+# Uncommitted changes
+semfora-engine analyze --uncommitted
 
-# Include test files (excluded by default)
-semfora-engine --dir ./src --allow-tests
+# Diff against main
+semfora-engine analyze --diff main
 
-# Summary statistics only
-semfora-engine --dir ./src --summary-only
+# Diff with summary only
+semfora-engine analyze --diff origin/main --summary-only
+
+# Specific commit
+semfora-engine analyze --commit abc123
+
+# Focused line range
+semfora-engine analyze ./src/big_file.rs --start-line 100 --end-line 250
+
+# JSON output
+semfora-engine analyze path/to/file.rs --format json
 ```
 
-### Git Diff Analysis
+---
+
+## `search` — Search Code
+
+Hybrid search across symbol names and code semantics.
+
+```
+semfora-engine search [OPTIONS] <QUERY>
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<QUERY>` | Search query (required) |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-s, --symbols` | Only show exact symbol name matches |
+| `-r, --related` | Only show semantically related code |
+| `--raw` | Raw regex search (for comments, strings, patterns) |
+| `--kind <KIND>` | Filter by symbol kind (fn, struct, component, etc.) |
+| `--module <MODULE>` | Filter by module name |
+| `--risk <RISK>` | Filter by risk level: high, medium, low |
+| `--include-source` | Include source code snippets in output |
+| `--limit <N>` | Max results (default: 20) |
+| `--file-types <TYPES>` | File types for raw search (e.g., `rs,ts,py`) |
+| `--case-sensitive` | Case-sensitive search |
+| `--symbol-scope <SCOPE>` | `functions` (default), `variables`, or `both` |
+| `--include-escape-refs` | Include local variables that escape scope |
+
+### Examples
 
 ```bash
-# Diff against auto-detected base branch (main/master)
-semfora-engine --diff
+# Hybrid search (default)
+semfora-engine search "authenticate"
 
-# Diff against a specific branch
-semfora-engine --diff develop
+# Symbol names only
+semfora-engine search "handleRequest" --symbols
 
-# Explicit base branch
-semfora-engine --diff --base origin/main
+# Semantic only
+semfora-engine search "user login flow" --related
 
-# Analyze uncommitted changes (working directory vs HEAD)
-semfora-engine --uncommitted
+# Filter by kind and risk
+semfora-engine search "process" --kind fn --risk high
 
-# Analyze a specific commit
-semfora-engine --commit abc123
+# Search in a specific module
+semfora-engine search "login" --module auth
 
-# Analyze all commits since base branch
-semfora-engine --commits
+# Raw regex search
+semfora-engine search "TODO|FIXME" --raw
+
+# Include variables in results
+semfora-engine search "config" --symbol-scope both
 ```
+
+---
+
+## `query` — Query the Index
+
+Query the semantic index for symbols, source, callers, etc.
+
+```
+semfora-engine query <SUBCOMMAND>
+```
+
+### Subcommands
+
+#### `query overview`
+
+Get repository overview.
+
+```bash
+semfora-engine query overview
+semfora-engine query overview --modules          # Include full module list
+semfora-engine query overview --max-modules 50   # Limit modules shown
+```
+
+#### `query module <MODULE>`
+
+Get details for a specific module.
+
+```bash
+semfora-engine query module src.commands
+semfora-engine query module auth --format json
+```
+
+#### `query symbol`
+
+Get a symbol by hash or file+line location.
+
+```bash
+semfora-engine query symbol abc123def456
+semfora-engine query symbol --file-path ./src/main.rs --line 42
+```
+
+#### `query source`
+
+Get source code for a file or symbol(s).
+
+```bash
+semfora-engine query source abc123def456
+semfora-engine query source --file-path ./src/main.rs --start-line 10 --end-line 50
+```
+
+#### `query callers <HASH>`
+
+Find what calls a symbol (reverse call graph).
+
+```bash
+semfora-engine query callers abc123def456
+semfora-engine query callers abc123def456 --depth 3
+```
+
+#### `query callgraph`
+
+Get the repository call graph.
+
+```bash
+semfora-engine query callgraph
+semfora-engine query callgraph --format json
+```
+
+#### `query file <FILE_PATH>`
+
+List all symbols in a file.
+
+```bash
+semfora-engine query file ./src/main.rs
+semfora-engine query file ./src/commands/index.rs
+```
+
+#### `query languages`
+
+List all supported languages.
+
+```bash
+semfora-engine query languages
+```
+
+---
+
+## `trace` — Trace Symbol Usage
+
+Trace a symbol through the call graph in either direction.
+
+```
+semfora-engine trace [OPTIONS] <TARGET>
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<TARGET>` | Symbol hash or name to trace |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--kind <KIND>` | Target kind (function, variable, component, module, file, etc.) |
+| `--direction <DIR>` | `incoming`, `outgoing`, or `both` (default: `both`) |
+| `--depth <N>` | Max depth to traverse (default: 2) |
+| `--limit <N>` | Max edges to return (default: 200) |
+| `--offset <N>` | Pagination offset |
+| `--include-escape-refs` | Include local variables that escape scope |
+| `--include-external` | Include external nodes (ext:*) |
+| `--path <PATH>` | Repository path |
+
+### Examples
+
+```bash
+# Trace all directions
+semfora-engine trace abc123def456
+
+# Incoming only (who calls this?)
+semfora-engine trace abc123def456 --direction incoming
+
+# Outgoing only (what does this call?)
+semfora-engine trace abc123def456 --direction outgoing --depth 3
+
+# Trace by name
+semfora-engine trace "authenticate"
+```
+
+---
+
+## `validate` — Quality Audits
+
+Run complexity and duplicate code analysis.
+
+```
+semfora-engine validate [OPTIONS] [TARGET]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[TARGET]` | File path, module name, or symbol hash (auto-detected) |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--path <PATH>` | Repository path |
+| `--symbol-hash <HASH>` | Symbol hash for single-symbol validation |
+| `--file-path <FILE>` | File path for file-level validation |
+| `--line <LINE>` | Line number (requires `--file-path`) |
+| `--module <MODULE>` | Module name for module-level validation |
+| `--include-source` | Include source snippet in output |
+| `--duplicates` | Find duplicate code patterns |
+| `--threshold <N>` | Similarity threshold (default: 0.90) |
+| `--include-boilerplate` | Include boilerplate in duplicate detection |
+| `--kind <KIND>` | Filter by symbol kind |
+| `--symbol-scope <SCOPE>` | `functions` (default), `variables`, or `both` |
+| `--limit <N>` | Max clusters (default: 50) |
+| `--offset <N>` | Pagination offset |
+| `--min-lines <N>` | Min function lines to include (default: 3) |
+| `--sort-by <FIELD>` | Sort by: `similarity` (default), `size`, or `count` |
+
+### Examples
+
+```bash
+# Validate a module (get module name from query overview first)
+semfora-engine validate src.commands
+
+# Validate a specific file
+semfora-engine validate --file-path ./src/main.rs
+
+# Find duplicates
+semfora-engine validate --duplicates
+
+# Lower threshold to find more similar code
+semfora-engine validate --duplicates --threshold 0.75
+
+# Validate a specific symbol
+semfora-engine validate --symbol-hash abc123
+```
+
+---
+
+## `index` — Manage the Index
+
+```
+semfora-engine index <SUBCOMMAND>
+```
+
+### `index generate [PATH]`
+
+Generate or refresh the semantic index.
+
+```bash
+# Index current directory
+semfora-engine index generate .
+
+# Index a specific path
+semfora-engine index generate /path/to/project
+
+# With progress output
+semfora-engine index generate . --progress
+
+# Force full re-index
+semfora-engine index generate . --force
+
+# Incremental (only changed files)
+semfora-engine index generate . --incremental
+
+# Filter by extension
+semfora-engine index generate . --ext rs --ext ts
+
+# Limit depth
+semfora-engine index generate . --max-depth 5
+```
+
+### `index check`
+
+Check if the index is fresh or stale.
+
+```bash
+semfora-engine index check
+```
+
+### `index export`
+
+Export the index to SQLite.
+
+```bash
+semfora-engine index export
+semfora-engine index export --output ./my_index.db
+```
+
+---
+
+## `cache` — Manage the Cache
+
+```
+semfora-engine cache <SUBCOMMAND>
+```
+
+```bash
+# Show cache info
+semfora-engine cache info
+
+# Clear cache for current directory
+semfora-engine cache clear
+
+# Prune caches older than 30 days
+semfora-engine cache prune 30
+```
+
+---
+
+## `serve` — Start the MCP Server
+
+Start the MCP server for AI coding assistants. Communicates via stdio.
+
+```
+semfora-engine serve [OPTIONS]
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-r, --repo <PATH>` | Repository path to serve (default: current directory) |
+| `--no-watch` | Disable file watcher for live index updates |
+| `--no-git-poll` | Disable git polling for branch/commit changes |
+
+### Examples
+
+```bash
+# Serve current directory
+semfora-engine serve
+
+# Serve a specific repo
+semfora-engine serve --repo /path/to/project
+
+# Without file watching (useful for CI/testing)
+semfora-engine serve --repo . --no-watch --no-git-poll
+```
+
+### MCP Client Configuration
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "semfora-engine": {
+      "type": "stdio",
+      "command": "/path/to/semfora-engine",
+      "args": ["serve", "--repo", "/path/to/your/project"]
+    }
+  }
+}
+```
+
+**Cursor / VS Code / Other MCP clients:**
+
+```json
+{
+  "mcpServers": {
+    "semfora-engine": {
+      "command": "/path/to/semfora-engine",
+      "args": ["serve", "--repo", "/path/to/your/project"]
+    }
+  }
+}
+```
+
+---
+
+## `lint` — Run Linters
+
+Auto-detects and runs available linters for the project.
+
+```bash
+# Detect available linters without running
+semfora-engine lint --detect-only
+
+# Run linters
+semfora-engine lint
+
+# Run in fix mode
+semfora-engine lint --mode fix --safe-only
+
+# Run a specific linter
+semfora-engine lint --linter clippy
+
+# Typecheck only
+semfora-engine lint --mode typecheck
+```
+
+---
+
+## `test` — Run Tests
+
+```bash
+# Run tests
+semfora-engine test
+
+# Discover tests without running
+semfora-engine test --discover-only
+
+# Run tests in a specific path
+semfora-engine test ./tests/integration
+```
+
+---
+
+## `commit` — Prepare Commit Context
+
+Gather semantic context for writing a commit message.
+
+```bash
+semfora-engine commit
+```
+
+---
 
 ## Output Formats
 
-```bash
-# TOON format (default) - token-efficient for AI consumption
-semfora-engine file.rs --format toon
+All commands support `--format`:
 
-# JSON format - standard structured output
-semfora-engine file.rs --format json
-
-# Verbose output with AST info
-semfora-engine file.rs --verbose
-
-# Print parsed AST (debugging)
-semfora-engine file.rs --print-ast
-```
-
-## Sharded Indexing
-
-For large repositories, create a sharded index for fast querying:
-
-### Generate Index
+| Format | Description |
+|--------|-------------|
+| `text` | Human-readable with visual formatting (default for terminal) |
+| `toon` | TOON format — token-efficient for AI consumption |
+| `json` | Standard JSON |
 
 ```bash
-# Generate sharded index (writes to ~/.cache/semfora-engine/)
-semfora-engine --dir . --shard
-
-# Incremental indexing (only re-index changed files)
-semfora-engine --dir . --shard --incremental
-
-# Filter extensions during indexing
-semfora-engine --dir . --shard --ext ts --ext tsx
+semfora-engine query overview --format json
+semfora-engine search "authenticate" --format toon
 ```
 
-### Query Index
-
-```bash
-# Get repository overview
-semfora-engine --get-overview
-
-# List all modules in the index
-semfora-engine --list-modules
-
-# Get a specific module's symbols
-semfora-engine --get-module api
-
-# Search for symbols by name
-semfora-engine --search-symbols "login"
-
-# List all symbols in a module
-semfora-engine --list-symbols auth
-
-# Get a specific symbol by hash
-semfora-engine --get-symbol abc123def456
-
-# Get the call graph
-semfora-engine --get-call-graph
-```
-
-### Query Filtering
-
-```bash
-# Filter by symbol kind
-semfora-engine --search-symbols "handle" --kind fn
-
-# Filter by risk level
-semfora-engine --list-symbols api --risk high
-
-# Limit results (default: 50)
-semfora-engine --search-symbols "test" --limit 20
-```
-
-## Cache Management
-
-```bash
-# Show cache information
-semfora-engine --cache-info
-
-# Clear cache for current directory
-semfora-engine --cache-clear
-
-# Prune caches older than N days
-semfora-engine --cache-prune 30
-```
-
-## Static Analysis
-
-```bash
-# Run static code analysis on the index
-semfora-engine --analyze
-
-# Analyze a specific module only
-semfora-engine --analyze --analyze-module api
-```
-
-## Token Analysis
-
-Analyze token efficiency of TOON compression:
-
-```bash
-# Full detailed report
-semfora-engine file.rs --analyze-tokens full
-
-# Compact single-line summary
-semfora-engine file.rs --analyze-tokens compact
-
-# Include compact JSON comparison
-semfora-engine file.rs --analyze-tokens full --compare-compact
-```
-
-## Benchmarking
-
-```bash
-# Run token efficiency benchmark
-semfora-engine --benchmark
-```
+---
 
 ## Test File Exclusion
 
-By default, test files are excluded from analysis. Test patterns by language:
+By default, test files are excluded. Use `--allow-tests` to include them.
 
 | Language | Excluded Patterns |
 |----------|-------------------|
@@ -219,53 +580,15 @@ By default, test files are excluded from analysis. Test patterns by language:
 | Go | `*_test.go` |
 | Java | `*Test.java`, `*Tests.java` |
 
-Use `--allow-tests` to include test files.
-
-## Directory for Index Queries
-
-When using query commands (`--get-overview`, `--search-symbols`, etc.), the CLI uses the cache for the current working directory. The cache location is determined by the git remote URL hash for reproducibility.
-
-## Examples
-
-### Typical Workflow
-
-```bash
-# 1. Generate index for a project
-cd my-project
-semfora-engine --dir . --shard
-
-# 2. Get project overview
-semfora-engine --get-overview
-
-# 3. Search for specific functionality
-semfora-engine --search-symbols "authenticate" --kind fn
-
-# 4. Get details on a symbol
-semfora-engine --get-symbol abc123def456
-
-# 5. Analyze changes before commit
-semfora-engine --uncommitted
-
-# 6. Analyze feature branch diff
-semfora-engine --diff main
-```
-
-### Code Review Workflow
-
-```bash
-# Analyze PR changes
-semfora-engine --diff origin/main
-
-# Focus on specific file types
-semfora-engine --diff origin/main --ext ts --ext tsx
-
-# Get summary only
-semfora-engine --diff origin/main --summary-only
-```
+---
 
 ## Environment Variables
 
-- `RUST_LOG`: Control logging verbosity (e.g., `RUST_LOG=semfora_engine=debug`)
+| Variable | Description |
+|----------|-------------|
+| `RUST_LOG` | Logging verbosity (e.g., `RUST_LOG=semfora_engine=debug`) |
+
+---
 
 ## Exit Codes
 
@@ -278,8 +601,49 @@ semfora-engine --diff origin/main --summary-only
 | 4 | Semantic extraction or query error |
 | 5 | Git error (not a git repo, etc.) |
 
+---
+
+## Typical Workflows
+
+### Full Project Analysis
+
+```bash
+# 1. Generate index
+cd my-project
+semfora-engine index generate . --progress
+
+# 2. Get architecture overview
+semfora-engine query overview
+
+# 3. Search for specific functionality
+semfora-engine search "authenticate" --kind fn
+
+# 4. Trace a symbol
+semfora-engine trace <hash> --direction incoming
+
+# 5. Validate code quality
+semfora-engine validate src.api
+
+# 6. Check for duplicates
+semfora-engine validate --duplicates
+```
+
+### Code Review
+
+```bash
+# Analyze PR changes
+semfora-engine analyze --diff origin/main
+
+# Focus on specific file types
+semfora-engine analyze --diff origin/main --ext ts --ext tsx
+
+# Summary only (fast overview)
+semfora-engine analyze --diff origin/main --summary-only
+```
+
 ## See Also
 
-- [Features](features.md) - Incremental indexing, layered indexes, risk assessment
-- [WebSocket Daemon](websocket-daemon.md) - Real-time index updates via WebSocket
-- [Main README](../README.md) - Supported languages and architecture
+- [Quick Start](quickstart.md) — Get up and running in 5 minutes
+- [Features](features.md) — Incremental indexing, layered indexes, risk assessment
+- [MCP Tools Reference](mcp-tools-reference.md) — All 18 MCP tools with parameters
+- [WebSocket Daemon](websocket-daemon.md) — Real-time updates via WebSocket

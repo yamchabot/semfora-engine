@@ -70,6 +70,7 @@ struct SymbolCandidate {
     end_line: usize,
     score: i32,
     decorators: Vec<String>,
+    is_async: bool,
 }
 
 /// Extract all symbols (functions, classes, interfaces, enums)
@@ -107,6 +108,8 @@ fn extract_symbols(
             behavioral_risk: RiskLevel::Low,
             is_escape_local: false,
             framework_entry_point: FrameworkEntryPoint::None,
+            is_async: candidate.is_async,
+            base_classes: Vec::new(),
         };
         summary.symbols.push(symbol_info);
     }
@@ -171,6 +174,7 @@ fn collect_symbols_recursive(
                     let score =
                         calculate_symbol_score(&name, &kind, is_exported, filename_stem, grammar);
                     let decorators = extract_decorators(&current_node, source, grammar);
+                    let is_async = is_async_node(&current_node);
 
                     candidates.push(SymbolCandidate {
                         name,
@@ -180,6 +184,7 @@ fn collect_symbols_recursive(
                         end_line: current_node.end_position().row + 1,
                         score,
                         decorators,
+                        is_async,
                     });
                 }
             }
@@ -312,6 +317,22 @@ fn extract_decorators(node: &Node, source: &str, grammar: &LangGrammar) -> Vec<S
 }
 
 /// Extract the text representation of a decorator/attribute
+/// Return true if this function/method node is declared `async`.
+///
+/// Works for any language where the grammar places an `async` keyword node
+/// as a direct child of the function definition node (Python, JS/TS).
+/// For JS, `async` appears as a named child with kind "async";
+/// for Python (tree-sitter-python ≥0.23) it is an anonymous first child.
+pub fn is_async_node(node: &Node) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "async" {
+            return true;
+        }
+    }
+    false
+}
+
 fn extract_decorator_text(node: &Node, source: &str) -> Option<String> {
     // Try to get just the name/identifier
     if let Some(name_node) = node.child_by_field_name("name") {

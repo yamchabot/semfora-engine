@@ -23,6 +23,10 @@ pub struct ExportStats {
     pub edges_inserted: usize,
     /// Number of module-level edges inserted
     pub module_edges_inserted: usize,
+    /// Number of import relationships inserted
+    pub imports_inserted: usize,
+    /// Number of inheritance edges inserted
+    pub inheritance_inserted: usize,
     /// Export duration in milliseconds
     pub duration_ms: u64,
     /// Output file path
@@ -135,6 +139,12 @@ impl SqliteExporter {
         let module_edges_inserted =
             self.insert_module_edges(&mut conn, module_edge_counts, &progress)?;
 
+        // Insert import-graph (module-level import dependencies)
+        let imports_inserted = self.insert_imports(&mut conn, cache)?;
+
+        // Insert inheritance edges
+        let inheritance_inserted = self.insert_inheritance(&mut conn, cache)?;
+
         // Update caller/callee counts
         if let Some(ref cb) = progress {
             cb(ExportProgress {
@@ -174,6 +184,8 @@ impl SqliteExporter {
             nodes_inserted,
             edges_inserted,
             module_edges_inserted,
+            imports_inserted,
+            inheritance_inserted,
             duration_ms: start.elapsed().as_millis() as u64,
             output_path: output_path.display().to_string(),
             file_size_bytes,
@@ -205,7 +217,16 @@ impl SqliteExporter {
                 risk TEXT DEFAULT 'low',
                 complexity INTEGER DEFAULT 0,
                 caller_count INTEGER DEFAULT 0,
-                callee_count INTEGER DEFAULT 0
+                callee_count INTEGER DEFAULT 0,
+                is_exported INTEGER DEFAULT 0,
+                decorators TEXT DEFAULT '',
+                framework_entry_point TEXT DEFAULT '',
+                arity INTEGER DEFAULT 0,
+                is_self_recursive INTEGER DEFAULT 0,
+                is_async INTEGER DEFAULT 0,
+                return_type TEXT DEFAULT '',
+                ext_package TEXT DEFAULT '',
+                base_classes TEXT DEFAULT ''
             );
 
             -- Edges table: function call relationships
@@ -224,6 +245,26 @@ impl SqliteExporter {
                 callee_module TEXT NOT NULL,
                 edge_count INTEGER NOT NULL,
                 PRIMARY KEY (caller_module, callee_module)
+            );
+
+            -- Module-level import dependencies (from import statements, not call graph)
+            -- Gives a clean dependency DAG separate from the call graph;
+            -- also catches dead modules (imported but never called)
+            CREATE TABLE imports (
+                importer_module TEXT NOT NULL,
+                imported_module TEXT NOT NULL,
+                import_count INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (importer_module, imported_module)
+            );
+
+            -- Inheritance edges: class X extends/implements Y
+            CREATE TABLE inheritance (
+                child_hash TEXT NOT NULL,
+                parent_hash TEXT NOT NULL,
+                child_module TEXT,
+                parent_module TEXT,
+                parent_name TEXT NOT NULL,
+                PRIMARY KEY (child_hash, parent_hash)
             );
             "#,
         )
@@ -328,8 +369,10 @@ impl SqliteExporter {
             let mut stmt = tx
                 .prepare_cached(
                     "INSERT OR REPLACE INTO nodes
-                     (hash, name, kind, module, file_path, line_start, line_end, risk, complexity)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     (hash, name, kind, module, file_path, line_start, line_end, risk, complexity,
+                      is_exported, decorators, framework_entry_point, arity,
+                      is_async, return_type, ext_package, base_classes)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 )
                 .map_err(|e| McpDiffError::ExportError {
                     message: format!("Prepare failed: {}", e),
@@ -337,6 +380,11 @@ impl SqliteExporter {
 
             for entry in batch {
                 let (start, end) = parse_line_range(&entry.lines);
+                let fep_str = if entry.framework_entry_point.is_none() {
+                    String::new()
+                } else {
+                    entry.framework_entry_point.description().to_string()
+                };
                 stmt.execute(params![
                     entry.hash,
                     entry.symbol,
@@ -347,6 +395,14 @@ impl SqliteExporter {
                     end,
                     entry.risk,
                     entry.cognitive_complexity as i64,
+                    entry.is_exported as i64,
+                    entry.decorators,
+                    fep_str,
+                    entry.arity as i64,
+                    entry.is_async as i64,
+                    entry.return_type,
+                    entry.ext_package,
+                    entry.base_classes,
                 ])
                 .map_err(|e| McpDiffError::ExportError {
                     message: format!("Insert failed: {}", e),
@@ -563,19 +619,24 @@ impl SqliteExporter {
             let mut stmt = tx
                 .prepare_cached(
                     "INSERT OR IGNORE INTO nodes
-                     (hash, name, kind, module, risk)
-                     VALUES (?1, ?2, 'external', ?3, 'low')",
+                     (hash, name, kind, module, risk, ext_package)
+                     VALUES (?1, ?2, 'external', ?3, 'low', ?4)",
                 )
                 .map_err(|e| McpDiffError::ExportError {
                     message: format!("Prepare failed: {}", e),
                 })?;
 
             for (hash, (name, module)) in external_nodes {
-                stmt.execute(params![hash, name, module]).map_err(|e| {
-                    McpDiffError::ExportError {
+                // ext_package: use module name when it's a real package (not __external__)
+                let pkg = if module != "__external__" {
+                    module.as_str()
+                } else {
+                    ""
+                };
+                stmt.execute(params![hash, name, module, pkg])
+                    .map_err(|e| McpDiffError::ExportError {
                         message: format!("Insert external node failed: {}", e),
-                    }
-                })?;
+                    })?;
             }
         }
 
@@ -637,6 +698,186 @@ impl SqliteExporter {
         Ok(count)
     }
 
+    /// Populate the `imports` table from the module_graph.toon cache file.
+    ///
+    /// The module graph encodes module-level import dependencies, giving a
+    /// clean DAG separate from the call graph. It also surfaces dead modules
+    /// (imported but never called).
+    fn insert_imports(&self, conn: &mut Connection, cache: &CacheDir) -> Result<usize> {
+        let path = cache.module_graph_path();
+        if !path.exists() {
+            return Ok(0);
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return Ok(0),
+        };
+
+        // Parse TOON module graph: each data line is  "module": ["dep1", "dep2"]
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with("_type:")
+                || line.starts_with("schema_version:")
+                || line.starts_with("modules:")
+                || line.is_empty()
+            {
+                continue;
+            }
+            // Parse: "importer": ["dep1","dep2"]
+            if let Some(colon_pos) = line.find("\": [") {
+                let importer = line[1..colon_pos].to_string(); // strip leading "
+                let deps_str = &line[colon_pos + 4..]; // skip ": ["
+                let deps_str = deps_str.trim_end_matches(']');
+                for dep in deps_str.split(',') {
+                    let dep = dep.trim().trim_matches('"');
+                    if !dep.is_empty() {
+                        pairs.push((importer.clone(), dep.to_string()));
+                    }
+                }
+            }
+        }
+
+        if pairs.is_empty() {
+            return Ok(0);
+        }
+
+        let count = pairs.len();
+        let tx = conn.transaction().map_err(|e| McpDiffError::ExportError {
+            message: format!("Transaction failed: {}", e),
+        })?;
+
+        {
+            let mut stmt = tx
+                .prepare_cached(
+                    "INSERT OR REPLACE INTO imports (importer_module, imported_module, import_count)
+                     VALUES (?1, ?2, ?3)",
+                )
+                .map_err(|e| McpDiffError::ExportError {
+                    message: format!("Prepare failed: {}", e),
+                })?;
+
+            for (importer, imported) in &pairs {
+                stmt.execute(params![importer, imported, 1_i64])
+                    .map_err(|e| McpDiffError::ExportError {
+                        message: format!("Insert import failed: {}", e),
+                    })?;
+            }
+        }
+
+        tx.commit().map_err(|e| McpDiffError::ExportError {
+            message: format!("Commit failed: {}", e),
+        })?;
+
+        Ok(count)
+    }
+
+    /// Populate the `inheritance` table from base_classes stored on class nodes.
+    ///
+    /// For each node where `base_classes` is non-empty, tries to resolve each
+    /// parent name to a hash in the nodes table. Unresolved parents are still
+    /// inserted with a synthetic hash so the relationship is queryable.
+    fn insert_inheritance(&self, conn: &mut Connection, _cache: &CacheDir) -> Result<usize> {
+        // Collect (child_hash, child_module, parent_name) for all class nodes with base_classes
+        let rows: Vec<(String, String, String)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT hash, module, base_classes FROM nodes
+                     WHERE base_classes != '' AND base_classes IS NOT NULL",
+                )
+                .map_err(|e| McpDiffError::ExportError {
+                    message: format!("Prepare inheritance query failed: {}", e),
+                })?;
+
+            let rows: std::result::Result<Vec<_>, _> = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|e| McpDiffError::ExportError {
+                    message: format!("Query inheritance nodes failed: {}", e),
+                })?
+                .collect();
+
+            rows.map_err(|e| McpDiffError::ExportError {
+                message: format!("Collect inheritance nodes failed: {}", e),
+            })?
+        };
+
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = conn.transaction().map_err(|e| McpDiffError::ExportError {
+            message: format!("Transaction failed: {}", e),
+        })?;
+
+        let mut count = 0;
+        {
+            let mut insert_stmt = tx
+                .prepare_cached(
+                    "INSERT OR IGNORE INTO inheritance
+                     (child_hash, parent_hash, child_module, parent_module, parent_name)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                )
+                .map_err(|e| McpDiffError::ExportError {
+                    message: format!("Prepare inheritance insert failed: {}", e),
+                })?;
+
+            let mut lookup_stmt = tx
+                .prepare_cached(
+                    "SELECT hash, module FROM nodes
+                     WHERE name = ?1 AND kind IN ('class', 'interface', 'trait')
+                     LIMIT 1",
+                )
+                .map_err(|e| McpDiffError::ExportError {
+                    message: format!("Prepare inheritance lookup failed: {}", e),
+                })?;
+
+            for (child_hash, child_module, base_classes_str) in &rows {
+                for parent_name in base_classes_str.split(',') {
+                    let parent_name = parent_name.trim();
+                    if parent_name.is_empty() {
+                        continue;
+                    }
+
+                    // Try to resolve parent name to a hash in the nodes table
+                    let (parent_hash, parent_module) = lookup_stmt
+                        .query_row(params![parent_name], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        })
+                        .unwrap_or_else(|_| {
+                            // Unresolved: create a synthetic hash so the edge is still stored
+                            (format!("unresolved:{}", parent_name), String::new())
+                        });
+
+                    insert_stmt
+                        .execute(params![
+                            child_hash,
+                            parent_hash,
+                            child_module,
+                            parent_module,
+                            parent_name,
+                        ])
+                        .map_err(|e| McpDiffError::ExportError {
+                            message: format!("Insert inheritance failed: {}", e),
+                        })?;
+                    count += 1;
+                }
+            }
+        }
+
+        tx.commit().map_err(|e| McpDiffError::ExportError {
+            message: format!("Commit failed: {}", e),
+        })?;
+
+        Ok(count)
+    }
+
     /// Update caller/callee counts on nodes
     fn update_counts(conn: &Connection) -> Result<()> {
         conn.execute(
@@ -657,6 +898,18 @@ impl SqliteExporter {
         )
         .map_err(|e| McpDiffError::ExportError {
             message: format!("Update caller_count failed: {}", e),
+        })?;
+
+        // Mark self-recursive nodes (symbols that call themselves)
+        conn.execute(
+            "UPDATE nodes SET is_self_recursive = 1
+             WHERE hash IN (
+                 SELECT caller_hash FROM edges WHERE caller_hash = callee_hash
+             )",
+            [],
+        )
+        .map_err(|e| McpDiffError::ExportError {
+            message: format!("Update is_self_recursive failed: {}", e),
         })?;
 
         Ok(())

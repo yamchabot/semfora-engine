@@ -184,6 +184,8 @@ fn extract_block_symbol(node: &Node, source: &str) -> Option<SymbolInfo> {
         decorators: Vec::new(),
         is_escape_local: false,
         framework_entry_point: FrameworkEntryPoint::None,
+        is_async: false,
+        base_classes: Vec::new(),
     })
 }
 

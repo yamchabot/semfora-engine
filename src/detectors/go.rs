@@ -91,6 +91,8 @@ fn find_go_type_symbols(summary: &mut SemanticSummary, root: &Node, source: &str
                 decorators: Vec::new(),
                 is_escape_local: false,
                 framework_entry_point: FrameworkEntryPoint::None,
+                is_async: false,
+                base_classes: Vec::new(),
             };
             summary.symbols.push(symbol_info);
         }

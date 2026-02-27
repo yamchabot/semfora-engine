@@ -354,6 +354,13 @@ impl LayerSynchronizer {
                     max_nesting: 0,          // TODO: Calculate from control_flow
                     is_escape_local: symbol.is_escape_local,
                     framework_entry_point: symbol.framework_entry_point,
+                    is_exported: symbol.is_exported,
+                    decorators: symbol.decorators.join(","),
+                    arity: symbol.arguments.len() + symbol.props.len(),
+                    is_async: symbol.is_async,
+                    return_type: symbol.return_type.clone().unwrap_or_default(),
+                    ext_package: String::new(),
+                    base_classes: symbol.base_classes.join(","),
                 };
 
                 (symbol, hash, entry)

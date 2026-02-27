@@ -2,6 +2,8 @@
 
 Semantic code analyzer that produces compressed TOON (Text Object-Oriented Notation) output for AI-assisted code review. Extracts symbols, dependencies, control flow, state changes, and risk assessments from source files.
 
+→ **[Quick Start](QUICKSTART.md)** — build, index, and connect your AI agent in under 5 minutes.
+
 ## Installation
 
 ```bash
@@ -411,7 +413,7 @@ src/
 
 | Document | Description |
 |----------|-------------|
-| [Quick Start](docs/quickstart.md) | Get up and running in 5 minutes |
+| [Quick Start](QUICKSTART.md) | Get up and running in 5 minutes |
 | [CLI Reference](docs/cli.md) | Complete CLI usage, subcommands, and examples |
 | [Features](docs/features.md) | Incremental indexing, layered indexes, risk assessment |
 | [MCP Tools Reference](docs/mcp-tools-reference.md) | All MCP tools for AI agent integration |

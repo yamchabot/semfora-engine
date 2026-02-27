@@ -120,6 +120,15 @@ pub struct SymbolInfo {
     /// Symbols with non-None values should not be flagged as "dead code"
     #[serde(default, skip_serializing_if = "FrameworkEntryPoint::is_none")]
     pub framework_entry_point: FrameworkEntryPoint,
+
+    /// Whether this function/method is declared async (async def, async function)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_async: bool,
+
+    /// Base classes / parent interfaces this class extends or implements
+    /// Comma-separated names, e.g. "BaseModel,Serializable"
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub base_classes: Vec<String>,
 }
 
 impl SymbolInfo {

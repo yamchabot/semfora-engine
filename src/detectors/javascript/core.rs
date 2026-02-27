@@ -55,6 +55,7 @@ pub fn extract_core(
 
 /// Candidate symbol for ranking
 #[derive(Debug)]
+#[derive(Default)]
 pub struct SymbolCandidate {
     pub name: String,
     pub kind: SymbolKind,
@@ -66,6 +67,10 @@ pub struct SymbolCandidate {
     pub arguments: Vec<Argument>,
     pub props: Vec<Prop>,
     pub score: i32,
+    /// Whether the function/method is declared async
+    pub is_async: bool,
+    /// Base classes / interfaces this class extends or implements (for class nodes)
+    pub extends_classes: Vec<String>,
 }
 
 /// Find all symbols and populate both the primary symbol and symbols vec
@@ -116,6 +121,8 @@ fn find_primary_symbol(summary: &mut SemanticSummary, root: &Node, source: &str,
                 decorators: Vec::new(),
                 is_escape_local: false,
                 framework_entry_point: FrameworkEntryPoint::None,
+                is_async: candidate.is_async,
+                base_classes: candidate.extends_classes.clone(),
             };
 
             summary.symbols.push(symbol_info);
@@ -229,6 +236,8 @@ fn collect_symbol_candidates(
                                     end_line: inner.end_position().row + 1,
                                     arguments: Vec::new(),
                                     props: Vec::new(),
+                                    is_async: false,
+                                    extends_classes: Vec::new(),
                                     score: calculate_symbol_score(
                                         &SymbolCandidate {
                                             name,
@@ -241,6 +250,8 @@ fn collect_symbol_candidates(
                                             arguments: Vec::new(),
                                             props: Vec::new(),
                                             score: 0,
+                is_async: false,
+                extends_classes: Vec::new(),
                                         },
                                         filename_stem,
                                     ),
@@ -357,6 +368,8 @@ fn extract_commonjs_export(
                 arguments,
                 props,
                 score: 0,
+                is_async: false,
+                extends_classes: Vec::new(),
             };
             candidate.score = calculate_symbol_score(&candidate, filename_stem);
             return Some(candidate);
@@ -401,6 +414,8 @@ fn extract_reexports(
                 arguments: Vec::new(),
                 props: Vec::new(),
                 score: 0,
+                is_async: false,
+                extends_classes: Vec::new(),
             };
             candidate.score = calculate_symbol_score(&candidate, filename_stem);
             candidates.push(candidate);
@@ -441,6 +456,8 @@ pub fn extract_default_export_call(
                             arguments: Vec::new(),
                             props: Vec::new(),
                             score: 0,
+                is_async: false,
+                extends_classes: Vec::new(),
                         });
                     }
                 }
@@ -458,6 +475,8 @@ pub fn extract_default_export_call(
                 arguments: Vec::new(),
                 props: Vec::new(),
                 score: 0,
+                is_async: false,
+                extends_classes: Vec::new(),
             });
         }
     }
@@ -508,11 +527,15 @@ fn extract_candidate_from_declaration(
                 arguments,
                 props,
                 score: 0,
+                is_async: crate::detectors::generic::is_async_node(node),
+                extends_classes: Vec::new(),
             })
         }
         "class_declaration" => {
             let name_node = node.child_by_field_name("name")?;
             let name = get_node_text(&name_node, source);
+            // Extract extends / implements clauses
+            let extends = extract_js_base_classes(node, source);
 
             Some(SymbolCandidate {
                 name,
@@ -525,6 +548,8 @@ fn extract_candidate_from_declaration(
                 arguments: Vec::new(),
                 props: Vec::new(),
                 score: 0,
+                is_async: false,
+                extends_classes: extends,
             })
         }
         "lexical_declaration" => {
@@ -561,6 +586,8 @@ fn extract_candidate_from_declaration(
                             arguments,
                             props,
                             score: 0,
+                            is_async: crate::detectors::generic::is_async_node(&value_node),
+                            extends_classes: Vec::new(),
                         });
                     }
 
@@ -600,6 +627,8 @@ fn extract_candidate_from_declaration(
                                     arguments: Vec::new(),
                                     props: Vec::new(),
                                     score: 0,
+                is_async: false,
+                extends_classes: Vec::new(),
                                 });
                             }
                         }
@@ -661,6 +690,30 @@ fn calculate_symbol_score(candidate: &SymbolCandidate, filename_stem: &str) -> i
 }
 
 /// Check if a function returns JSX
+/// Extract base class names from a JS/TS `class_declaration` node.
+/// Handles `class X extends Base` and `class X extends Base implements I1, I2` (TypeScript).
+pub fn extract_js_base_classes(node: &Node, source: &str) -> Vec<String> {
+    let mut bases = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "class_heritage" {
+            // class_heritage: "extends" <expression>
+            // The expression is usually an identifier or member_expression
+            let mut inner = child.walk();
+            for heritage_child in child.children(&mut inner) {
+                let kind = heritage_child.kind();
+                if kind == "identifier" || kind == "member_expression" {
+                    let text = get_node_text(&heritage_child, source).to_string();
+                    if !text.is_empty() && text != "extends" {
+                        bases.push(text);
+                    }
+                }
+            }
+        }
+    }
+    bases
+}
+
 pub fn returns_jsx(node: &Node) -> bool {
     contains_node_kind(node, "jsx_element")
         || contains_node_kind(node, "jsx_self_closing_element")

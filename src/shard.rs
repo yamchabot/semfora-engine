@@ -900,6 +900,13 @@ impl ShardWriter {
                         max_nesting: nest,
                         is_escape_local: symbol_info.is_escape_local,
                         framework_entry_point: symbol_info.framework_entry_point,
+                        is_exported: symbol_info.is_exported,
+                        decorators: symbol_info.decorators.join(","),
+                        arity: symbol_info.arguments.len() + symbol_info.props.len(),
+                        is_async: symbol_info.is_async,
+                        return_type: symbol_info.return_type.clone().unwrap_or_default(),
+                        ext_package: String::new(),
+                        base_classes: symbol_info.base_classes.join(","),
                     };
 
                     // Write as JSONL (one JSON object per line)
@@ -937,6 +944,13 @@ impl ShardWriter {
                     max_nesting: nest,
                     is_escape_local: false,
                     framework_entry_point: summary.framework_entry_point,
+                    is_exported: false,
+                    decorators: String::new(),
+                    arity: summary.arguments.len() + summary.props.len(),
+                    is_async: false,
+                    return_type: summary.return_type.clone().unwrap_or_default(),
+                    ext_package: String::new(),
+                    base_classes: String::new(),
                 };
 
                 // Write as JSONL (one JSON object per line)
@@ -1027,6 +1041,8 @@ impl ShardWriter {
                         decorators: Vec::new(),
                         is_escape_local: false,
                         framework_entry_point: summary.framework_entry_point,
+                        is_async: false,
+                        base_classes: Vec::new(),
                     };
 
                     let signature = FunctionSignature::from_symbol_info(

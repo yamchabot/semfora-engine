@@ -1849,6 +1849,45 @@ fn symbol_from_json(sym: &serde_json::Value, module_name: &str) -> SymbolIndexEn
             .or_else(|| sym.get("fep"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
+        is_exported: sym
+            .get("is_exported")
+            .or_else(|| sym.get("exp"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        decorators: sym
+            .get("decorators")
+            .or_else(|| sym.get("dec"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        arity: sym
+            .get("arity")
+            .or_else(|| sym.get("ar"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize,
+        is_async: sym
+            .get("is_async")
+            .or_else(|| sym.get("async"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        return_type: sym
+            .get("return_type")
+            .or_else(|| sym.get("rt"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        ext_package: sym
+            .get("ext_package")
+            .or_else(|| sym.get("pkg"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        base_classes: sym
+            .get("base_classes")
+            .or_else(|| sym.get("bc"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
     }
 }
 
